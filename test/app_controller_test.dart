@@ -163,6 +163,49 @@ void main() {
     );
   });
 
+  test(
+    'charging applies and persists the configured fixed brightness',
+    () async {
+      final harness = await TestHarness.create(pluggedIn: true);
+      addTearDown(harness.dispose);
+
+      expect(harness.power.appliedBrightness.last, 0.8);
+
+      await harness.controller.updateChargingBrightness(brightness: 0.65);
+
+      expect(harness.power.appliedBrightness.last, 0.65);
+      expect(harness.repository.value.preferences.chargingBrightness, 0.65);
+    },
+  );
+
+  test(
+    'unplugging restores system brightness and dynamic mode stays system controlled',
+    () async {
+      final harness = await TestHarness.create(pluggedIn: true);
+      addTearDown(harness.dispose);
+
+      harness.power.state.value = false;
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.power.appliedBrightness.last, isNull);
+
+      harness.power.state.value = true;
+      await harness.controller.updateChargingBrightness(
+        mode: ChargingBrightnessMode.dynamic,
+      );
+      expect(harness.power.appliedBrightness.last, isNull);
+    },
+  );
+
+  test('resuming refreshes power and reapplies brightness', () async {
+    final harness = await TestHarness.create(pluggedIn: true);
+    addTearDown(harness.dispose);
+
+    await harness.controller.handleAppResumed();
+
+    expect(harness.power.refreshCount, 1);
+    expect(harness.power.appliedBrightness.last, 0.8);
+  });
+
   test('adjacent profile switching wraps in both directions', () async {
     final harness = await TestHarness.create(
       config: testConfig(

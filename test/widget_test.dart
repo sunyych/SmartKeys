@@ -387,6 +387,58 @@ void main() {
     expect(find.text('Command for Yuchen’s MacBook Pro'), findsOneWidget);
     expect(find.text('PRIMARY sends Command (⌘)'), findsOneWidget);
   });
+
+  testWidgets('power indicator reacts to charger connection', (tester) async {
+    final harness = await TestHarness.create(pluggedIn: false);
+    addTearDown(() => _disposeHarness(tester, harness));
+    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('power-indicator-false')), findsOneWidget);
+
+    harness.power.state.value = true;
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('power-indicator-true')), findsOneWidget);
+    expect(find.byTooltip('External power connected'), findsOneWidget);
+  });
+
+  testWidgets('Settings exposes fixed and dynamic charging brightness', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(pluggedIn: true);
+    addTearDown(() => _disposeHarness(tester, harness));
+    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('CHARGING DISPLAY'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('CHARGING DISPLAY'), findsOneWidget);
+    expect(find.text('Charging brightness 80%'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('charging-brightness-slider')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Dynamic / system controlled'));
+    await tester.pumpAndSettle();
+
+    expect(
+      harness.repository.value.preferences.chargingBrightnessMode,
+      ChargingBrightnessMode.dynamic,
+    );
+    expect(
+      find.byKey(const ValueKey('charging-brightness-slider')),
+      findsNothing,
+    );
+    expect(harness.power.appliedBrightness.last, isNull);
+  });
 }
 
 Future<void> _disposeHarness(WidgetTester tester, TestHarness harness) async {

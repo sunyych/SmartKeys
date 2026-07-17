@@ -223,7 +223,7 @@ class AndroidHidController(
     }
 
     private fun sendStep(action: HidActionData, result: MethodChannel.Result) {
-        if (action.type !in setOf("keyboard", "consumerControl", "mouseWheel", "mouseMove")) {
+        if (action.type !in setOf("keyboard", "consumerControl", "mouseWheel", "mouseMove", "mouseButton")) {
             result.error("INVALID_ACTION", "The configured navigation action is not supported.", null)
             return
         }

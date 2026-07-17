@@ -6,6 +6,7 @@ import 'data/private_image_store.dart';
 import 'data/profile_template_repository.dart';
 import 'services/hid_service.dart';
 import 'services/orientation_service.dart';
+import 'services/power_brightness_service.dart';
 import 'ui/home_screen.dart';
 
 class SmartKeysApp extends StatefulWidget {
@@ -17,7 +18,8 @@ class SmartKeysApp extends StatefulWidget {
   State<SmartKeysApp> createState() => _SmartKeysAppState();
 }
 
-class _SmartKeysAppState extends State<SmartKeysApp> {
+class _SmartKeysAppState extends State<SmartKeysApp>
+    with WidgetsBindingObserver {
   late final AppController controller;
   late final bool ownsController;
 
@@ -34,7 +36,9 @@ class _SmartKeysAppState extends State<SmartKeysApp> {
           hid: MethodChannelHidService(),
           orientationService: SystemOrientationService(),
           imageStore: PrivateImageStore(),
+          powerBrightnessService: MethodChannelPowerBrightnessService(),
         );
+    WidgetsBinding.instance.addObserver(this);
     if (widget.controller == null || controller.isLoading) {
       controller.initialize();
     }
@@ -42,8 +46,16 @@ class _SmartKeysAppState extends State<SmartKeysApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (ownsController) controller.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !controller.isLoading) {
+      controller.handleAppResumed();
+    }
   }
 
   @override

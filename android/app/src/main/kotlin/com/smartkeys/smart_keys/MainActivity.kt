@@ -5,10 +5,15 @@ import io.flutter.embedding.engine.FlutterEngine
 
 class MainActivity : FlutterActivity() {
     private var hidController: AndroidHidController? = null
+    private var powerController: AndroidPowerController? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         hidController = AndroidHidController(
+            activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+        )
+        powerController = AndroidPowerController(
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )
@@ -17,6 +22,7 @@ class MainActivity : FlutterActivity() {
     override fun onStart() {
         super.onStart()
         hidController?.onForeground()
+        powerController?.onForeground()
     }
 
     override fun onStop() {
@@ -34,10 +40,12 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        powerController?.close()
         if (!isChangingConfigurations) {
             hidController?.close()
         }
         hidController = null
+        powerController = null
         super.onDestroy()
     }
 }

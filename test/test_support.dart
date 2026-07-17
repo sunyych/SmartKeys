@@ -7,6 +7,7 @@ import 'package:smart_keys/data/profile_template_repository.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/orientation_service.dart';
+import 'package:smart_keys/services/power_brightness_service.dart';
 
 ProfileConfig profile({
   String id = 'profile_general',
@@ -61,6 +62,7 @@ class TestHarness {
     required this.hid,
     required this.orientation,
     required this.directory,
+    required this.power,
   });
 
   final AppController controller;
@@ -68,18 +70,24 @@ class TestHarness {
   final RecordingHidService hid;
   final RecordingOrientationService orientation;
   final Directory directory;
+  final RecordingPowerBrightnessService power;
 
-  static Future<TestHarness> create({AppConfig? config}) async {
+  static Future<TestHarness> create({
+    AppConfig? config,
+    bool? pluggedIn = false,
+  }) async {
     final directory = Directory.systemTemp.createTempSync('smart_keys_test_');
     final repository = MemoryConfigRepository(config ?? testConfig());
     final hid = RecordingHidService();
     final orientation = RecordingOrientationService();
+    final power = RecordingPowerBrightnessService(pluggedIn: pluggedIn);
     final controller = AppController(
       repository: repository,
       templates: ProfileTemplateRepository(),
       hid: hid,
       orientationService: orientation,
       imageStore: PrivateImageStore(documentsDirectory: () async => directory),
+      powerBrightnessService: power,
     );
     await controller.initialize();
     return TestHarness(
@@ -88,6 +96,7 @@ class TestHarness {
       hid: hid,
       orientation: orientation,
       directory: directory,
+      power: power,
     );
   }
 

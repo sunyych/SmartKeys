@@ -2,11 +2,20 @@ enum OrientationMode { auto, portrait, landscape }
 
 enum ShortcutPlatform { automatic, apple, windowsLinux }
 
+enum ChargingBrightnessMode { fixed, dynamic }
+
 enum VisualType { none, builtinIcon, customImage }
 
 enum VisualFit { contain, cover, centerCrop }
 
-enum ActionType { keyboard, consumerControl, mouseWheel, mouseMove, none }
+enum ActionType {
+  keyboard,
+  consumerControl,
+  mouseWheel,
+  mouseMove,
+  mouseButton,
+  none,
+}
 
 enum WheelControlType { jog, mousePad }
 
@@ -416,12 +425,16 @@ class AppPreferences {
     this.soundEnabled = false,
     this.orientationMode = OrientationMode.landscape,
     this.shortcutPlatform = ShortcutPlatform.automatic,
+    this.chargingBrightnessMode = ChargingBrightnessMode.fixed,
+    this.chargingBrightness = 0.8,
   });
 
   final bool hapticEnabled;
   final bool soundEnabled;
   final OrientationMode orientationMode;
   final ShortcutPlatform shortcutPlatform;
+  final ChargingBrightnessMode chargingBrightnessMode;
+  final double chargingBrightness;
 
   factory AppPreferences.fromJson(Map<String, dynamic>? json) => AppPreferences(
     hapticEnabled: json?['hapticEnabled'] as bool? ?? true,
@@ -436,6 +449,16 @@ class AppPreferences {
       json?['shortcutPlatform'],
       ShortcutPlatform.automatic,
     ),
+    chargingBrightnessMode: _enumValue(
+      ChargingBrightnessMode.values,
+      json?['chargingBrightnessMode'],
+      ChargingBrightnessMode.fixed,
+    ),
+    chargingBrightness:
+        ((json?['chargingBrightness'] as num?)?.toDouble() ?? 0.8).clamp(
+          0.1,
+          1.0,
+        ),
   );
 
   Map<String, dynamic> toJson() => {
@@ -443,6 +466,8 @@ class AppPreferences {
     'soundEnabled': soundEnabled,
     'orientationMode': orientationMode.name,
     'shortcutPlatform': shortcutPlatform.name,
+    'chargingBrightnessMode': chargingBrightnessMode.name,
+    'chargingBrightness': chargingBrightness,
   };
 
   AppPreferences copyWith({
@@ -450,11 +475,19 @@ class AppPreferences {
     bool? soundEnabled,
     OrientationMode? orientationMode,
     ShortcutPlatform? shortcutPlatform,
+    ChargingBrightnessMode? chargingBrightnessMode,
+    double? chargingBrightness,
   }) => AppPreferences(
     hapticEnabled: hapticEnabled ?? this.hapticEnabled,
     soundEnabled: soundEnabled ?? this.soundEnabled,
     orientationMode: orientationMode ?? this.orientationMode,
     shortcutPlatform: shortcutPlatform ?? this.shortcutPlatform,
+    chargingBrightnessMode:
+        chargingBrightnessMode ?? this.chargingBrightnessMode,
+    chargingBrightness: (chargingBrightness ?? this.chargingBrightness).clamp(
+      0.1,
+      1.0,
+    ),
   );
 }
 

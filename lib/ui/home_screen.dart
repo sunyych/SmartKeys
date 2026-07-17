@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../app.dart';
@@ -14,7 +12,7 @@ import 'settings_screen.dart';
 import 'wheel_editor_screen.dart';
 import 'widgets/button_face.dart';
 import 'widgets/jog_wheel.dart';
-import 'widgets/mouse_direction_pad.dart';
+import 'widgets/mouse_touchpad.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -44,256 +42,27 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       child: Scaffold(
-        body: SafeArea(
-          child: Column(
-            children: [
-              _StatusBar(
-                controller: controller,
-                editing: editing,
-                onEdit: () => setState(() => editing = !editing),
-              ),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 140),
-                  layoutBuilder: (currentChild, previousChildren) => Stack(
-                    fit: StackFit.expand,
-                    children: [...previousChildren, ?currentChild],
-                  ),
-                  child: landscape
-                      ? _LandscapePanel(
-                          key: const ValueKey('landscape-layout'),
-                          controller: controller,
-                          editing: editing,
-                        )
-                      : _PortraitPanel(
-                          key: const ValueKey('portrait-layout'),
-                          controller: controller,
-                          editing: editing,
-                        ),
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 140),
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            fit: StackFit.expand,
+            children: [...previousChildren, ?currentChild],
+          ),
+          child: landscape
+              ? _LandscapePanel(
+                  key: const ValueKey('landscape-layout'),
+                  controller: controller,
+                  editing: editing,
+                  onToggleEditing: () =>
+                      setState(() => editing = !editing),
+                )
+              : _PortraitPanel(
+                  key: const ValueKey('portrait-layout'),
+                  controller: controller,
+                  editing: editing,
+                  onToggleEditing: () =>
+                      setState(() => editing = !editing),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusBar extends StatelessWidget {
-  const _StatusBar({
-    required this.controller,
-    required this.editing,
-    required this.onEdit,
-  });
-
-  final AppController controller;
-  final bool editing;
-  final VoidCallback onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    final profile = controller.activeProfile;
-    final profileIcon =
-        BuiltinIconCatalog.find(profile.profileIcon.value)?.icon ??
-        Icons.dashboard_customize_outlined;
-    return Container(
-      key: const ValueKey('status-bar'),
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: const BoxDecoration(
-        color: Color(0xFF101720),
-        border: Border(bottom: BorderSide(color: Color(0xFF263244))),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _SwipeableProfileSelector(
-              controller: controller,
-              profileName: profile.name,
-              profileIcon: profileIcon,
-            ),
-          ),
-          ValueListenableBuilder<HidConnectionStatus>(
-            valueListenable: controller.hid.connectionStatus,
-            builder: (context, status, _) => _ConnectionChip(
-              status: status,
-              onTap: () =>
-                  showBluetoothConnectionSheet(context, controller.hid),
-            ),
-          ),
-          const Tooltip(
-            message: 'Power status',
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 5),
-              child: Icon(
-                Icons.battery_charging_full,
-                size: 19,
-                color: Colors.white70,
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: editing ? 'Done editing' : 'Edit buttons',
-            onPressed: onEdit,
-            icon: Icon(editing ? Icons.check : Icons.edit_outlined),
-            visualDensity: VisualDensity.compact,
-          ),
-          IconButton(
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-            ),
-            icon: const Icon(Icons.settings_outlined),
-            visualDensity: VisualDensity.compact,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SwipeableProfileSelector extends StatefulWidget {
-  const _SwipeableProfileSelector({
-    required this.controller,
-    required this.profileName,
-    required this.profileIcon,
-  });
-
-  final AppController controller;
-  final String profileName;
-  final IconData profileIcon;
-
-  @override
-  State<_SwipeableProfileSelector> createState() =>
-      _SwipeableProfileSelectorState();
-}
-
-class _SwipeableProfileSelectorState extends State<_SwipeableProfileSelector> {
-  double dragDistance = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Tap to open Profiles · swipe left or right to switch',
-      child: GestureDetector(
-        key: const ValueKey('profile-swipe-area'),
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: (_) => dragDistance = 0,
-        onHorizontalDragUpdate: (details) {
-          dragDistance += details.primaryDelta ?? 0;
-        },
-        onHorizontalDragCancel: () => dragDistance = 0,
-        onHorizontalDragEnd: (details) {
-          final velocity = details.primaryVelocity ?? 0;
-          final direction = dragDistance.abs() >= 32
-              ? dragDistance.sign
-              : velocity.abs() >= 300
-              ? velocity.sign
-              : 0;
-          dragDistance = 0;
-          if (direction == 0) return;
-          unawaited(
-            widget.controller.switchProfileByOffset(direction < 0 ? 1 : -1),
-          );
-        },
-        child: SizedBox(
-          width: double.infinity,
-          child: TextButton.icon(
-            key: const ValueKey('profile-selector'),
-            onPressed: () => _showProfileSelector(context, widget.controller),
-            icon: Icon(widget.profileIcon, size: 19),
-            label: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 120),
-                    child: Text(
-                      widget.profileName,
-                      key: ValueKey(widget.profileName),
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
-                const Icon(Icons.arrow_drop_down, size: 20),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ConnectionChip extends StatelessWidget {
-  const _ConnectionChip({required this.status, required this.onTap});
-
-  final HidConnectionStatus status;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, icon, color) = switch (status) {
-      HidConnectionStatus.connected => (
-        'Connected',
-        Icons.bluetooth_connected,
-        Colors.greenAccent,
-      ),
-      HidConnectionStatus.connecting => (
-        'Connecting',
-        Icons.bluetooth_searching,
-        Colors.amberAccent,
-      ),
-      HidConnectionStatus.registering => (
-        'Registering',
-        Icons.app_registration,
-        Colors.amberAccent,
-      ),
-      HidConnectionStatus.disconnected => (
-        'Disconnected',
-        Icons.bluetooth_disabled,
-        Colors.redAccent,
-      ),
-      HidConnectionStatus.permissionRequired => (
-        'Permission',
-        Icons.security,
-        Colors.amberAccent,
-      ),
-      HidConnectionStatus.bluetoothOff => (
-        'Bluetooth off',
-        Icons.bluetooth_disabled,
-        Colors.redAccent,
-      ),
-      HidConnectionStatus.unavailable => (
-        'Unavailable',
-        Icons.error_outline,
-        Colors.redAccent,
-      ),
-    };
-    return Tooltip(
-      message: '$label · tap to manage Bluetooth',
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          key: ValueKey('connection-${status.name}'),
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: color),
-              if (MediaQuery.sizeOf(context).width > 520) ...[
-                const SizedBox(width: 4),
-                Text(label, style: TextStyle(color: color, fontSize: 12)),
-              ],
-            ],
-          ),
         ),
       ),
     );

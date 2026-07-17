@@ -539,18 +539,6 @@ abstract final class BuiltinIconCatalog {
       category: device,
       icon: Icons.groups_outlined,
     ),
-    BuiltinIconDefinition(
-      id: 'profile.photoshop',
-      label: 'Image Editing',
-      category: device,
-      icon: Icons.photo_library_outlined,
-    ),
-    BuiltinIconDefinition(
-      id: 'profile.solidworks',
-      label: 'CAD',
-      category: device,
-      icon: Icons.precision_manufacturing_outlined,
-    ),
   ];
 
   static final byId = {for (final entry in entries) entry.id: entry};

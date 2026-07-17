@@ -26,6 +26,7 @@ data class HidActionData(
 class HidReportEncoder {
     private val keyCounts = mutableMapOf<Int, Int>()
     private val modifierCounts = mutableMapOf<Int, Int>()
+    private val mouseButtonCounts = mutableMapOf<Int, Int>()
 
     fun press(action: HidActionData): HidReport? = when (action.type) {
         "keyboard" -> {
@@ -40,6 +41,10 @@ class HidReportEncoder {
         "consumerControl" -> consumerReport(consumerUsage(action.value))
         "mouseWheel" -> mouseReport(wheel = wheelDelta(action.value))
         "mouseMove" -> mouseDelta(action.value).let { (x, y) -> mouseReport(x = x, y = y) }
+        "mouseButton" -> mouseButtonBit(action.value)?.let { bit ->
+            mouseButtonCounts[bit] = (mouseButtonCounts[bit] ?: 0) + 1
+            mouseReport()
+        }
         else -> null
     }
 
@@ -51,6 +56,10 @@ class HidReportEncoder {
         }
         "consumerControl" -> consumerReport(0)
         "mouseWheel", "mouseMove" -> mouseReport()
+        "mouseButton" -> mouseButtonBit(action.value)?.let { bit ->
+            decrementMouseButton(bit)
+            mouseReport()
+        }
         else -> null
     }
 
@@ -63,6 +72,7 @@ class HidReportEncoder {
     fun releaseAll(): List<HidReport> {
         keyCounts.clear()
         modifierCounts.clear()
+        mouseButtonCounts.clear()
         return listOf(keyboardReport(), consumerReport(0), mouseReport())
     }
 
@@ -83,6 +93,11 @@ class HidReportEncoder {
         if (remaining <= 0) modifierCounts.remove(bit) else modifierCounts[bit] = remaining
     }
 
+    private fun decrementMouseButton(bit: Int) {
+        val remaining = (mouseButtonCounts[bit] ?: 0) - 1
+        if (remaining <= 0) mouseButtonCounts.remove(bit) else mouseButtonCounts[bit] = remaining
+    }
+
     private fun keyboardReport(): HidReport {
         var modifiers = 0
         modifierCounts.keys.forEach { bit -> modifiers = modifiers or (1 shl bit) }
@@ -101,7 +116,7 @@ class HidReportEncoder {
     private fun mouseReport(x: Int = 0, y: Int = 0, wheel: Int = 0): HidReport = HidReport(
         MOUSE_REPORT_ID,
         byteArrayOf(
-            0,
+            mouseButtonMask().toByte(),
             x.coerceIn(-127, 127).toByte(),
             y.coerceIn(-127, 127).toByte(),
             wheel.coerceIn(-127, 127).toByte(),
@@ -137,7 +152,27 @@ class HidReportEncoder {
         "DOWN" -> 0 to 8
         "LEFT" -> -8 to 0
         "RIGHT" -> 8 to 0
-        else -> 0 to 0
+        else -> rawName
+            ?.split(',')
+            ?.takeIf { it.size == 2 }
+            ?.let { values ->
+                (values[0].trim().toIntOrNull() ?: 0).coerceIn(-127, 127) to
+                    (values[1].trim().toIntOrNull() ?: 0).coerceIn(-127, 127)
+            }
+            ?: (0 to 0)
+    }
+
+    private fun mouseButtonBit(rawName: String?): Int? = when (rawName?.uppercase()) {
+        "LEFT", "PRIMARY" -> 0
+        "RIGHT", "SECONDARY" -> 1
+        "MIDDLE" -> 2
+        else -> null
+    }
+
+    private fun mouseButtonMask(): Int {
+        var mask = 0
+        mouseButtonCounts.keys.forEach { bit -> mask = mask or (1 shl bit) }
+        return mask
     }
 
     companion object {

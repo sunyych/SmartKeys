@@ -99,6 +99,52 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const Divider(),
+          const _SectionLabel('CHARGING DISPLAY'),
+          RadioGroup<ChargingBrightnessMode>(
+            groupValue: preferences.chargingBrightnessMode,
+            onChanged: (value) {
+              if (value != null) {
+                controller.updateChargingBrightness(mode: value);
+              }
+            },
+            child: const Column(
+              children: [
+                RadioListTile<ChargingBrightnessMode>(
+                  value: ChargingBrightnessMode.fixed,
+                  title: Text('Fixed while charging'),
+                  subtitle: Text(
+                    'Keep the app at the selected brightness when power is connected',
+                  ),
+                ),
+                RadioListTile<ChargingBrightnessMode>(
+                  value: ChargingBrightnessMode.dynamic,
+                  title: Text('Dynamic / system controlled'),
+                  subtitle: Text(
+                    'Follow Android and compatible eye or presence tracking features',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (preferences.chargingBrightnessMode ==
+              ChargingBrightnessMode.fixed)
+            ListTile(
+              leading: const Icon(Icons.brightness_6_outlined),
+              title: Text(
+                'Charging brightness ${(preferences.chargingBrightness * 100).round()}%',
+              ),
+              subtitle: Slider(
+                key: const ValueKey('charging-brightness-slider'),
+                value: preferences.chargingBrightness,
+                min: 0.1,
+                max: 1,
+                divisions: 18,
+                label: '${(preferences.chargingBrightness * 100).round()}%',
+                onChanged: (value) =>
+                    controller.updateChargingBrightness(brightness: value),
+              ),
+            ),
+          const Divider(),
           const _SectionLabel('FEEDBACK'),
           SwitchListTile(
             secondary: const Icon(Icons.vibration),

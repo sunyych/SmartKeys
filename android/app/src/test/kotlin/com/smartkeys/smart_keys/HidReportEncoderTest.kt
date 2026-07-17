@@ -67,6 +67,23 @@ class HidReportEncoderTest {
     }
 
     @Test
+    fun touchpadMovementAndMouseButtonsUseTheRelativeMouseReport() {
+        val encoder = HidReportEncoder()
+
+        val moved = encoder.press(HidActionData("mouseMove", null, emptyList(), "12,-7"))!!
+        val leftDown = encoder.press(HidActionData("mouseButton", null, emptyList(), "LEFT"))!!
+        val rightDown = encoder.press(HidActionData("mouseButton", null, emptyList(), "RIGHT"))!!
+        val leftUp = encoder.release(HidActionData("mouseButton", null, emptyList(), "LEFT"))!!
+        val rightUp = encoder.release(HidActionData("mouseButton", null, emptyList(), "RIGHT"))!!
+
+        assertArrayEquals(byteArrayOf(0, 12, -7, 0), moved.data)
+        assertArrayEquals(byteArrayOf(1, 0, 0, 0), leftDown.data)
+        assertArrayEquals(byteArrayOf(3, 0, 0, 0), rightDown.data)
+        assertArrayEquals(byteArrayOf(2, 0, 0, 0), leftUp.data)
+        assertArrayEquals(byteArrayOf(0, 0, 0, 0), rightUp.data)
+    }
+
+    @Test
     fun releaseAllClearsEveryReportType() {
         val encoder = HidReportEncoder()
         encoder.press(HidActionData("keyboard", "KEY_A", listOf("LEFT_SHIFT"), null))

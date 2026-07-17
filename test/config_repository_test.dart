@@ -26,6 +26,8 @@ void main() {
             orientationMode: OrientationMode.landscape,
             soundEnabled: true,
             shortcutPlatform: ShortcutPlatform.apple,
+            chargingBrightnessMode: ChargingBrightnessMode.dynamic,
+            chargingBrightness: 0.65,
           ),
         );
 
@@ -40,6 +42,11 @@ void main() {
     expect(decoded.activeProfile.buttons.first.label, 'Brush');
     expect(decoded.preferences.orientationMode, OrientationMode.landscape);
     expect(decoded.preferences.shortcutPlatform, ShortcutPlatform.apple);
+    expect(
+      decoded.preferences.chargingBrightnessMode,
+      ChargingBrightnessMode.dynamic,
+    );
+    expect(decoded.preferences.chargingBrightness, 0.65);
   });
 
   test('schema v2 migrates Ctrl shortcuts to PRIMARY', () {

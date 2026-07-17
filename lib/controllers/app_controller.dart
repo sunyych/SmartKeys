@@ -9,6 +9,7 @@ import '../data/profile_template_repository.dart';
 import '../models/config.dart';
 import '../services/hid_service.dart';
 import '../services/orientation_service.dart';
+import '../services/power_brightness_service.dart';
 
 class AppController extends ChangeNotifier {
   AppController({
@@ -17,8 +18,10 @@ class AppController extends ChangeNotifier {
     required this.hid,
     required this.orientationService,
     required this.imageStore,
+    required this.powerBrightnessService,
   }) {
     hid.activeHost.addListener(_handleActiveHostChanged);
+    powerBrightnessService.isPluggedIn.addListener(_handlePowerChanged);
   }
 
   final ConfigRepository repository;
@@ -26,6 +29,7 @@ class AppController extends ChangeNotifier {
   final HidService hid;
   final OrientationService orientationService;
   final PrivateImageStore imageStore;
+  final PowerBrightnessService powerBrightnessService;
 
   AppConfig? _config;
   bool _isLoading = true;
@@ -35,9 +39,6 @@ class AppController extends ChangeNotifier {
   final Set<int> _pressedPositions = {};
   final Map<int, HidAction> _pressedButtonActions = {};
   HidAction? _pressedWheelCenterAction;
-  HidAction? _activeMouseMoveAction;
-  Timer? _mouseMoveTimer;
-  bool _mouseMoveReportPending = false;
   ButtonConfig? _buttonClipboard;
   int _profileIdSequence = 0;
 
@@ -103,6 +104,8 @@ class AppController extends ChangeNotifier {
     try {
       _config = await repository.load();
       await orientationService.apply(config.preferences.orientationMode);
+      await powerBrightnessService.initialize();
+      await _applyBrightnessForCurrentPowerState();
     } catch (error) {
       _error = error;
     } finally {
@@ -121,7 +124,6 @@ class AppController extends ChangeNotifier {
     _pressedPositions.clear();
     _pressedButtonActions.clear();
     _pressedWheelCenterAction = null;
-    _cancelMouseMoveTimer();
     _inputEpoch++;
     unawaited(
       hid.releaseAllKeys().catchError((Object error) {
@@ -134,7 +136,6 @@ class AppController extends ChangeNotifier {
     _pressedPositions.clear();
     _pressedButtonActions.clear();
     _pressedWheelCenterAction = null;
-    _cancelMouseMoveTimer();
     _inputEpoch++;
     notifyListeners();
     try {
@@ -214,43 +215,30 @@ class AppController extends ChangeNotifier {
     if (resolvedAction != null) await hid.sendRelease(resolvedAction);
   }
 
-  void startMouseMove(HidAction action) {
-    if (action.type != ActionType.mouseMove) return;
-    final previous = _activeMouseMoveAction;
-    _cancelMouseMoveTimer();
-    if (previous != null) unawaited(hid.sendRelease(previous));
-    _activeMouseMoveAction = action;
-    unawaited(_sendMouseMoveReport());
-    _mouseMoveTimer = Timer.periodic(
-      const Duration(milliseconds: 40),
-      (_) => unawaited(_sendMouseMoveReport()),
+  void sendTouchpadMove(double deltaX, double deltaY) {
+    const sensitivity = 1.65;
+    final x = (deltaX * sensitivity).round().clamp(-127, 127);
+    final y = (deltaY * sensitivity).round().clamp(-127, 127);
+    if (x == 0 && y == 0) return;
+    unawaited(
+      hid.sendPress(
+        HidAction(type: ActionType.mouseMove, value: '$x,$y'),
+      ),
     );
   }
 
-  void stopMouseMove() {
-    final action = _activeMouseMoveAction;
-    _cancelMouseMoveTimer();
-    if (action != null) unawaited(hid.sendRelease(action));
-  }
-
-  Future<void> _sendMouseMoveReport() async {
-    final action = _activeMouseMoveAction;
-    if (action == null || _mouseMoveReportPending) return;
-    _mouseMoveReportPending = true;
-    try {
-      await hid.sendPress(action);
-    } catch (error) {
-      _error = error;
-      notifyListeners();
-    } finally {
-      _mouseMoveReportPending = false;
+  void sendMouseClick({required bool secondary}) {
+    if (config.preferences.hapticEnabled) {
+      unawaited(HapticFeedback.selectionClick());
     }
-  }
-
-  void _cancelMouseMoveTimer() {
-    _mouseMoveTimer?.cancel();
-    _mouseMoveTimer = null;
-    _activeMouseMoveAction = null;
+    unawaited(
+      hid.sendStep(
+        HidAction(
+          type: ActionType.mouseButton,
+          value: secondary ? 'RIGHT' : 'LEFT',
+        ),
+      ),
+    );
   }
 
   HidAction _resolveShortcutAction(HidAction action) {
@@ -301,6 +289,43 @@ class AppController extends ChangeNotifier {
     );
     notifyListeners();
     await repository.save(config);
+  }
+
+  Future<void> updateChargingBrightness({
+    ChargingBrightnessMode? mode,
+    double? brightness,
+  }) async {
+    _config = config.copyWith(
+      preferences: config.preferences.copyWith(
+        chargingBrightnessMode: mode,
+        chargingBrightness: brightness,
+      ),
+    );
+    notifyListeners();
+    await Future.wait([
+      repository.save(config),
+      _applyBrightnessForCurrentPowerState(),
+    ]);
+  }
+
+  Future<void> handleAppResumed() async {
+    await powerBrightnessService.refreshPowerState();
+    await _applyBrightnessForCurrentPowerState();
+  }
+
+  void _handlePowerChanged() {
+    notifyListeners();
+    unawaited(_applyBrightnessForCurrentPowerState());
+  }
+
+  Future<void> _applyBrightnessForCurrentPowerState() {
+    final preferences = config.preferences;
+    final fixedWhileCharging =
+        powerBrightnessService.isPluggedIn.value == true &&
+        preferences.chargingBrightnessMode == ChargingBrightnessMode.fixed;
+    return powerBrightnessService.setAppBrightness(
+      fixedWhileCharging ? preferences.chargingBrightness : null,
+    );
   }
 
   Future<void> updateButton(ButtonConfig updated) async {
@@ -618,9 +643,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _handleActiveHostChanged() {
-    if (_pressedPositions.isNotEmpty ||
-        _pressedWheelCenterAction != null ||
-        _activeMouseMoveAction != null) {
+    if (_pressedPositions.isNotEmpty || _pressedWheelCenterAction != null) {
       unawaited(prepareForContextChange());
     } else {
       notifyListeners();
@@ -629,9 +652,10 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _cancelMouseMoveTimer();
     hid.activeHost.removeListener(_handleActiveHostChanged);
+    powerBrightnessService.isPluggedIn.removeListener(_handlePowerChanged);
     hid.dispose();
+    powerBrightnessService.dispose();
     super.dispose();
   }
 }
