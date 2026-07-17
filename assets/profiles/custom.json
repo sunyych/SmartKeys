@@ -1,0 +1,12 @@
+{
+  "id": "profile_custom",
+  "name": "Custom",
+  "targetApplication": null,
+  "profileIcon": {"type": "builtinIcon", "value": "profile.custom", "fit": "contain"},
+  "accentColor": 4287137928,
+  "isBuiltInTemplate": true,
+  "createdAt": 1784246400000,
+  "updatedAt": 1784246400000,
+  "buttons": [],
+  "wheel": {"controlType":"jog","modeLabel":"Custom"}
+}

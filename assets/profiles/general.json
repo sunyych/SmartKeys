@@ -1,0 +1,35 @@
+{
+  "id": "profile_general",
+  "name": "General",
+  "targetApplication": null,
+  "profileIcon": {"type": "builtinIcon", "value": "device.keyboard", "fit": "contain"},
+  "accentColor": 4283190348,
+  "isBuiltInTemplate": true,
+  "createdAt": 1784246400000,
+  "updatedAt": 1784246400000,
+  "buttons": [
+    {"id":"button_01","position":0,"label":"Mute","subtitle":"","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"media.mute","fit":"contain"},"action":{"type":"consumerControl","value":"MUTE","modifiers":[]}},
+    {"id":"button_02","position":1,"label":"Volume Down","subtitle":"","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"media.volumeDown","fit":"contain"},"action":{"type":"consumerControl","value":"VOLUME_DOWN","modifiers":[]}},
+    {"id":"button_03","position":2,"label":"Volume Up","subtitle":"","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"media.volumeUp","fit":"contain"},"action":{"type":"consumerControl","value":"VOLUME_UP","modifiers":[]}},
+    {"id":"button_04","position":3,"label":"Undo","subtitle":"Primary+Z","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"edit.undo","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_Z","modifiers":["PRIMARY"]}},
+    {"id":"button_05","position":4,"label":"Redo","subtitle":"Primary+Y","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"edit.redo","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_Y","modifiers":["PRIMARY"]}},
+    {"id":"button_06","position":5,"label":"Previous","subtitle":"","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"media.previousTrack","fit":"contain"},"action":{"type":"consumerControl","value":"PREVIOUS_TRACK","modifiers":[]}},
+    {"id":"button_07","position":6,"label":"Play/Pause","subtitle":"","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"media.playPause","fit":"contain"},"action":{"type":"consumerControl","value":"PLAY_PAUSE","modifiers":[]}},
+    {"id":"button_08","position":7,"label":"Next","subtitle":"","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"media.nextTrack","fit":"contain"},"action":{"type":"consumerControl","value":"NEXT_TRACK","modifiers":[]}},
+    {"id":"button_09","position":8,"label":"Open","subtitle":"Primary+O","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"file.open","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_O","modifiers":["PRIMARY"]}},
+    {"id":"button_10","position":9,"label":"Favorite","subtitle":"Primary+D","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"file.favorite","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_D","modifiers":["PRIMARY"]}},
+    {"id":"button_11","position":10,"label":"Cut","subtitle":"Primary+X","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"edit.cut","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_X","modifiers":["PRIMARY"]}},
+    {"id":"button_12","position":11,"label":"Copy","subtitle":"Primary+C","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"edit.copy","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_C","modifiers":["PRIMARY"]}},
+    {"id":"button_13","position":12,"label":"Paste","subtitle":"Primary+V","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"edit.paste","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_V","modifiers":["PRIMARY"]}},
+    {"id":"button_14","position":13,"label":"Close","subtitle":"Primary+W","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"file.close","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_W","modifiers":["PRIMARY"]}},
+    {"id":"button_15","position":14,"label":"Delete","subtitle":"Delete","showLabel":true,"showShortcut":false,"visual":{"type":"builtinIcon","value":"edit.delete","fit":"contain"},"action":{"type":"keyboard","keyCode":"KEY_DELETE","modifiers":[]}}
+  ],
+  "wheel": {
+    "controlType": "mousePad",
+    "modeLabel": "Mouse",
+    "up": {"type":"mouseMove","value":"UP","modifiers":[]},
+    "down": {"type":"mouseMove","value":"DOWN","modifiers":[]},
+    "left": {"type":"mouseMove","value":"LEFT","modifiers":[]},
+    "right": {"type":"mouseMove","value":"RIGHT","modifiers":[]}
+  }
+}

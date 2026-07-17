@@ -1,0 +1,22 @@
+{
+  "id":"community_presentation",
+  "name":"Presentation Remote",
+  "targetApplication":"Community pack · Presentations",
+  "profileIcon":{"type":"builtinIcon","value":"profile.community"},
+  "accentColor":4294201634,
+  "buttons":[
+    {"id":"button_01","position":0,"label":"Start","subtitle":"F5","visual":{"type":"builtinIcon","value":"media.play"},"action":{"type":"keyboard","keyCode":"KEY_F5","modifiers":[]}},
+    {"id":"button_02","position":1,"label":"From Current","subtitle":"Shift+F5","visual":{"type":"builtinIcon","value":"media.playPause"},"action":{"type":"keyboard","keyCode":"KEY_F5","modifiers":["LEFT_SHIFT"]}},
+    {"id":"button_03","position":2,"label":"End Show","subtitle":"Esc","visual":{"type":"builtinIcon","value":"key.escape"},"action":{"type":"keyboard","keyCode":"KEY_ESCAPE","modifiers":[]}},
+    {"id":"button_04","position":3,"label":"Previous","subtitle":"Left","visual":{"type":"builtinIcon","value":"nav.previous"},"action":{"type":"keyboard","keyCode":"KEY_LEFT","modifiers":[]}},
+    {"id":"button_05","position":4,"label":"Next","subtitle":"Right","visual":{"type":"builtinIcon","value":"nav.next"},"action":{"type":"keyboard","keyCode":"KEY_RIGHT","modifiers":[]}},
+    {"id":"button_06","position":5,"label":"First Slide","subtitle":"Home","visual":{"type":"builtinIcon","value":"nav.home"},"action":{"type":"keyboard","keyCode":"KEY_HOME","modifiers":[]}},
+    {"id":"button_07","position":6,"label":"Last Slide","subtitle":"End","visual":{"type":"builtinIcon","value":"nav.end"},"action":{"type":"keyboard","keyCode":"KEY_END","modifiers":[]}},
+    {"id":"button_08","position":7,"label":"Black Screen","subtitle":"B","visual":{"type":"builtinIcon","value":"media.stop"},"action":{"type":"keyboard","keyCode":"KEY_B","modifiers":[]}},
+    {"id":"button_09","position":8,"label":"White Screen","subtitle":"W","visual":{"type":"builtinIcon","value":"view.fit"},"action":{"type":"keyboard","keyCode":"KEY_W","modifiers":[]}},
+    {"id":"button_10","position":9,"label":"Volume Down","visual":{"type":"builtinIcon","value":"media.volumeDown"},"action":{"type":"consumerControl","value":"VOLUME_DOWN","modifiers":[]}},
+    {"id":"button_11","position":10,"label":"Mute","visual":{"type":"builtinIcon","value":"media.mute"},"action":{"type":"consumerControl","value":"MUTE","modifiers":[]}},
+    {"id":"button_12","position":11,"label":"Volume Up","visual":{"type":"builtinIcon","value":"media.volumeUp"},"action":{"type":"consumerControl","value":"VOLUME_UP","modifiers":[]}}
+  ],
+  "wheel":{"modeLabel":"Slides","clockwise":{"type":"keyboard","keyCode":"KEY_RIGHT","modifiers":[]},"counterClockwise":{"type":"keyboard","keyCode":"KEY_LEFT","modifiers":[]},"center":{"type":"keyboard","keyCode":"KEY_B","modifiers":[]}}
+}

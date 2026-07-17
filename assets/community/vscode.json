@@ -1,0 +1,23 @@
+{
+  "id":"community_vscode",
+  "name":"VS Code Essentials",
+  "targetApplication":"Community pack · VS Code",
+  "profileIcon":{"type":"builtinIcon","value":"profile.community"},
+  "accentColor":4280391679,
+  "buttons":[
+    {"id":"button_01","position":0,"label":"Quick Open","subtitle":"Primary+P","visual":{"type":"builtinIcon","value":"file.open"},"action":{"type":"keyboard","keyCode":"KEY_P","modifiers":["PRIMARY"]}},
+    {"id":"button_02","position":1,"label":"Commands","subtitle":"Primary+Shift+P","visual":{"type":"builtinIcon","value":"edit.search"},"action":{"type":"keyboard","keyCode":"KEY_P","modifiers":["PRIMARY","LEFT_SHIFT"]}},
+    {"id":"button_03","position":2,"label":"Find","subtitle":"Primary+F","visual":{"type":"builtinIcon","value":"edit.search"},"action":{"type":"keyboard","keyCode":"KEY_F","modifiers":["PRIMARY"]}},
+    {"id":"button_04","position":3,"label":"Replace","subtitle":"Primary+H","visual":{"type":"builtinIcon","value":"edit.redo"},"action":{"type":"keyboard","keyCode":"KEY_H","modifiers":["PRIMARY"]}},
+    {"id":"button_05","position":4,"label":"Save","subtitle":"Primary+S","visual":{"type":"builtinIcon","value":"file.save"},"action":{"type":"keyboard","keyCode":"KEY_S","modifiers":["PRIMARY"]}},
+    {"id":"button_06","position":5,"label":"Save As","subtitle":"Primary+Shift+S","visual":{"type":"builtinIcon","value":"file.saveAs"},"action":{"type":"keyboard","keyCode":"KEY_S","modifiers":["PRIMARY","LEFT_SHIFT"]}},
+    {"id":"button_07","position":6,"label":"Undo","subtitle":"Primary+Z","visual":{"type":"builtinIcon","value":"edit.undo"},"action":{"type":"keyboard","keyCode":"KEY_Z","modifiers":["PRIMARY"]}},
+    {"id":"button_08","position":7,"label":"Redo","subtitle":"Primary+Shift+Z","visual":{"type":"builtinIcon","value":"edit.redo"},"action":{"type":"keyboard","keyCode":"KEY_Z","modifiers":["PRIMARY","LEFT_SHIFT"]}},
+    {"id":"button_09","position":8,"label":"Next Editor","subtitle":"Ctrl+Tab","visual":{"type":"builtinIcon","value":"nav.next"},"action":{"type":"keyboard","keyCode":"KEY_TAB","modifiers":["LEFT_CTRL"]}},
+    {"id":"button_10","position":9,"label":"Previous Editor","subtitle":"Ctrl+Shift+Tab","visual":{"type":"builtinIcon","value":"nav.previous"},"action":{"type":"keyboard","keyCode":"KEY_TAB","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_11","position":10,"label":"Start Debug","subtitle":"F5","visual":{"type":"builtinIcon","value":"media.play"},"action":{"type":"keyboard","keyCode":"KEY_F5","modifiers":[]}},
+    {"id":"button_12","position":11,"label":"Stop Debug","subtitle":"Shift+F5","visual":{"type":"builtinIcon","value":"media.stop"},"action":{"type":"keyboard","keyCode":"KEY_F5","modifiers":["LEFT_SHIFT"]}},
+    {"id":"button_13","position":12,"label":"Breakpoint","subtitle":"F9","visual":{"type":"builtinIcon","value":"media.record"},"action":{"type":"keyboard","keyCode":"KEY_F9","modifiers":[]}}
+  ],
+  "wheel":{"controlType":"mousePad","modeLabel":"Mouse","up":{"type":"mouseMove","value":"UP"},"down":{"type":"mouseMove","value":"DOWN"},"left":{"type":"mouseMove","value":"LEFT"},"right":{"type":"mouseMove","value":"RIGHT"}}
+}

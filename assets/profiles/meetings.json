@@ -1,0 +1,35 @@
+{
+  "id": "profile_meetings",
+  "name": "Zoom / Teams",
+  "targetApplication": "Zoom / Microsoft Teams (Windows)",
+  "profileIcon": {"type": "builtinIcon", "value": "profile.meetings", "fit": "contain"},
+  "accentColor": 4281763686,
+  "isBuiltInTemplate": true,
+  "createdAt": 1784246400000,
+  "updatedAt": 1784246400000,
+  "buttons": [
+    {"id":"button_01","position":0,"label":"Zoom Mic","subtitle":"Alt+A","visual":{"type":"builtinIcon","value":"media.mute"},"action":{"type":"keyboard","keyCode":"KEY_A","modifiers":["LEFT_ALT"]}},
+    {"id":"button_02","position":1,"label":"Zoom Video","subtitle":"Alt+V","visual":{"type":"builtinIcon","value":"media.record"},"action":{"type":"keyboard","keyCode":"KEY_V","modifiers":["LEFT_ALT"]}},
+    {"id":"button_03","position":2,"label":"Zoom Share","subtitle":"Alt+S","visual":{"type":"builtinIcon","value":"view.fit"},"action":{"type":"keyboard","keyCode":"KEY_S","modifiers":["LEFT_ALT"]}},
+    {"id":"button_04","position":3,"label":"Pause Share","subtitle":"Alt+T","visual":{"type":"builtinIcon","value":"media.pause"},"action":{"type":"keyboard","keyCode":"KEY_T","modifiers":["LEFT_ALT"]}},
+    {"id":"button_05","position":4,"label":"Participants","subtitle":"Alt+U","visual":{"type":"builtinIcon","value":"profile.community"},"action":{"type":"keyboard","keyCode":"KEY_U","modifiers":["LEFT_ALT"]}},
+    {"id":"button_06","position":5,"label":"Zoom Hand","subtitle":"Alt+Y","visual":{"type":"builtinIcon","value":"design.hand"},"action":{"type":"keyboard","keyCode":"KEY_Y","modifiers":["LEFT_ALT"]}},
+    {"id":"button_07","position":6,"label":"Zoom Leave","subtitle":"Alt+Q","visual":{"type":"builtinIcon","value":"file.close"},"action":{"type":"keyboard","keyCode":"KEY_Q","modifiers":["LEFT_ALT"]}},
+    {"id":"button_08","position":7,"label":"Teams Mic","subtitle":"Ctrl+Shift+M","visual":{"type":"builtinIcon","value":"media.mute"},"action":{"type":"keyboard","keyCode":"KEY_M","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_09","position":8,"label":"Teams Video","subtitle":"Ctrl+Shift+O","visual":{"type":"builtinIcon","value":"media.record"},"action":{"type":"keyboard","keyCode":"KEY_O","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_10","position":9,"label":"Share Tray","subtitle":"Ctrl+Shift+Space","visual":{"type":"builtinIcon","value":"view.fit"},"action":{"type":"keyboard","keyCode":"KEY_SPACE","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_11","position":10,"label":"Teams Hand","subtitle":"Ctrl+Shift+K","visual":{"type":"builtinIcon","value":"design.hand"},"action":{"type":"keyboard","keyCode":"KEY_K","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_12","position":11,"label":"Teams End","subtitle":"Ctrl+Shift+H","visual":{"type":"builtinIcon","value":"file.close"},"action":{"type":"keyboard","keyCode":"KEY_H","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_13","position":12,"label":"Speaker","subtitle":"Ctrl+Shift+U","visual":{"type":"builtinIcon","value":"media.volumeUp"},"action":{"type":"keyboard","keyCode":"KEY_U","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_14","position":13,"label":"Push to Talk","subtitle":"Ctrl+Space","visual":{"type":"builtinIcon","value":"media.mute"},"action":{"type":"keyboard","keyCode":"KEY_SPACE","modifiers":["LEFT_CTRL"]}},
+    {"id":"button_15","position":14,"label":"Full Screen","subtitle":"F11","visual":{"type":"builtinIcon","value":"view.fit"},"action":{"type":"keyboard","keyCode":"KEY_F11","modifiers":[]}}
+  ],
+  "wheel": {
+    "controlType":"mousePad",
+    "modeLabel":"Mouse",
+    "up":{"type":"mouseMove","value":"UP","modifiers":[]},
+    "down":{"type":"mouseMove","value":"DOWN","modifiers":[]},
+    "left":{"type":"mouseMove","value":"LEFT","modifiers":[]},
+    "right":{"type":"mouseMove","value":"RIGHT","modifiers":[]}
+  }
+}

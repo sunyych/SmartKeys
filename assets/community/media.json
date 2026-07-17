@@ -1,0 +1,21 @@
+{
+  "id":"community_media",
+  "name":"Media Remote",
+  "targetApplication":"Community pack · Media",
+  "profileIcon":{"type":"builtinIcon","value":"profile.community"},
+  "accentColor":4288423856,
+  "buttons":[
+    {"id":"button_01","position":0,"label":"Previous","visual":{"type":"builtinIcon","value":"media.previousTrack"},"action":{"type":"consumerControl","value":"PREVIOUS_TRACK"}},
+    {"id":"button_02","position":1,"label":"Play / Pause","visual":{"type":"builtinIcon","value":"media.playPause"},"action":{"type":"consumerControl","value":"PLAY_PAUSE"}},
+    {"id":"button_03","position":2,"label":"Next","visual":{"type":"builtinIcon","value":"media.nextTrack"},"action":{"type":"consumerControl","value":"NEXT_TRACK"}},
+    {"id":"button_04","position":3,"label":"Stop","visual":{"type":"builtinIcon","value":"media.stop"},"action":{"type":"consumerControl","value":"STOP"}},
+    {"id":"button_05","position":4,"label":"Volume Down","visual":{"type":"builtinIcon","value":"media.volumeDown"},"action":{"type":"consumerControl","value":"VOLUME_DOWN"}},
+    {"id":"button_06","position":5,"label":"Mute","visual":{"type":"builtinIcon","value":"media.mute"},"action":{"type":"consumerControl","value":"MUTE"}},
+    {"id":"button_07","position":6,"label":"Volume Up","visual":{"type":"builtinIcon","value":"media.volumeUp"},"action":{"type":"consumerControl","value":"VOLUME_UP"}},
+    {"id":"button_08","position":7,"label":"Full Screen","subtitle":"F11","visual":{"type":"builtinIcon","value":"view.fit"},"action":{"type":"keyboard","keyCode":"KEY_F11","modifiers":[]}},
+    {"id":"button_09","position":8,"label":"Left","visual":{"type":"builtinIcon","value":"nav.left"},"action":{"type":"keyboard","keyCode":"KEY_LEFT","modifiers":[]}},
+    {"id":"button_10","position":9,"label":"Space","visual":{"type":"builtinIcon","value":"media.playPause"},"action":{"type":"keyboard","keyCode":"KEY_SPACE","modifiers":[]}},
+    {"id":"button_11","position":10,"label":"Right","visual":{"type":"builtinIcon","value":"nav.right"},"action":{"type":"keyboard","keyCode":"KEY_RIGHT","modifiers":[]}}
+  ],
+  "wheel":{"modeLabel":"Seek","clockwise":{"type":"keyboard","keyCode":"KEY_RIGHT","modifiers":[]},"counterClockwise":{"type":"keyboard","keyCode":"KEY_LEFT","modifiers":[]},"center":{"type":"consumerControl","value":"PLAY_PAUSE","modifiers":[]}}
+}

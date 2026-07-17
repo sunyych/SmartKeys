@@ -1,0 +1,35 @@
+{
+  "id": "profile_web",
+  "name": "Web",
+  "targetApplication": "Web Browser",
+  "profileIcon": {"type": "builtinIcon", "value": "profile.web", "fit": "contain"},
+  "accentColor": 4283215696,
+  "isBuiltInTemplate": true,
+  "createdAt": 1784246400000,
+  "updatedAt": 1784246400000,
+  "buttons": [
+    {"id":"button_01","position":0,"label":"Back","subtitle":"Alt+Left","visual":{"type":"builtinIcon","value":"nav.back"},"action":{"type":"keyboard","keyCode":"KEY_LEFT","modifiers":["LEFT_ALT"]}},
+    {"id":"button_02","position":1,"label":"Forward","subtitle":"Alt+Right","visual":{"type":"builtinIcon","value":"nav.forward"},"action":{"type":"keyboard","keyCode":"KEY_RIGHT","modifiers":["LEFT_ALT"]}},
+    {"id":"button_03","position":2,"label":"New Tab","subtitle":"Primary+T","visual":{"type":"builtinIcon","value":"file.new"},"action":{"type":"keyboard","keyCode":"KEY_T","modifiers":["PRIMARY"]}},
+    {"id":"button_04","position":3,"label":"Close Tab","subtitle":"Primary+W","visual":{"type":"builtinIcon","value":"file.close"},"action":{"type":"keyboard","keyCode":"KEY_W","modifiers":["PRIMARY"]}},
+    {"id":"button_05","position":4,"label":"Reopen Tab","subtitle":"Primary+Shift+T","visual":{"type":"builtinIcon","value":"edit.redo"},"action":{"type":"keyboard","keyCode":"KEY_T","modifiers":["PRIMARY","LEFT_SHIFT"]}},
+    {"id":"button_06","position":5,"label":"Previous Tab","subtitle":"Ctrl+Shift+Tab","visual":{"type":"builtinIcon","value":"nav.previous"},"action":{"type":"keyboard","keyCode":"KEY_TAB","modifiers":["LEFT_CTRL","LEFT_SHIFT"]}},
+    {"id":"button_07","position":6,"label":"Next Tab","subtitle":"Ctrl+Tab","visual":{"type":"builtinIcon","value":"nav.next"},"action":{"type":"keyboard","keyCode":"KEY_TAB","modifiers":["LEFT_CTRL"]}},
+    {"id":"button_08","position":7,"label":"Refresh","subtitle":"Primary+R","visual":{"type":"builtinIcon","value":"cad.rebuild"},"action":{"type":"keyboard","keyCode":"KEY_R","modifiers":["PRIMARY"]}},
+    {"id":"button_09","position":8,"label":"Address Bar","subtitle":"Primary+L","visual":{"type":"builtinIcon","value":"edit.search"},"action":{"type":"keyboard","keyCode":"KEY_L","modifiers":["PRIMARY"]}},
+    {"id":"button_10","position":9,"label":"Find","subtitle":"Primary+F","visual":{"type":"builtinIcon","value":"edit.search"},"action":{"type":"keyboard","keyCode":"KEY_F","modifiers":["PRIMARY"]}},
+    {"id":"button_11","position":10,"label":"Zoom In","subtitle":"Primary++","visual":{"type":"builtinIcon","value":"view.zoomIn"},"action":{"type":"keyboard","keyCode":"KEY_EQUALS","modifiers":["PRIMARY","LEFT_SHIFT"]}},
+    {"id":"button_12","position":11,"label":"Zoom Out","subtitle":"Primary+-","visual":{"type":"builtinIcon","value":"view.zoomOut"},"action":{"type":"keyboard","keyCode":"KEY_MINUS","modifiers":["PRIMARY"]}},
+    {"id":"button_13","position":12,"label":"Page Top","subtitle":"Home","visual":{"type":"builtinIcon","value":"nav.home"},"action":{"type":"keyboard","keyCode":"KEY_HOME","modifiers":[]}},
+    {"id":"button_14","position":13,"label":"Page Bottom","subtitle":"End","visual":{"type":"builtinIcon","value":"nav.end"},"action":{"type":"keyboard","keyCode":"KEY_END","modifiers":[]}},
+    {"id":"button_15","position":14,"label":"Full Screen","subtitle":"F11","visual":{"type":"builtinIcon","value":"view.fit"},"action":{"type":"keyboard","keyCode":"KEY_F11","modifiers":[]}}
+  ],
+  "wheel": {
+    "controlType":"mousePad",
+    "modeLabel":"Mouse",
+    "up":{"type":"mouseMove","value":"UP","modifiers":[]},
+    "down":{"type":"mouseMove","value":"DOWN","modifiers":[]},
+    "left":{"type":"mouseMove","value":"LEFT","modifiers":[]},
+    "right":{"type":"mouseMove","value":"RIGHT","modifiers":[]}
+  }
+}
