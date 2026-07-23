@@ -79,7 +79,7 @@ class _WheelEditorScreenState extends State<WheelEditorScreen> {
               ),
               DropdownMenuItem(
                 value: WheelControlType.mousePad,
-                child: Text('Mouse direction pad'),
+                child: Text('Touchpad'),
               ),
             ],
             onChanged: (value) {
@@ -108,29 +108,29 @@ class _WheelEditorScreenState extends State<WheelEditorScreen> {
               onTypeChanged: (value) => setState(() => center.type = value),
             ),
           ] else ...[
-            _ActionCard(
-              title: 'Move up',
-              icon: Icons.keyboard_arrow_up,
-              draft: up,
-              onTypeChanged: (value) => setState(() => up.type = value),
-            ),
-            _ActionCard(
-              title: 'Move down',
-              icon: Icons.keyboard_arrow_down,
-              draft: down,
-              onTypeChanged: (value) => setState(() => down.type = value),
-            ),
-            _ActionCard(
-              title: 'Move left',
-              icon: Icons.keyboard_arrow_left,
-              draft: left,
-              onTypeChanged: (value) => setState(() => left.type = value),
-            ),
-            _ActionCard(
-              title: 'Move right',
-              icon: Icons.keyboard_arrow_right,
-              draft: right,
-              onTypeChanged: (value) => setState(() => right.type = value),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.touch_app),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Touchpad gestures',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('One finger: move the pointer or tap to click.'),
+                    const SizedBox(height: 8),
+                    const Text('Two fingers: tap to right-click.'),
+                  ],
+                ),
+              ),
             ),
           ],
         ],
@@ -139,21 +139,7 @@ class _WheelEditorScreenState extends State<WheelEditorScreen> {
   }
 
   void _setControlType(WheelControlType value) {
-    setState(() {
-      controlType = value;
-      if (value == WheelControlType.mousePad) {
-        _ensureMouseMove(up, 'UP');
-        _ensureMouseMove(down, 'DOWN');
-        _ensureMouseMove(left, 'LEFT');
-        _ensureMouseMove(right, 'RIGHT');
-      }
-    });
-  }
-
-  void _ensureMouseMove(_ActionDraft draft, String direction) {
-    if (draft.type != ActionType.none) return;
-    draft.type = ActionType.mouseMove;
-    draft.codeController.text = direction;
+    setState(() => controlType = value);
   }
 
   Future<void> _save() async {

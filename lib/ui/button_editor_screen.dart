@@ -73,8 +73,16 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
 
   Future<void> _save() async {
     setState(() => saving = true);
-    await SmartKeysScope.of(context).updateButton(_currentDraft());
-    if (mounted) Navigator.pop(context);
+    try {
+      await SmartKeysScope.of(context).updateButton(_currentDraft());
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => saving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save button: $error')));
+    }
   }
 
   @override
@@ -335,8 +343,52 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
                     decoration: InputDecoration(
                       labelText: draft.action.type == ActionType.keyboard
                           ? 'Keyboard key (for example KEY_C)'
+                          : draft.action.type == ActionType.companion
+                          ? 'Desktop action JSON'
                           : 'Action value',
+                      helperText: draft.action.type == ActionType.companion
+                          ? 'Handled by the separate Windows/macOS/Linux Companion app.'
+                          : null,
                     ),
+                  ),
+                ],
+                if (draft.action.type == ActionType.companion) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ActionChip(
+                          label: const Text('Launch ChatGPT'),
+                          onPressed: () => setState(
+                            () => actionController.text =
+                                '{"kind":"launch","target":"ChatGPT"}',
+                          ),
+                        ),
+                        ActionChip(
+                          label: const Text('Voice input'),
+                          onPressed: () => setState(
+                            () =>
+                                actionController.text = '{"kind":"voiceInput"}',
+                          ),
+                        ),
+                        ActionChip(
+                          label: const Text('Desktop shortcut'),
+                          onPressed: () => setState(
+                            () => actionController.text =
+                                '{"kind":"shortcut","keys":["CTRL","ALT","T"]}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'For another app, replace ChatGPT with its app name (macOS) '
+                    'or executable name/path (Windows/Linux).',
+                    style: TextStyle(fontSize: 12),
                   ),
                 ],
                 if (draft.action.type == ActionType.keyboard) ...[

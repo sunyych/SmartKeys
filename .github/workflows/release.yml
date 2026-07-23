@@ -1,0 +1,276 @@
+name: Build release assets
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Require a new semantic version from main
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must use vMAJOR.MINOR.PATCH, for example v1.2.0."
+            exit 1
+          fi
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::The release tag must point to a commit contained in main."
+            exit 1
+          fi
+
+          previous_tag="$(git tag --merged refs/remotes/origin/main --list 'v*.*.*' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | grep -Fvx "$tag" \
+            | sort -V \
+            | tail -n 1 || true)"
+          if [[ -n "$previous_tag" ]]; then
+            highest_tag="$(printf '%s\n%s\n' "$previous_tag" "$tag" | sort -V | tail -n 1)"
+            if [[ "$highest_tag" != "$tag" ]]; then
+              echo "::error::$tag must be newer than the current release tag $previous_tag."
+              exit 1
+            fi
+          fi
+
+          version="${tag#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building LumiaKeys $version from main commit $GITHUB_SHA"
+
+  verify:
+    name: Analyze and test
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Verify Android app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Verify shared protocol
+        working-directory: packages/lumiakeys_protocol
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+
+      - name: Verify Desktop app
+        working-directory: desktop_companion
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  android:
+    name: Build signed Android APK
+    needs: [validate, verify]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Prepare Android release key
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEY_ALIAS" || \
+                -z "$ANDROID_KEY_PASSWORD" || -z "$ANDROID_STORE_PASSWORD" ]]; then
+            echo "::error::Configure all four Android signing secrets before publishing a release."
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lumiakeys-release.jks"
+
+      - name: Build APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/lumiakeys-release.jks
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          flutter pub get
+          flutter build apk --release \
+            --build-name="$RELEASE_VERSION" \
+            --build-number="$BUILD_NUMBER"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/LumiaKeys-Android-v${RELEASE_VERSION}.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+  macos:
+    name: Build macOS DMG
+    needs: [validate, verify]
+    runs-on: macos-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build and package DMG
+        working-directory: desktop_companion
+        run: |
+          flutter pub get
+          flutter build macos --release \
+            --build-name="$RELEASE_VERSION" \
+            --build-number="$BUILD_NUMBER"
+          mkdir -p dist/dmg
+          cp -R "build/macos/Build/Products/Release/LumiaKeys Desktop.app" dist/dmg/
+          ln -s /Applications dist/dmg/Applications
+          hdiutil create \
+            -volname "LumiaKeys Desktop $RELEASE_VERSION" \
+            -srcfolder dist/dmg \
+            -ov \
+            -format UDZO \
+            "dist/LumiaKeys-Desktop-macOS-v${RELEASE_VERSION}.dmg"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-dmg
+          path: desktop_companion/dist/*.dmg
+          if-no-files-found: error
+
+  windows:
+    name: Build Windows installer
+    needs: [validate, verify]
+    runs-on: windows-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Desktop app
+        working-directory: desktop_companion
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release `
+            --build-name="$env:RELEASE_VERSION" `
+            --build-number="$env:BUILD_NUMBER"
+
+      - name: Build EXE installer
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $compiler)) {
+            throw "Inno Setup compiler was not installed at $compiler"
+          }
+          $buildRoot = Join-Path $PWD "desktop_companion\build\windows\x64\runner\Release"
+          $outputDir = Join-Path $PWD "dist"
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+          & $compiler "/DAppVersion=$env:RELEASE_VERSION" "/DBuildRoot=$buildRoot" "/DOutputDir=$outputDir" "packaging\windows\lumiakeys.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer
+          path: dist/*-Setup.exe
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [validate, android, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS.txt
+
+      - name: Publish release asset page
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --verify-tag \
+            --title "LumiaKeys v${RELEASE_VERSION}" \
+            --generate-notes

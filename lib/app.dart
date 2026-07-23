@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'controllers/app_controller.dart';
 import 'data/config_repository.dart';
 import 'data/private_image_store.dart';
 import 'data/profile_template_repository.dart';
+import 'data/shortcut_usage_repository.dart';
 import 'services/hid_service.dart';
+import 'services/companion_service.dart';
 import 'services/orientation_service.dart';
 import 'services/power_brightness_service.dart';
 import 'ui/home_screen.dart';
@@ -26,6 +31,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
   @override
   void initState() {
     super.initState();
+    unawaited(_enterFullscreen());
     ownsController = widget.controller == null;
     final templates = ProfileTemplateRepository();
     controller =
@@ -34,9 +40,11 @@ class _SmartKeysAppState extends State<SmartKeysApp>
           repository: SharedPreferencesConfigRepository(templates: templates),
           templates: templates,
           hid: MethodChannelHidService(),
+          companion: LanCompanionService(),
           orientationService: SystemOrientationService(),
           imageStore: PrivateImageStore(),
           powerBrightnessService: MethodChannelPowerBrightnessService(),
+          shortcutUsage: SharedPreferencesShortcutUsageRepository(),
         );
     WidgetsBinding.instance.addObserver(this);
     if (widget.controller == null || controller.isLoading) {
@@ -53,9 +61,14 @@ class _SmartKeysAppState extends State<SmartKeysApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !controller.isLoading) {
-      controller.handleAppResumed();
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_enterFullscreen());
+      if (!controller.isLoading) controller.handleAppResumed();
     }
+  }
+
+  Future<void> _enterFullscreen() {
+    return SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
   @override
@@ -63,7 +76,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
     return SmartKeysScope(
       controller: controller,
       child: MaterialApp(
-        title: 'SmartKeys',
+        title: 'LumiaKeys',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
@@ -102,7 +115,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
                         const Icon(Icons.error_outline, size: 48),
                         const SizedBox(height: 16),
                         const Text(
-                          'SmartKeys could not load its configuration.',
+                          'LumiaKeys could not load its configuration.',
                         ),
                         const SizedBox(height: 8),
                         Text(

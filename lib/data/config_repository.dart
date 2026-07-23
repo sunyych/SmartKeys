@@ -42,11 +42,14 @@ class SharedPreferencesConfigRepository implements ConfigRepository {
       if (schemaVersion < 6) {
         config = migrateV5FreeProfiles(config, builtIns);
       }
+      if (schemaVersion < 7) {
+        config = migrateV6DarkControl(config, builtIns);
+      }
       if (schemaVersion < AppConfig.currentSchemaVersion) await save(config);
       return config;
     }
-    final migrated = migrateV5FreeProfiles(
-      migrateV1(decoded, builtIns.first),
+    final migrated = migrateV6DarkControl(
+      migrateV5FreeProfiles(migrateV1(decoded, builtIns.first), builtIns),
       builtIns,
     );
     await save(migrated);
@@ -247,6 +250,32 @@ class SharedPreferencesConfigRepository implements ConfigRepository {
               orientationMode: OrientationMode.landscape,
             )
           : config.preferences,
+    );
+  }
+
+  static AppConfig migrateV6DarkControl(
+    AppConfig config,
+    List<ProfileConfig> builtIns,
+  ) {
+    final generalTemplate = builtIns
+        .where((profile) => profile.id == 'profile_general')
+        .firstOrNull;
+    if (generalTemplate == null || generalTemplate.buttons.length <= 9) {
+      return config;
+    }
+    final darkButton = generalTemplate.buttons[9];
+    return config.copyWith(
+      profiles: config.profiles
+          .map((profile) {
+            if (profile.id != 'profile_general' ||
+                profile.buttons.length <= 9) {
+              return profile;
+            }
+            final buttons = [...profile.buttons];
+            buttons[9] = darkButton.copyWith(id: 'button_10', position: 9);
+            return profile.copyWith(buttons: buttons);
+          })
+          .toList(growable: false),
     );
   }
 

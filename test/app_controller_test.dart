@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/controllers/app_controller.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/services/hid_service.dart';
+import 'package:smart_keys/services/companion_service.dart';
 
 import 'test_support.dart';
 
@@ -107,26 +109,28 @@ void main() {
     );
   });
 
-  test('holding a mouse direction repeats movement until release', () async {
+  test('touchpad movement and mouse clicks emit HID actions', () async {
     final harness = await TestHarness.create();
     addTearDown(harness.dispose);
-    const action = HidAction(type: ActionType.mouseMove, value: 'UP');
 
-    harness.controller.startMouseMove(action);
-    await Future<void>.delayed(const Duration(milliseconds: 95));
-    harness.controller.stopMouseMove();
+    harness.controller.sendTouchpadMove(8, -4);
+    harness.controller.sendMouseClick(secondary: false);
+    harness.controller.sendMouseClick(secondary: true);
+    harness.controller.sendTouchpadScroll(-18);
     await Future<void>.delayed(Duration.zero);
 
-    expect(
-      harness.hid.pressedActions.where(
-        (item) => item.type == ActionType.mouseMove,
-      ),
-      hasLength(greaterThanOrEqualTo(2)),
-    );
-    expect(harness.hid.releasedActions.last.value, 'UP');
-    final countAfterRelease = harness.hid.pressedActions.length;
-    await Future<void>.delayed(const Duration(milliseconds: 60));
-    expect(harness.hid.pressedActions, hasLength(countAfterRelease));
+    expect(harness.hid.pressedActions.single.type, ActionType.mouseMove);
+    expect(harness.hid.pressedActions.single.value, '13,-7');
+    expect(harness.hid.steppedActions.map((action) => action.type), [
+      ActionType.mouseButton,
+      ActionType.mouseButton,
+      ActionType.mouseWheel,
+    ]);
+    expect(harness.hid.steppedActions.map((action) => action.value), [
+      'LEFT',
+      'RIGHT',
+      '1',
+    ]);
   });
 
   test('cannot delete the final profile', () async {
@@ -170,11 +174,123 @@ void main() {
       addTearDown(harness.dispose);
 
       expect(harness.power.appliedBrightness.last, 0.8);
+      expect(harness.power.keepScreenOnValues.last, isTrue);
 
       await harness.controller.updateChargingBrightness(brightness: 0.65);
 
       expect(harness.power.appliedBrightness.last, 0.65);
       expect(harness.repository.value.preferences.chargingBrightness, 0.65);
+    },
+  );
+
+  test(
+    'Dark always dims the phone and uses every available host channel',
+    () async {
+      final darkButton = ButtonConfig.empty(9).copyWith(
+        label: 'Dark',
+        action: const HidAction(
+          type: ActionType.companion,
+          value: '{"kind":"dark"}',
+        ),
+      );
+      final general = profile().copyWith(
+        buttons: [
+          for (final button in profile().buttons)
+            button.position == 9 ? darkButton : button,
+        ],
+      );
+      final harness = await TestHarness.create(
+        config: testConfig(profiles: [general]),
+      );
+      addTearDown(harness.dispose);
+      harness.companion.host.value = const CompanionHost(
+        name: 'Studio Mac',
+        platform: 'macos',
+        address: '192.168.1.10',
+        port: 45678,
+        token: 'test',
+      );
+
+      await harness.controller.pressButton(darkButton);
+
+      expect(harness.controller.isDarkModeActive, isTrue);
+      expect(harness.power.appliedBrightness.last, 0.1);
+      expect(harness.companion.commands, ['{"kind":"dark","enabled":true}']);
+      expect(
+        harness.hid.steppedActions.where(
+          (action) => action.value == 'BRIGHTNESS_DOWN',
+        ),
+        hasLength(20),
+      );
+      expect(
+        harness.hid.steppedActions.where(
+          (action) => action.value == 'KEYBOARD_BACKLIGHT_MINIMUM',
+        ),
+        hasLength(1),
+      );
+      expect(
+        harness.hid.steppedActions.where(
+          (action) => action.value == 'KEYBOARD_BRIGHTNESS_DOWN',
+        ),
+        hasLength(16),
+      );
+
+      await harness.controller.handleAppResumed();
+      expect(harness.power.appliedBrightness.last, 0.1);
+
+      await harness.controller.pressButton(darkButton);
+
+      expect(harness.controller.isDarkModeActive, isFalse);
+      expect(harness.power.appliedBrightness.last, isNull);
+      expect(
+        harness.companion.commands.last,
+        '{"kind":"dark","enabled":false}',
+      );
+      expect(
+        harness.hid.steppedActions.where(
+          (action) => action.value == 'BRIGHTNESS_UP',
+        ),
+        hasLength(20),
+      );
+      expect(
+        harness.hid.steppedActions.where(
+          (action) => action.value == 'KEYBOARD_BACKLIGHT_MAXIMUM',
+        ),
+        hasLength(1),
+      );
+      expect(
+        harness.hid.steppedActions.where(
+          (action) => action.value == 'KEYBOARD_BRIGHTNESS_UP',
+        ),
+        hasLength(16),
+      );
+    },
+  );
+
+  test(
+    'Dark still dims the phone when neither host channel is connected',
+    () async {
+      final harness = await TestHarness.create();
+      addTearDown(harness.dispose);
+      harness.hid.status.value = HidConnectionStatus.disconnected;
+      harness.hid.selectedHost.value = null;
+      final darkButton = ButtonConfig.empty(9).copyWith(
+        label: 'Dark',
+        action: const HidAction(
+          type: ActionType.companion,
+          value: '{"kind":"dark"}',
+        ),
+      );
+
+      await harness.controller.pressButton(darkButton);
+
+      expect(harness.power.appliedBrightness.last, 0.1);
+      expect(harness.hid.steppedActions, isEmpty);
+      expect(harness.companion.commands, isEmpty);
+
+      await harness.controller.pressButton(darkButton);
+      expect(harness.power.appliedBrightness.last, isNull);
+      expect(harness.controller.isDarkModeActive, isFalse);
     },
   );
 
@@ -187,6 +303,7 @@ void main() {
       harness.power.state.value = false;
       await Future<void>.delayed(Duration.zero);
       expect(harness.power.appliedBrightness.last, isNull);
+      expect(harness.power.keepScreenOnValues.last, isFalse);
 
       harness.power.state.value = true;
       await harness.controller.updateChargingBrightness(
@@ -204,7 +321,30 @@ void main() {
 
     expect(harness.power.refreshCount, 1);
     expect(harness.power.appliedBrightness.last, 0.8);
+    expect(harness.power.keepScreenOnValues.last, isTrue);
   });
+
+  test(
+    'screen awake preference defaults on and can restore automatic timeout',
+    () async {
+      final harness = await TestHarness.create(pluggedIn: true);
+      addTearDown(harness.dispose);
+
+      expect(
+        harness.controller.config.preferences.keepScreenOnWhileCharging,
+        isTrue,
+      );
+      expect(harness.power.keepScreenOnValues.last, isTrue);
+
+      await harness.controller.updateChargingBrightness(keepScreenOn: false);
+
+      expect(harness.power.keepScreenOnValues.last, isFalse);
+      expect(
+        harness.repository.value.preferences.keepScreenOnWhileCharging,
+        isFalse,
+      );
+    },
+  );
 
   test('adjacent profile switching wraps in both directions', () async {
     final harness = await TestHarness.create(
@@ -306,6 +446,106 @@ void main() {
     expect(harness.hid.pressedActions.single.modifiers, contains('LEFT_CTRL'));
     expect(harness.controller.resolveShortcutLabel(button), 'Ctrl+C');
   });
+
+  test(
+    'desktop companion provides authoritative OS and receives actions',
+    () async {
+      final harness = await TestHarness.create();
+      addTearDown(harness.dispose);
+      harness.hid.selectedHost.value = const HidHost(
+        id: 'ambiguous',
+        name: 'Work Computer',
+        address: 'CC:DD',
+      );
+      harness.companion.host.value = const CompanionHost(
+        name: 'Studio Mac',
+        platform: 'macos',
+        address: '192.168.1.10',
+        port: 45678,
+        token: 'test',
+      );
+
+      expect(
+        harness.controller.effectiveShortcutPlatform,
+        ShortcutPlatform.apple,
+      );
+
+      const command = '{"kind":"launch","target":"ChatGPT"}';
+      final button = ButtonConfig.empty(1).copyWith(
+        action: const HidAction(type: ActionType.companion, value: command),
+      );
+      await harness.controller.pressButton(button);
+      await harness.controller.releaseButton(button);
+
+      expect(harness.companion.commands, [command]);
+      expect(harness.hid.pressedActions, isEmpty);
+    },
+  );
+
+  test(
+    'desktop manifest drives apps, layouts, and identifier actions',
+    () async {
+      final harness = await TestHarness.create();
+      addTearDown(harness.dispose);
+      final manifest = desktopManifest(
+        installed: const {'vscode', 'codex'},
+        running: const {'vscode'},
+      );
+      harness.companion.syncedManifest.value = manifest;
+      harness.companion.status.value = CompanionSyncStatus.ready;
+
+      expect(harness.controller.isDesktopDriven, isTrue);
+      expect(harness.controller.remoteCurrentLayout?.id, 'keyboard');
+      expect(harness.controller.remoteCodexLayout?.id, 'codex');
+      expect(harness.controller.syncedApplications, hasLength(2));
+      expect(harness.controller.runningApplications.single.id, 'vscode');
+
+      final vscode = manifest.applicationById('vscode')!;
+      final save = manifest.buttonById('vscode.save')!;
+      await harness.controller.launchRemoteApplication(vscode);
+      await harness.controller.executeRemoteButton(save);
+
+      expect(harness.companion.remoteActions.map((action) => action.kind), [
+        RemoteActionKind.launchApplication,
+        RemoteActionKind.button,
+      ]);
+      expect(harness.companion.remoteActions[1].buttonId, 'vscode.save');
+      expect(harness.shortcutUsage.records, hasLength(2));
+    },
+  );
+
+  test(
+    'shortcut usage remains local and can reorder the active Profile',
+    () async {
+      final first = profile();
+      final buttons = [...first.buttons];
+      buttons[1] = buttons[1].copyWith(
+        label: 'Paste',
+        action: const HidAction(
+          type: ActionType.keyboard,
+          keyCode: 'KEY_V',
+          modifiers: [primaryShortcutModifier],
+        ),
+      );
+      final harness = await TestHarness.create(
+        config: testConfig(profiles: [first.copyWith(buttons: buttons)]),
+      );
+      addTearDown(harness.dispose);
+
+      await harness.controller.pressButton(buttons[1]);
+      await harness.controller.releaseButton(buttons[1]);
+      await harness.controller.pressButton(buttons[1]);
+      await harness.controller.releaseButton(buttons[1]);
+      await harness.controller.pressButton(buttons[0]);
+      await harness.controller.releaseButton(buttons[0]);
+      await harness.controller.reorderActiveProfileByUsage();
+
+      expect(harness.controller.activeProfile.buttons.first.label, 'Paste');
+      expect(harness.shortcutUsage.records.first.count, 2);
+      expect(harness.repository.value.toJson(), isNot(contains('usage')));
+      expect(harness.companion.remoteActions, isEmpty);
+    },
+  );
 
   test(
     'manual shortcut platform override persists and wins over host name',

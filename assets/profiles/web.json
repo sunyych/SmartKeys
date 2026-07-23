@@ -26,7 +26,7 @@
   ],
   "wheel": {
     "controlType":"mousePad",
-    "modeLabel":"Mouse",
+    "modeLabel":"Touchpad",
     "up":{"type":"mouseMove","value":"UP","modifiers":[]},
     "down":{"type":"mouseMove","value":"DOWN","modifiers":[]},
     "left":{"type":"mouseMove","value":"LEFT","modifiers":[]},

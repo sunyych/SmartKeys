@@ -1,0 +1,10 @@
+name: lumiakeys_protocol
+description: Shared versioned protocol models for LumiaKeys Desktop and Android.
+version: 1.2.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.1
+
+dev_dependencies:
+  test: ^1.25.0
