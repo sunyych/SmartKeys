@@ -19,5 +19,5 @@
     {"id":"button_12","position":11,"label":"Stop Debug","subtitle":"Shift+F5","visual":{"type":"builtinIcon","value":"media.stop"},"action":{"type":"keyboard","keyCode":"KEY_F5","modifiers":["LEFT_SHIFT"]}},
     {"id":"button_13","position":12,"label":"Breakpoint","subtitle":"F9","visual":{"type":"builtinIcon","value":"media.record"},"action":{"type":"keyboard","keyCode":"KEY_F9","modifiers":[]}}
   ],
-  "wheel":{"controlType":"mousePad","modeLabel":"Mouse","up":{"type":"mouseMove","value":"UP"},"down":{"type":"mouseMove","value":"DOWN"},"left":{"type":"mouseMove","value":"LEFT"},"right":{"type":"mouseMove","value":"RIGHT"}}
+  "wheel":{"controlType":"mousePad","modeLabel":"Touchpad","up":{"type":"mouseMove","value":"UP"},"down":{"type":"mouseMove","value":"DOWN"},"left":{"type":"mouseMove","value":"LEFT"},"right":{"type":"mouseMove","value":"RIGHT"}}
 }

@@ -208,7 +208,7 @@ class _BluetoothConnectionSheetState extends State<BluetoothConnectionSheet> {
                     child: Padding(
                       padding: EdgeInsets.all(16),
                       child: Text(
-                        'SmartKeys uses Android’s public Bluetooth HID Device '
+                        'LumiaKeys uses Android’s public Bluetooth HID Device '
                         'profile and requires an Android 9+ phone that exposes '
                         'the HID Device profile.',
                       ),

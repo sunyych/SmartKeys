@@ -11,7 +11,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # build by specifying --build-name and --build-number, respectively.
 # In Android, build-name is used as versionName while build-number used as versionCode.
 # Read more about Android versioning at https://developer.android.com/studio/publish/versioning
-version: 1.0.0+1
+version: 1.2.0+2
 
 environment:
   sdk: ^3.12.1
@@ -29,6 +29,8 @@ dependencies:
   file_picker: ^10.3.10
   image: ^4.7.2
   image_picker: ^1.2.1
+  lumiakeys_protocol:
+    path: packages/lumiakeys_protocol
   path: ^1.9.1
   path_provider: ^2.1.5
   shared_preferences: ^2.5.4
@@ -56,6 +58,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/app_icons/
     - assets/profiles/
     - assets/community/
 

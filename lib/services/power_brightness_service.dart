@@ -9,6 +9,7 @@ abstract interface class PowerBrightnessService {
   Future<void> initialize();
   Future<void> refreshPowerState();
   Future<void> setAppBrightness(double? brightness);
+  Future<void> setKeepScreenOn(bool enabled);
   void dispose();
 }
 
@@ -58,6 +59,15 @@ class MethodChannelPowerBrightnessService implements PowerBrightnessService {
   }
 
   @override
+  Future<void> setKeepScreenOn(bool enabled) async {
+    try {
+      await channel.invokeMethod<void>('setKeepScreenOn', {'enabled': enabled});
+    } on MissingPluginException {
+      // Widget tests and non-Android hosts have no native implementation.
+    }
+  }
+
+  @override
   void dispose() {
     _disposed = true;
     channel.setMethodCallHandler(null);
@@ -71,6 +81,7 @@ class RecordingPowerBrightnessService implements PowerBrightnessService {
 
   final ValueNotifier<bool?> state;
   final List<double?> appliedBrightness = [];
+  final List<bool> keepScreenOnValues = [];
   int refreshCount = 0;
 
   @override
@@ -85,6 +96,11 @@ class RecordingPowerBrightnessService implements PowerBrightnessService {
   @override
   Future<void> setAppBrightness(double? brightness) async {
     appliedBrightness.add(brightness);
+  }
+
+  @override
+  Future<void> setKeepScreenOn(bool enabled) async {
+    keepScreenOnValues.add(enabled);
   }
 
   @override

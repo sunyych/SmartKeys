@@ -8,6 +8,7 @@ class MouseTouchpad extends StatefulWidget {
     required this.config,
     required this.inputEpoch,
     required this.onMove,
+    required this.onScroll,
     required this.onPrimaryTap,
     required this.onSecondaryTap,
   });
@@ -15,6 +16,7 @@ class MouseTouchpad extends StatefulWidget {
   final WheelConfig config;
   final int inputEpoch;
   final ValueChanged<Offset> onMove;
+  final ValueChanged<double> onScroll;
   final VoidCallback onPrimaryTap;
   final VoidCallback onSecondaryTap;
 
@@ -30,6 +32,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
   final Map<int, Offset> _startPositions = {};
   DateTime? _gestureStartedAt;
   Offset? _lastMovePosition;
+  Offset? _lastTwoFingerCentroid;
   int _maxPointerCount = 0;
   bool _moving = false;
   bool _movedBeyondTapSlop = false;
@@ -37,7 +40,9 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
   @override
   void didUpdateWidget(covariant MouseTouchpad oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.inputEpoch != widget.inputEpoch) _resetGesture();
+    if (oldWidget.inputEpoch != widget.inputEpoch) {
+      _resetGesture(notify: false);
+    }
   }
 
   void _handlePointerDown(PointerDownEvent event) {
@@ -47,6 +52,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
       _moving = false;
       _movedBeyondTapSlop = false;
       _lastMovePosition = null;
+      _lastTwoFingerCentroid = null;
       _startPositions.clear();
     }
     _pointers[event.pointer] = event.localPosition;
@@ -58,6 +64,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
       if (_moving) _movedBeyondTapSlop = true;
       _moving = false;
       _lastMovePosition = null;
+      _lastTwoFingerCentroid = _centroid;
     }
     setState(() {});
   }
@@ -68,9 +75,19 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
     _pointers[event.pointer] = event.localPosition;
 
     if (_maxPointerCount > 1 || _pointers.length > 1) {
-      if ((event.localPosition - start).distance > _tapSlop) {
-        _movedBeyondTapSlop = true;
+      if (_pointers.length != 2) return;
+      final centroid = _centroid;
+      if (!_movedBeyondTapSlop) {
+        if ((event.localPosition - start).distance > _tapSlop) {
+          _movedBeyondTapSlop = true;
+          _lastTwoFingerCentroid = centroid;
+          setState(() {});
+        }
+        return;
       }
+      final previous = _lastTwoFingerCentroid;
+      _lastTwoFingerCentroid = centroid;
+      if (previous != null) widget.onScroll((centroid - previous).dy);
       return;
     }
 
@@ -92,19 +109,20 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
 
   void _handlePointerUp(PointerUpEvent event) {
     final start = _startPositions[event.pointer];
-    if (start != null &&
-        (event.localPosition - start).distance > _tapSlop) {
+    if (start != null && (event.localPosition - start).distance > _tapSlop) {
       _movedBeyondTapSlop = true;
     }
     _pointers.remove(event.pointer);
     _startPositions.remove(event.pointer);
     if (_pointers.isNotEmpty) {
+      _lastTwoFingerCentroid = null;
       setState(() {});
       return;
     }
 
     final startedAt = _gestureStartedAt;
-    final isTap = startedAt != null &&
+    final isTap =
+        startedAt != null &&
         !_movedBeyondTapSlop &&
         _maxPointerCount <= 2 &&
         DateTime.now().difference(startedAt) <= _maxTapDuration;
@@ -130,15 +148,25 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
     }
   }
 
-  void _resetGesture() {
+  void _resetGesture({bool notify = true}) {
     _pointers.clear();
     _startPositions.clear();
     _gestureStartedAt = null;
     _lastMovePosition = null;
+    _lastTwoFingerCentroid = null;
     _maxPointerCount = 0;
     _moving = false;
     _movedBeyondTapSlop = false;
-    if (mounted) setState(() {});
+    if (notify && mounted) setState(() {});
+  }
+
+  Offset get _centroid {
+    if (_pointers.isEmpty) return Offset.zero;
+    final total = _pointers.values.fold<Offset>(
+      Offset.zero,
+      (sum, position) => sum + position,
+    );
+    return total / _pointers.length.toDouble();
   }
 
   @override
@@ -149,6 +177,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
         : configuredLabel;
     final active = _pointers.isNotEmpty;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(label, style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 6),
@@ -156,7 +185,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
           child: Semantics(
             label: 'Mouse touchpad',
             hint:
-                'Move with one finger, tap for left click, two-finger tap for right click',
+                'Move with one finger, tap for left click, scroll with two fingers, or two-finger tap for right click',
             child: Listener(
               key: const ValueKey('mouse-touchpad'),
               behavior: HitTestBehavior.opaque,
@@ -181,10 +210,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
                   ),
                   boxShadow: active
                       ? const [
-                          BoxShadow(
-                            color: Color(0x554DE7FF),
-                            blurRadius: 18,
-                          ),
+                          BoxShadow(color: Color(0x554DE7FF), blurRadius: 18),
                         ]
                       : const [
                           BoxShadow(
@@ -200,9 +226,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
                     Icon(
                       _moving ? Icons.near_me : Icons.touch_app_outlined,
                       size: 52,
-                      color: active
-                          ? const Color(0xFF8CEBFA)
-                          : Colors.white24,
+                      color: active ? const Color(0xFF8CEBFA) : Colors.white24,
                     ),
                     if (_pointers.isNotEmpty)
                       Positioned(
@@ -215,7 +239,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
                       right: 16,
                       bottom: 13,
                       child: Text(
-                        '1 finger: move / tap  •  2 fingers: right click',
+                        '1 finger: move / tap  •  2 fingers: scroll / right click',
                         textAlign: TextAlign.center,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

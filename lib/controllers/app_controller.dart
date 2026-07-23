@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../data/config_repository.dart';
 import '../data/private_image_store.dart';
 import '../data/profile_template_repository.dart';
+import '../data/shortcut_usage_repository.dart';
 import '../models/config.dart';
 import '../services/hid_service.dart';
+import '../services/companion_service.dart';
 import '../services/orientation_service.dart';
 import '../services/power_brightness_service.dart';
 
@@ -16,20 +20,28 @@ class AppController extends ChangeNotifier {
     required this.repository,
     required this.templates,
     required this.hid,
+    required this.companion,
     required this.orientationService,
     required this.imageStore,
     required this.powerBrightnessService,
+    required this.shortcutUsage,
   }) {
     hid.activeHost.addListener(_handleActiveHostChanged);
+    companion.activeHost.addListener(_handleCompanionHostChanged);
+    companion.manifest.addListener(_handleCompanionManifestChanged);
+    companion.syncStatus.addListener(_handleCompanionManifestChanged);
+    companion.errorMessage.addListener(_handleCompanionManifestChanged);
     powerBrightnessService.isPluggedIn.addListener(_handlePowerChanged);
   }
 
   final ConfigRepository repository;
   final ProfileTemplateRepository templates;
   final HidService hid;
+  final CompanionService companion;
   final OrientationService orientationService;
   final PrivateImageStore imageStore;
   final PowerBrightnessService powerBrightnessService;
+  final ShortcutUsageRepository shortcutUsage;
 
   AppConfig? _config;
   bool _isLoading = true;
@@ -39,8 +51,16 @@ class AppController extends ChangeNotifier {
   final Set<int> _pressedPositions = {};
   final Map<int, HidAction> _pressedButtonActions = {};
   HidAction? _pressedWheelCenterAction;
+  double _touchpadScrollAccumulator = 0;
+  Future<void> _darkTransition = Future.value();
   ButtonConfig? _buttonClipboard;
   int _profileIdSequence = 0;
+  bool _darkModeActive = false;
+
+  static const _darkPhoneBrightness = 0.1;
+  static const _displayBrightnessDownSteps = 20;
+  static const _displayBrightnessUpSteps = 20;
+  static const _keyboardBrightnessSteps = 16;
 
   bool get isLoading => _isLoading;
   Object? get error => _error;
@@ -50,6 +70,31 @@ class AppController extends ChangeNotifier {
   int get inputEpoch => _inputEpoch;
   bool get hasButtonClipboard => _buttonClipboard != null;
   bool get canAddProfile => config.profiles.length < freeProfileLimit;
+  bool get isDarkModeActive => _darkModeActive;
+  DesktopManifest? get desktopManifest => companion.manifest.value;
+  bool get isDesktopDriven => desktopManifest != null;
+  RemoteShortcutLayout? get remoteCurrentLayout =>
+      desktopManifest?.currentLayout;
+  RemoteShortcutLayout? get remoteCodexLayout =>
+      desktopManifest?.layouts.cast<RemoteShortcutLayout?>().firstWhere(
+        (layout) => layout?.kind == RemoteLayoutKind.codex,
+        orElse: () => null,
+      );
+  List<RemoteApplication> get syncedApplications {
+    final manifest = desktopManifest;
+    if (manifest == null || !manifest.settings.enableAppsSync) return const [];
+    return manifest.applications
+        .where((application) => application.detected)
+        .toList(growable: false);
+  }
+
+  List<RemoteApplication> get runningApplications => syncedApplications
+      .where((application) => application.running)
+      .toList(growable: false);
+
+  bool get hasAppsSync => syncedApplications.isNotEmpty;
+  RemoteShortcutLayout? layoutForApplication(RemoteApplication application) =>
+      desktopManifest?.layoutById(application.layoutId);
   List<ProfileConfig> get orderedProfiles {
     final byId = {for (final profile in config.profiles) profile.id: profile};
     return config.profileOrder
@@ -61,6 +106,12 @@ class AppController extends ChangeNotifier {
   ShortcutPlatform get effectiveShortcutPlatform {
     final configured = config.preferences.shortcutPlatform;
     if (configured != ShortcutPlatform.automatic) return configured;
+    final desktop = companion.activeHost.value;
+    if (desktop != null) {
+      return desktop.isApple
+          ? ShortcutPlatform.apple
+          : ShortcutPlatform.windowsLinux;
+    }
     return detectShortcutPlatform(hid.activeHost.value?.name);
   }
 
@@ -103,9 +154,11 @@ class AppController extends ChangeNotifier {
   Future<void> initialize() async {
     try {
       _config = await repository.load();
+      await shortcutUsage.load();
       await orientationService.apply(config.preferences.orientationMode);
       await powerBrightnessService.initialize();
-      await _applyBrightnessForCurrentPowerState();
+      await companion.start();
+      await _applyChargingDisplayState();
     } catch (error) {
       _error = error;
     } finally {
@@ -124,6 +177,7 @@ class AppController extends ChangeNotifier {
     _pressedPositions.clear();
     _pressedButtonActions.clear();
     _pressedWheelCenterAction = null;
+    _touchpadScrollAccumulator = 0;
     _inputEpoch++;
     unawaited(
       hid.releaseAllKeys().catchError((Object error) {
@@ -136,6 +190,7 @@ class AppController extends ChangeNotifier {
     _pressedPositions.clear();
     _pressedButtonActions.clear();
     _pressedWheelCenterAction = null;
+    _touchpadScrollAccumulator = 0;
     _inputEpoch++;
     notifyListeners();
     try {
@@ -169,6 +224,29 @@ class AppController extends ChangeNotifier {
 
   Future<void> pressButton(ButtonConfig button) async {
     if (button.action.type == ActionType.none) return;
+    _recordShortcutUsage(
+      _localButtonUsageKey(activeProfile, button),
+      '${activeProfile.name} · ${button.label}',
+    );
+    if (_isDarkAction(button.action)) {
+      if (config.preferences.hapticEnabled && button.hapticEnabled) {
+        unawaited(HapticFeedback.lightImpact());
+      }
+      if (config.preferences.soundEnabled && button.soundEnabled) {
+        unawaited(SystemSound.play(SystemSoundType.click));
+      }
+      await _toggleDarkMode();
+      notifyListeners();
+      return;
+    }
+    if (button.action.type == ActionType.companion) {
+      if (config.preferences.hapticEnabled && button.hapticEnabled) {
+        unawaited(HapticFeedback.lightImpact());
+      }
+      await companion.execute(button.action.value ?? '{}');
+      notifyListeners();
+      return;
+    }
     final resolvedAction = _resolveShortcutAction(button.action);
     _pressedPositions.add(button.position);
     _pressedButtonActions[button.position] = resolvedAction;
@@ -181,6 +259,24 @@ class AppController extends ChangeNotifier {
     }
     await hid.sendPress(resolvedAction);
   }
+
+  Future<void> executeRemoteButton(RemoteShortcutButton button) async {
+    _recordShortcutUsage('desktop:button:${button.id}', button.name);
+    await companion.executeRemote(RemoteActionRequest.button(button.id));
+  }
+
+  Future<void> launchRemoteApplication(RemoteApplication application) async {
+    _recordShortcutUsage(
+      'desktop:app:${application.id}',
+      'Open ${application.name}',
+    );
+    await companion.executeRemote(
+      RemoteActionRequest.launchApplication(application.id),
+    );
+  }
+
+  Future<void> switchRemoteProfile(RemoteProfile profile) =>
+      companion.executeRemote(RemoteActionRequest.switchProfile(profile.id));
 
   Future<void> releaseButton(ButtonConfig button) async {
     if (!_pressedPositions.remove(button.position)) return;
@@ -196,6 +292,10 @@ class AppController extends ChangeNotifier {
         ? activeProfile.wheel.clockwise
         : activeProfile.wheel.counterClockwise;
     if (action.type != ActionType.none) {
+      _recordShortcutUsage(
+        'local:${activeProfile.id}:wheel:${clockwise ? 'clockwise' : 'counterClockwise'}',
+        '${activeProfile.name} · ${clockwise ? 'Wheel clockwise' : 'Wheel counter-clockwise'}',
+      );
       await hid.sendStep(_resolveShortcutAction(action));
     }
   }
@@ -203,6 +303,10 @@ class AppController extends ChangeNotifier {
   Future<void> pressWheelCenter() async {
     final action = activeProfile.wheel.center;
     if (action.type != ActionType.none) {
+      _recordShortcutUsage(
+        'local:${activeProfile.id}:wheel:center',
+        '${activeProfile.name} · Wheel center',
+      );
       final resolvedAction = _resolveShortcutAction(action);
       _pressedWheelCenterAction = resolvedAction;
       await hid.sendPress(resolvedAction);
@@ -221,9 +325,7 @@ class AppController extends ChangeNotifier {
     final y = (deltaY * sensitivity).round().clamp(-127, 127);
     if (x == 0 && y == 0) return;
     unawaited(
-      hid.sendPress(
-        HidAction(type: ActionType.mouseMove, value: '$x,$y'),
-      ),
+      hid.sendPress(HidAction(type: ActionType.mouseMove, value: '$x,$y')),
     );
   }
 
@@ -237,6 +339,24 @@ class AppController extends ChangeNotifier {
           type: ActionType.mouseButton,
           value: secondary ? 'RIGHT' : 'LEFT',
         ),
+      ),
+    );
+  }
+
+  void sendPrimaryMouseClick() => sendMouseClick(secondary: false);
+
+  void sendSecondaryMouseClick() => sendMouseClick(secondary: true);
+
+  void sendTouchpadScroll(double deltaY) {
+    const pixelsPerWheelStep = 12.0;
+    _touchpadScrollAccumulator += deltaY;
+    final steps = (_touchpadScrollAccumulator / pixelsPerWheelStep).truncate();
+    if (steps == 0) return;
+    _touchpadScrollAccumulator -= steps * pixelsPerWheelStep;
+    final wheelDelta = (-steps).clamp(-127, 127);
+    unawaited(
+      hid.sendStep(
+        HidAction(type: ActionType.mouseWheel, value: '$wheelDelta'),
       ),
     );
   }
@@ -256,6 +376,98 @@ class AppController extends ChangeNotifier {
           .toList(growable: false),
     );
   }
+
+  static bool _isDarkAction(HidAction action) {
+    if (action.type != ActionType.companion || action.value == null) {
+      return false;
+    }
+    try {
+      final decoded = jsonDecode(action.value!);
+      return decoded is Map && decoded['kind'] == 'dark';
+    } on FormatException {
+      return false;
+    }
+  }
+
+  Future<void> _toggleDarkMode() async {
+    _darkModeActive = !_darkModeActive;
+    final enabled = _darkModeActive;
+    notifyListeners();
+
+    final transition = _darkTransition.then(
+      (_) => _applyDarkTransition(enabled),
+      onError: (_, _) => _applyDarkTransition(enabled),
+    );
+    _darkTransition = transition;
+    await transition;
+  }
+
+  Future<void> _applyDarkTransition(bool enabled) async {
+    if (enabled) {
+      await powerBrightnessService.setAppBrightness(_darkPhoneBrightness);
+    } else {
+      await _applyChargingDisplayState();
+    }
+
+    final hostTasks = <Future<void>>[];
+    if (hid.connectionStatus.value == HidConnectionStatus.connected) {
+      hostTasks.add(_setHostDarkThroughHid(enabled));
+    }
+    if (companion.activeHost.value != null) {
+      hostTasks.add(
+        companion.execute(jsonEncode({'kind': 'dark', 'enabled': enabled})),
+      );
+    }
+    await Future.wait(hostTasks);
+  }
+
+  Future<void> _setHostDarkThroughHid(bool enabled) async {
+    const displayDown = HidAction(
+      type: ActionType.consumerControl,
+      value: 'BRIGHTNESS_DOWN',
+    );
+    const displayUp = HidAction(
+      type: ActionType.consumerControl,
+      value: 'BRIGHTNESS_UP',
+    );
+    const keyboardDown = HidAction(
+      type: ActionType.consumerControl,
+      value: 'KEYBOARD_BRIGHTNESS_DOWN',
+    );
+    const keyboardUp = HidAction(
+      type: ActionType.consumerControl,
+      value: 'KEYBOARD_BRIGHTNESS_UP',
+    );
+    const keyboardMinimum = HidAction(
+      type: ActionType.consumerControl,
+      value: 'KEYBOARD_BACKLIGHT_MINIMUM',
+    );
+    const keyboardMaximum = HidAction(
+      type: ActionType.consumerControl,
+      value: 'KEYBOARD_BACKLIGHT_MAXIMUM',
+    );
+    if (enabled) {
+      for (var step = 0; step < _displayBrightnessDownSteps; step++) {
+        await hid.sendStep(displayDown);
+      }
+      await hid.sendStep(keyboardMinimum);
+      for (var step = 0; step < _keyboardBrightnessSteps; step++) {
+        await hid.sendStep(keyboardDown);
+      }
+      return;
+    }
+    for (var step = 0; step < _displayBrightnessUpSteps; step++) {
+      await hid.sendStep(displayUp);
+    }
+    await hid.sendStep(keyboardMaximum);
+    for (var step = 0; step < _keyboardBrightnessSteps; step++) {
+      await hid.sendStep(keyboardUp);
+    }
+  }
+
+  void _handleCompanionHostChanged() => notifyListeners();
+
+  void _handleCompanionManifestChanged() => notifyListeners();
 
   Future<void> updateOrientationMode(OrientationMode mode) async {
     _config = config.copyWith(
@@ -294,38 +506,48 @@ class AppController extends ChangeNotifier {
   Future<void> updateChargingBrightness({
     ChargingBrightnessMode? mode,
     double? brightness,
+    bool? keepScreenOn,
   }) async {
+    _darkModeActive = false;
     _config = config.copyWith(
       preferences: config.preferences.copyWith(
         chargingBrightnessMode: mode,
         chargingBrightness: brightness,
+        keepScreenOnWhileCharging: keepScreenOn,
       ),
     );
     notifyListeners();
-    await Future.wait([
-      repository.save(config),
-      _applyBrightnessForCurrentPowerState(),
-    ]);
+    await Future.wait([repository.save(config), _applyChargingDisplayState()]);
   }
 
   Future<void> handleAppResumed() async {
     await powerBrightnessService.refreshPowerState();
-    await _applyBrightnessForCurrentPowerState();
+    await _applyChargingDisplayState();
   }
 
   void _handlePowerChanged() {
     notifyListeners();
-    unawaited(_applyBrightnessForCurrentPowerState());
+    unawaited(_applyChargingDisplayState());
   }
 
-  Future<void> _applyBrightnessForCurrentPowerState() {
+  Future<void> _applyChargingDisplayState() async {
     final preferences = config.preferences;
+    final pluggedIn = powerBrightnessService.isPluggedIn.value == true;
     final fixedWhileCharging =
-        powerBrightnessService.isPluggedIn.value == true &&
+        pluggedIn &&
         preferences.chargingBrightnessMode == ChargingBrightnessMode.fixed;
-    return powerBrightnessService.setAppBrightness(
-      fixedWhileCharging ? preferences.chargingBrightness : null,
-    );
+    await Future.wait([
+      powerBrightnessService.setAppBrightness(
+        _darkModeActive
+            ? _darkPhoneBrightness
+            : fixedWhileCharging
+            ? preferences.chargingBrightness
+            : null,
+      ),
+      powerBrightnessService.setKeepScreenOn(
+        pluggedIn && preferences.keepScreenOnWhileCharging,
+      ),
+    ]);
   }
 
   Future<void> updateButton(ButtonConfig updated) async {
@@ -366,6 +588,55 @@ class AppController extends ChangeNotifier {
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );
+  }
+
+  int usageCountForButton(ProfileConfig profile, ButtonConfig button) =>
+      shortcutUsage.countFor(_localButtonUsageKey(profile, button));
+
+  Future<void> reorderActiveProfileByUsage() async {
+    final profile = activeProfile;
+    final ordered = [...profile.buttons]
+      ..sort((a, b) {
+        final aEmpty = a.action.type == ActionType.none;
+        final bEmpty = b.action.type == ActionType.none;
+        if (aEmpty != bEmpty) return aEmpty ? 1 : -1;
+        final byUsage = usageCountForButton(
+          profile,
+          b,
+        ).compareTo(usageCountForButton(profile, a));
+        return byUsage != 0 ? byUsage : a.position.compareTo(b.position);
+      });
+    final repositioned = [
+      for (var position = 0; position < ordered.length; position++)
+        _moveButtonToPosition(ordered[position], position),
+    ];
+    await _replaceProfile(
+      profile.copyWith(
+        buttons: repositioned,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  static String _localButtonUsageKey(
+    ProfileConfig profile,
+    ButtonConfig button,
+  ) {
+    final action = button.action;
+    final modifiers = [...action.modifiers]..sort();
+    return [
+      'local',
+      profile.id,
+      action.type.name,
+      action.keyCode ?? '',
+      modifiers.join(','),
+      action.value ?? '',
+      button.label,
+    ].join(':');
+  }
+
+  void _recordShortcutUsage(String key, String label) {
+    unawaited(shortcutUsage.record(key, label).catchError((Object _) {}));
   }
 
   static ButtonConfig _moveButtonToPosition(
@@ -626,7 +897,11 @@ class AppController extends ChangeNotifier {
     _config = config.copyWith(profiles: profiles);
     notifyListeners();
     await repository.save(config);
-    await imageStore.cleanupUnreferenced(config);
+    unawaited(
+      imageStore.cleanupUnreferenced(config).catchError((Object _) {
+        // Image cleanup is housekeeping and must never block a saved edit.
+      }),
+    );
   }
 
   String _nextProfileId() {
@@ -653,9 +928,15 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     hid.activeHost.removeListener(_handleActiveHostChanged);
+    companion.activeHost.removeListener(_handleCompanionHostChanged);
+    companion.manifest.removeListener(_handleCompanionManifestChanged);
+    companion.syncStatus.removeListener(_handleCompanionManifestChanged);
+    companion.errorMessage.removeListener(_handleCompanionManifestChanged);
     powerBrightnessService.isPluggedIn.removeListener(_handlePowerChanged);
     hid.dispose();
+    companion.dispose();
     powerBrightnessService.dispose();
+    shortcutUsage.dispose();
     super.dispose();
   }
 }

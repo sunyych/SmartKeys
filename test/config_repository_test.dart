@@ -13,7 +13,7 @@ import 'test_support.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('schema v6 round-trips shortcut platform and profiles', () {
+  test('schema v7 round-trips shortcut platform and profiles', () {
     final original =
         testConfig(
           profiles: [
@@ -28,6 +28,7 @@ void main() {
             shortcutPlatform: ShortcutPlatform.apple,
             chargingBrightnessMode: ChargingBrightnessMode.dynamic,
             chargingBrightness: 0.65,
+            keepScreenOnWhileCharging: false,
           ),
         );
 
@@ -35,7 +36,7 @@ void main() {
       jsonDecode(jsonEncode(original.toJson())) as Map<String, dynamic>,
     );
 
-    expect(decoded.schemaVersion, 6);
+    expect(decoded.schemaVersion, 7);
     expect(decoded.activeProfileId, 'profile_design');
     expect(decoded.profiles, hasLength(2));
     expect(decoded.activeProfile.buttons, hasLength(controlButtonCount));
@@ -47,6 +48,7 @@ void main() {
       ChargingBrightnessMode.dynamic,
     );
     expect(decoded.preferences.chargingBrightness, 0.65);
+    expect(decoded.preferences.keepScreenOnWhileCharging, isFalse);
   });
 
   test('schema v2 migrates Ctrl shortcuts to PRIMARY', () {
@@ -62,13 +64,13 @@ void main() {
 
     final migrated = AppConfig.fromJson(legacy);
 
-    expect(migrated.schemaVersion, 6);
+    expect(migrated.schemaVersion, 7);
     expect(migrated.activeProfile.buttons.first.action.modifiers, [
       primaryShortcutModifier,
     ]);
   });
 
-  test('schema v6 refuses to restore more than four free slots', () {
+  test('schema v7 refuses to restore more than four free slots', () {
     final values = List.generate(
       5,
       (index) => profile(id: 'profile_$index', name: 'Profile $index'),
@@ -87,7 +89,7 @@ void main() {
   });
 
   test(
-    'schema v1 migrates into one independent schema v6 General profile',
+    'schema v1 migrates into one independent schema v7 General profile',
     () async {
       final general = (await ProfileTemplateRepository(
         bundle: rootBundle,
@@ -110,7 +112,7 @@ void main() {
         'hapticEnabled': false,
       }, general);
 
-      expect(migrated.schemaVersion, 6);
+      expect(migrated.schemaVersion, 7);
       expect(migrated.profiles, hasLength(1));
       expect(migrated.profiles.single.buttons, hasLength(controlButtonCount));
       expect(migrated.profiles.single.buttons.first.label, 'Mute');
@@ -153,7 +155,7 @@ void main() {
       'Play/Pause',
       'Next',
       'Open',
-      'Favorite',
+      'Dark',
       'Cut',
       'Copy',
       'Paste',
@@ -161,12 +163,14 @@ void main() {
       'Delete',
     ]);
     expect(
-      [3, 4, 8, 9, 10, 11, 12, 13].every(
+      [3, 4, 8, 10, 11, 12, 13].every(
         (position) => profiles.first.buttons[position].action.modifiers
             .contains(primaryShortcutModifier),
       ),
       isTrue,
     );
+    expect(profiles.first.buttons[9].action.type, ActionType.companion);
+    expect(profiles.first.buttons[9].action.value, '{"kind":"dark"}');
     expect(profiles.first.wheel.controlType, WheelControlType.mousePad);
     expect(profiles.first.wheel.up.value, 'UP');
     expect(profiles.first.wheel.down.value, 'DOWN');
@@ -225,6 +229,37 @@ void main() {
       expect(migrated.profiles.last.buttons.first.label, 'My Mute');
     },
   );
+
+  test('schema v6 migration installs Dark into existing General', () async {
+    final templates = await ProfileTemplateRepository(
+      bundle: rootBundle,
+    ).loadAll();
+    final existing = profile(firstLabel: 'My Copy').copyWith(
+      buttons: [
+        for (final button in profile(firstLabel: 'My Copy').buttons)
+          button.position == 9
+              ? button.copyWith(
+                  label: 'Favorite',
+                  action: const HidAction(
+                    type: ActionType.keyboard,
+                    keyCode: 'KEY_D',
+                    modifiers: [primaryShortcutModifier],
+                  ),
+                )
+              : button,
+      ],
+    );
+
+    final migrated = SharedPreferencesConfigRepository.migrateV6DarkControl(
+      testConfig(profiles: [existing]),
+      templates,
+    );
+
+    expect(migrated.activeProfile.buttons.first.label, 'My Copy');
+    expect(migrated.activeProfile.buttons[9].label, 'Dark');
+    expect(migrated.activeProfile.buttons[9].visual.value, 'device.dark');
+    expect(migrated.activeProfile.buttons[9].action.value, '{"kind":"dark"}');
+  });
 
   test('shared profile JSON is validated and normalized for import', () {
     const transfer = ProfileTransferService();
@@ -301,7 +336,7 @@ void main() {
         'Play/Pause',
         'Next',
         'Open',
-        'Favorite',
+        'Dark',
         'Cut',
         'Copy',
         'Paste',
@@ -330,6 +365,7 @@ void main() {
     expect(BuiltinIconCatalog.find('edit.copy'), isNotNull);
     expect(BuiltinIconCatalog.find('edit.paste'), isNotNull);
     expect(BuiltinIconCatalog.find('file.favorite'), isNotNull);
+    expect(BuiltinIconCatalog.find('device.dark'), isNotNull);
     expect(BuiltinIconCatalog.find('profile.web'), isNotNull);
     expect(BuiltinIconCatalog.find('profile.meetings'), isNotNull);
     expect(BuiltinIconCatalog.find('design.brush'), isNotNull);

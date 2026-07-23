@@ -108,6 +108,12 @@ abstract final class BuiltinIconCatalog {
       icon: Icons.star_border,
     ),
     BuiltinIconDefinition(
+      id: 'device.dark',
+      label: 'Dark',
+      category: device,
+      icon: Icons.brightness_2_outlined,
+    ),
+    BuiltinIconDefinition(
       id: 'key.enter',
       label: 'Enter',
       category: common,

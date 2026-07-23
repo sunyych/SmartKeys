@@ -10,6 +10,7 @@ enum VisualFit { contain, cover, centerCrop }
 
 enum ActionType {
   keyboard,
+  companion,
   consumerControl,
   mouseWheel,
   mouseMove,
@@ -427,6 +428,7 @@ class AppPreferences {
     this.shortcutPlatform = ShortcutPlatform.automatic,
     this.chargingBrightnessMode = ChargingBrightnessMode.fixed,
     this.chargingBrightness = 0.8,
+    this.keepScreenOnWhileCharging = true,
   });
 
   final bool hapticEnabled;
@@ -435,6 +437,7 @@ class AppPreferences {
   final ShortcutPlatform shortcutPlatform;
   final ChargingBrightnessMode chargingBrightnessMode;
   final double chargingBrightness;
+  final bool keepScreenOnWhileCharging;
 
   factory AppPreferences.fromJson(Map<String, dynamic>? json) => AppPreferences(
     hapticEnabled: json?['hapticEnabled'] as bool? ?? true,
@@ -459,6 +462,8 @@ class AppPreferences {
           0.1,
           1.0,
         ),
+    keepScreenOnWhileCharging:
+        json?['keepScreenOnWhileCharging'] as bool? ?? true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -468,6 +473,7 @@ class AppPreferences {
     'shortcutPlatform': shortcutPlatform.name,
     'chargingBrightnessMode': chargingBrightnessMode.name,
     'chargingBrightness': chargingBrightness,
+    'keepScreenOnWhileCharging': keepScreenOnWhileCharging,
   };
 
   AppPreferences copyWith({
@@ -477,6 +483,7 @@ class AppPreferences {
     ShortcutPlatform? shortcutPlatform,
     ChargingBrightnessMode? chargingBrightnessMode,
     double? chargingBrightness,
+    bool? keepScreenOnWhileCharging,
   }) => AppPreferences(
     hapticEnabled: hapticEnabled ?? this.hapticEnabled,
     soundEnabled: soundEnabled ?? this.soundEnabled,
@@ -488,11 +495,13 @@ class AppPreferences {
       0.1,
       1.0,
     ),
+    keepScreenOnWhileCharging:
+        keepScreenOnWhileCharging ?? this.keepScreenOnWhileCharging,
   );
 }
 
 class AppConfig {
-  static const currentSchemaVersion = 6;
+  static const currentSchemaVersion = 7;
 
   const AppConfig({
     this.schemaVersion = currentSchemaVersion,
