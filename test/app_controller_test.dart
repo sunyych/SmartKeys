@@ -492,6 +492,7 @@ void main() {
         running: const {'vscode'},
       );
       harness.companion.syncedManifest.value = manifest;
+      harness.companion.host.value = connectedCompanionHost;
       harness.companion.status.value = CompanionSyncStatus.ready;
 
       expect(harness.controller.isDesktopDriven, isTrue);

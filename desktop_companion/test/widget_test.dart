@@ -19,6 +19,7 @@ class _InstalledDiscovery implements ApplicationDiscovery {
           (app) => app.copyWith(
             detected: app.id == 'vscode' || app.id == 'codex',
             running: app.id == 'vscode',
+            foreground: app.id == 'vscode',
           ),
         )
         .toList(growable: false);
@@ -169,6 +170,7 @@ void main() {
         ],
       );
       expect(controller.manifest.applicationById('vscode')!.running, isTrue);
+      expect(controller.manifest.applicationById('vscode')!.foreground, isTrue);
       final synced = DesktopManifest.fromJson(
         controller.manifest.toJson(forSync: true),
       );
@@ -176,6 +178,7 @@ void main() {
         'vscode',
         'codex',
       });
+      expect(synced.applicationById('vscode')!.foreground, isTrue);
     },
   );
 

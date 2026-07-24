@@ -71,6 +71,25 @@ void main() {
     expect(synced.applications.single.running, isTrue);
   });
 
+  test('sync preserves one Desktop-observed foreground application', () {
+    final original = DesktopManifest.starter();
+    final state = original.copyWith(
+      applications: original.applications
+          .map(
+            (application) => application.copyWith(
+              detected: application.id == 'vscode',
+              running: application.id == 'vscode',
+              foreground: application.id == 'vscode',
+            ),
+          )
+          .toList(growable: false),
+    );
+
+    final synced = DesktopManifest.fromJson(state.toJson(forSync: true));
+    expect(synced.applications.single.id, 'vscode');
+    expect(synced.applications.single.foreground, isTrue);
+  });
+
   test('remote actions only contain desktop-owned identifiers', () {
     expect(
       RemoteActionRequest.button('keyboard.copy').toJson(),

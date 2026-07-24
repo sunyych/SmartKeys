@@ -67,7 +67,13 @@ class CompanionServer extends ChangeNotifier {
         'port': http.port,
         'token': token,
         'revision': controller.manifest.revision,
-        'capabilities': ['manifest', 'apps', 'codex', 'icons'],
+        'capabilities': [
+          'manifest',
+          'apps',
+          'codex',
+          'icons',
+          'foreground-app',
+        ],
       }),
     );
     udp.send(message, InternetAddress('255.255.255.255'), discoveryPort);

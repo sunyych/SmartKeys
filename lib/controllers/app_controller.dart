@@ -10,6 +10,7 @@ import '../data/private_image_store.dart';
 import '../data/profile_template_repository.dart';
 import '../data/shortcut_usage_repository.dart';
 import '../models/config.dart';
+import '../models/control_surface_status.dart';
 import '../services/hid_service.dart';
 import '../services/companion_service.dart';
 import '../services/orientation_service.dart';
@@ -27,6 +28,7 @@ class AppController extends ChangeNotifier {
     required this.shortcutUsage,
   }) {
     hid.activeHost.addListener(_handleActiveHostChanged);
+    hid.connectionStatus.addListener(_handleActiveHostChanged);
     companion.activeHost.addListener(_handleCompanionHostChanged);
     companion.manifest.addListener(_handleCompanionManifestChanged);
     companion.syncStatus.addListener(_handleCompanionManifestChanged);
@@ -72,7 +74,14 @@ class AppController extends ChangeNotifier {
   bool get canAddProfile => config.profiles.length < freeProfileLimit;
   bool get isDarkModeActive => _darkModeActive;
   DesktopManifest? get desktopManifest => companion.manifest.value;
-  bool get isDesktopDriven => desktopManifest != null;
+
+  /// A retained manifest is intentionally kept for diagnostics after a LAN
+  /// timeout. It is not an active Desktop sync and must not drive the surface.
+  bool get isDesktopSynced =>
+      companion.activeHost.value != null &&
+      companion.syncStatus.value == CompanionSyncStatus.ready &&
+      desktopManifest != null;
+  bool get isDesktopDriven => isDesktopSynced;
   RemoteShortcutLayout? get remoteCurrentLayout =>
       desktopManifest?.currentLayout;
   RemoteShortcutLayout? get remoteCodexLayout =>
@@ -82,7 +91,11 @@ class AppController extends ChangeNotifier {
       );
   List<RemoteApplication> get syncedApplications {
     final manifest = desktopManifest;
-    if (manifest == null || !manifest.settings.enableAppsSync) return const [];
+    if (!isDesktopSynced ||
+        manifest == null ||
+        !manifest.settings.enableAppsSync) {
+      return const [];
+    }
     return manifest.applications
         .where((application) => application.detected)
         .toList(growable: false);
@@ -93,6 +106,50 @@ class AppController extends ChangeNotifier {
       .toList(growable: false);
 
   bool get hasAppsSync => syncedApplications.isNotEmpty;
+  RemoteApplication? get foregroundApplication =>
+      syncedApplications.cast<RemoteApplication?>().firstWhere(
+        (application) => application?.foreground == true,
+        orElse: () => null,
+      );
+
+  RemoteShortcutLayout? get genericSyncedLayout =>
+      isDesktopSynced ? desktopManifest?.currentLayout : null;
+
+  RemoteShortcutLayout? get foregroundApplicationLayout {
+    final application = foregroundApplication;
+    if (application == null) return null;
+    final layout = layoutForApplication(application);
+    return layout == null || layout.buttons.isEmpty ? null : layout;
+  }
+
+  bool get hasCodexWorkspace =>
+      syncedApplications.any((application) => application.id == 'codex') &&
+      remoteCodexLayout != null;
+
+  ControlSurfaceStatus get controlSurfaceStatus {
+    final foreground = foregroundApplication;
+    final foregroundStatus = !isDesktopSynced
+        ? ForegroundWorkspaceStatus.unavailable
+        : foreground == null
+        ? ForegroundWorkspaceStatus.unknown
+        : foregroundApplicationLayout == null
+        ? ForegroundWorkspaceStatus.unavailableActions
+        : ForegroundWorkspaceStatus.ready;
+    final preferredSurface = foregroundStatus == ForegroundWorkspaceStatus.ready
+        ? PreferredControlSurface.foregroundApplication
+        : isDesktopSynced
+        ? PreferredControlSurface.syncedGeneric
+        : PreferredControlSurface.localGeneric;
+    return ControlSurfaceStatus(
+      hidConnected: hid.connectionStatus.value == HidConnectionStatus.connected,
+      desktopDiscovered: companion.activeHost.value != null,
+      desktopSynced: isDesktopSynced,
+      foregroundStatus: foregroundStatus,
+      preferredSurface: preferredSurface,
+      foregroundApplicationName: foreground?.name,
+    );
+  }
+
   RemoteShortcutLayout? layoutForApplication(RemoteApplication application) =>
       desktopManifest?.layoutById(application.layoutId);
   List<ProfileConfig> get orderedProfiles {
@@ -928,6 +985,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     hid.activeHost.removeListener(_handleActiveHostChanged);
+    hid.connectionStatus.removeListener(_handleActiveHostChanged);
     companion.activeHost.removeListener(_handleCompanionHostChanged);
     companion.manifest.removeListener(_handleCompanionManifestChanged);
     companion.syncStatus.removeListener(_handleCompanionManifestChanged);

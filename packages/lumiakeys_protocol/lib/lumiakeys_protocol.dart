@@ -138,6 +138,7 @@ class RemoteApplication {
     required this.layoutId,
     this.detected = false,
     this.running = false,
+    this.foreground = false,
   });
 
   final String id;
@@ -148,6 +149,10 @@ class RemoteApplication {
   final bool detected;
   final bool running;
 
+  /// Desktop-observed foreground state. This is advisory UI state only; it
+  /// never grants the phone a new executable capability.
+  final bool foreground;
+
   RemoteApplication copyWith({
     String? name,
     String? icon,
@@ -155,6 +160,7 @@ class RemoteApplication {
     String? layoutId,
     bool? detected,
     bool? running,
+    bool? foreground,
   }) => RemoteApplication(
     id: id,
     name: name ?? this.name,
@@ -163,6 +169,7 @@ class RemoteApplication {
     layoutId: layoutId ?? this.layoutId,
     detected: detected ?? this.detected,
     running: running ?? this.running,
+    foreground: foreground ?? this.foreground,
   );
 
   Map<String, Object?> toJson({bool includeIcon = true}) => {
@@ -173,6 +180,7 @@ class RemoteApplication {
     'layoutId': layoutId,
     'detected': detected,
     'running': running,
+    'foreground': foreground,
   };
 
   factory RemoteApplication.fromJson(Map<String, Object?> json) =>
@@ -184,6 +192,7 @@ class RemoteApplication {
         layoutId: _requiredString(json, 'layoutId'),
         detected: json['detected'] == true,
         running: json['running'] == true,
+        foreground: json['foreground'] == true,
       );
 }
 
@@ -379,6 +388,12 @@ class DesktopManifest {
       throw const FormatException('Manifest contains invalid references');
     }
     final buttonIds = <String>{};
+    if (applications.where((application) => application.foreground).length >
+        1) {
+      throw const FormatException(
+        'Manifest can contain only one foreground app',
+      );
+    }
     for (final layout in layouts) {
       for (final button in layout.buttons) {
         if (!buttonIds.add(button.id)) {

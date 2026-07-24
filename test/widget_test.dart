@@ -35,9 +35,57 @@ void main() {
       find.byKey(const ValueKey('profile-quick-switch-bar')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('status-bar')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('control-surface-status-bar')),
+      findsOneWidget,
+    );
+    expect(find.text('HID: Connected'), findsOneWidget);
+    expect(find.text('Desktop: Offline'), findsOneWidget);
+    expect(find.text('App: Unavailable'), findsOneWidget);
     expect(find.byKey(const ValueKey('control-menu')), findsOneWidget);
   });
+
+  testWidgets(
+    'keeps HID, Desktop sync, and foreground app states independent',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final harness = await TestHarness.create();
+      addTearDown(() => _disposeHarness(tester, harness));
+
+      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('button-grid-3x5')), findsOneWidget);
+      expect(find.text('Desktop: Offline'), findsOneWidget);
+      expect(find.text('App: Unavailable'), findsOneWidget);
+
+      harness.companion.syncedManifest.value = desktopManifest(
+        installed: const {'vscode'},
+        running: const {'vscode'},
+        foreground: 'vscode',
+      );
+      harness.companion.host.value = connectedCompanionHost;
+      harness.companion.status.value = CompanionSyncStatus.ready;
+      await tester.pump();
+
+      expect(find.text('HID: Connected'), findsOneWidget);
+      expect(find.text('Desktop: Synced'), findsOneWidget);
+      expect(find.text('App: VSCode'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('remote-layout-app.vscode')),
+        findsOneWidget,
+      );
+
+      harness.companion.host.value = null;
+      harness.companion.status.value = CompanionSyncStatus.discovering;
+      await tester.pump();
+
+      expect(find.text('Desktop: Offline'), findsOneWidget);
+      expect(find.byKey(const ValueKey('button-grid-3x5')), findsOneWidget);
+    },
+  );
 
   testWidgets('desktop manifest reveals Apps and executes synced ids', (
     tester,
@@ -52,6 +100,7 @@ void main() {
       installed: const {'vscode', 'codex'},
       running: const {'vscode'},
     );
+    harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
@@ -153,7 +202,7 @@ void main() {
     expect(find.byType(NavigationRail), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
     final navigation = find.byKey(const ValueKey('profile-quick-switch-bar'));
-    for (final label in ['General', 'Web', 'Teams', 'Codex']) {
+    for (final label in ['General', 'Web', 'Teams']) {
       expect(
         find.descendant(of: navigation, matching: find.text(label)),
         findsWidgets,
@@ -174,6 +223,8 @@ void main() {
     harness.companion.syncedManifest.value = desktopManifest(
       installed: const {'codex'},
     );
+    harness.companion.host.value = connectedCompanionHost;
+    harness.companion.status.value = CompanionSyncStatus.ready;
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('home-tab-codex')));
     await tester.pump();

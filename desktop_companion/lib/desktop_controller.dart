@@ -66,17 +66,26 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         ? await _windowsApplicationNames()
         : const <String>[];
     final runningProcesses = await _runningProcessNames();
+    final foregroundProcess = await _foregroundProcessName();
     return Future.wait(
       apps.map((app) async {
         final candidates = _candidateNames(app);
         final running = runningProcesses.any(
           (process) => candidates.any(process.contains),
         );
+        final foreground =
+            foregroundProcess != null &&
+            running &&
+            candidates.any(foregroundProcess.contains);
         if (Platform.isMacOS) {
           final detected = installedMacApps.any(
             (installed) => candidates.any(installed.contains),
           );
-          return app.copyWith(detected: detected || running, running: running);
+          return app.copyWith(
+            detected: detected || running,
+            running: running,
+            foreground: foreground,
+          );
         }
         if (Platform.isWindows) {
           final executable = _windowsExecutable(app);
@@ -90,6 +99,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
           return app.copyWith(
             detected: result.exitCode == 0 || detectedByName || running,
             running: running,
+            foreground: foreground,
             executable: result.exitCode == 0 ? resolved : app.executable,
           );
         }
@@ -97,6 +107,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         return app.copyWith(
           detected: result.exitCode == 0 || running,
           running: running,
+          foreground: foreground,
         );
       }),
     );
@@ -164,6 +175,43 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     }
     if (result.exitCode != 0) return const [];
     return _normalizedLines(result.stdout);
+  }
+
+  /// Obtains only the process name needed to map the OS foreground window to a
+  /// Desktop-owned application record. The value is never sent as a command or
+  /// executable path to the phone.
+  static Future<String?> _foregroundProcessName() async {
+    ProcessResult result;
+    if (Platform.isMacOS) {
+      result = await Process.run('/usr/bin/osascript', const [
+        '-e',
+        'tell application "System Events" to get name of first application process whose frontmost is true',
+      ]);
+    } else if (Platform.isWindows) {
+      result = await Process.run('powershell.exe', const [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        r'Add-Type @"'
+            r'using System; using System.Runtime.InteropServices; '
+            r'public static class LK { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); '
+            r'[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'
+            r'"@; $id = 0; [LK]::GetWindowThreadProcessId([LK]::GetForegroundWindow(), [ref]$id) | Out-Null; '
+            r'if ($id -ne 0) { (Get-Process -Id $id).ProcessName }',
+      ]);
+    } else {
+      final window = await Process.run('xdotool', const [
+        'getactivewindow',
+        'getwindowpid',
+      ]);
+      if (window.exitCode != 0) return null;
+      final pid = int.tryParse(window.stdout.toString().trim());
+      if (pid == null) return null;
+      result = await Process.run('ps', ['-p', '$pid', '-o', 'comm=']);
+    }
+    if (result.exitCode != 0) return null;
+    final name = result.stdout.toString().trim().toLowerCase();
+    return name.isEmpty ? null : name;
   }
 
   static List<String> _normalizedLines(Object? value) => value
@@ -317,7 +365,8 @@ class DesktopController extends ChangeNotifier {
           a.executable != b.executable ||
           a.layoutId != b.layoutId ||
           a.detected != b.detected ||
-          a.running != b.running) {
+          a.running != b.running ||
+          a.foreground != b.foreground) {
         return false;
       }
     }

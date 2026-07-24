@@ -15,6 +15,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 DesktopManifest desktopManifest({
   Set<String> installed = const {},
   Set<String> running = const {},
+  String? foreground,
 }) {
   final starter = DesktopManifest.starter();
   return starter.copyWith(
@@ -23,11 +24,22 @@ DesktopManifest desktopManifest({
           (application) => application.copyWith(
             detected: installed.contains(application.id),
             running: running.contains(application.id),
+            foreground: application.id == foreground,
           ),
         )
         .toList(growable: false),
   );
 }
+
+const connectedCompanionHost = CompanionHost(
+  name: 'Studio Mac',
+  platform: 'macos',
+  address: '192.168.1.10',
+  port: 45678,
+  token: 'test',
+  protocolVersion: 2,
+  capabilities: {'manifest', 'apps', 'codex', 'foreground-app'},
+);
 
 ProfileConfig profile({
   String id = 'profile_general',

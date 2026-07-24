@@ -5,6 +5,7 @@ import '../app.dart';
 import '../controllers/app_controller.dart';
 import '../icons/icon_catalog.dart';
 import '../models/config.dart';
+import '../models/control_surface_status.dart';
 import '../services/hid_service.dart';
 import 'button_editor_screen.dart';
 import 'bluetooth_connection_sheet.dart';
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool editing = false;
   _HomeTab selectedTab = _HomeTab.keyboard;
   String? selectedApplicationId;
+  bool _followForeground = true;
 
   @override
   Widget build(BuildContext context) {
@@ -42,18 +44,26 @@ class _HomeScreenState extends State<HomeScreen> {
           (application) => application?.id == selectedApplicationId,
           orElse: () => null,
         );
-    final effectiveTab =
+    var effectiveTab =
         selectedTab == _HomeTab.application && selectedApplication == null
         ? _HomeTab.keyboard
         : selectedTab == _HomeTab.apps && !controller.hasAppsSync
         ? _HomeTab.keyboard
         : selectedTab;
+    if (_followForeground &&
+        effectiveTab == _HomeTab.keyboard &&
+        controller.foregroundApplicationLayout != null) {
+      effectiveTab = _HomeTab.application;
+    }
+    final effectiveApplication =
+        selectedApplication ?? controller.foregroundApplication;
     final remoteLayout = switch (effectiveTab) {
       _HomeTab.codex => controller.remoteCodexLayout,
       _HomeTab.application => controller.layoutForApplication(
-        selectedApplication!,
+        effectiveApplication!,
       ),
-      _ => null,
+      _HomeTab.keyboard => controller.genericSyncedLayout,
+      _HomeTab.apps => null,
     };
     final keyboardSurface = landscape
         ? _LandscapePanel(
@@ -73,22 +83,19 @@ class _HomeScreenState extends State<HomeScreen> {
     final content = switch (effectiveTab) {
       _HomeTab.keyboard || _HomeTab.application => keyboardSurface,
       _HomeTab.apps => _SyncedAppsPage(controller: controller),
-      _HomeTab.codex =>
-        remoteLayout == null
-            ? const _DesktopRequired(
-                message: 'Open LumiaKeys Desktop to load the Codex shortcuts.',
-              )
-            : keyboardSurface,
+      _HomeTab.codex => keyboardSurface,
     };
     void selectTab(_HomeTab tab) => setState(() {
       selectedTab = tab;
       selectedApplicationId = null;
       editing = false;
+      _followForeground = false;
     });
     void selectApplication(RemoteApplication application) => setState(() {
       selectedTab = _HomeTab.application;
       selectedApplicationId = application.id;
       editing = false;
+      _followForeground = false;
     });
 
     return Theme(
@@ -107,11 +114,13 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _HomeTabBar(
                 controller: controller,
                 selectedTab: effectiveTab,
-                selectedApplicationId: selectedApplication?.id,
+                selectedApplicationId: effectiveApplication?.id,
                 onSelectTab: selectTab,
                 onSelectApplication: selectApplication,
               ),
             ),
+            const SizedBox(height: 6),
+            _ControlSurfaceStatusBar(status: controller.controlSurfaceStatus),
             const Divider(height: 1),
             Expanded(child: content),
           ],
@@ -302,16 +311,17 @@ class _HomeTabBar extends StatelessWidget {
           selected: selectedTab == _HomeTab.apps,
           onTap: () => onSelectTab(_HomeTab.apps),
         ),
-      _HomeTabChip(
-        key: const ValueKey('home-tab-codex'),
-        label: _HomeTab.codex.label,
-        icon: const _BrandedAppIcon(
-          applicationId: 'codex',
-          fallback: Icons.auto_awesome,
+      if (controller.hasCodexWorkspace)
+        _HomeTabChip(
+          key: const ValueKey('home-tab-codex'),
+          label: _HomeTab.codex.label,
+          icon: const _BrandedAppIcon(
+            applicationId: 'codex',
+            fallback: Icons.auto_awesome,
+          ),
+          selected: selectedTab == _HomeTab.codex,
+          onTap: () => onSelectTab(_HomeTab.codex),
         ),
-        selected: selectedTab == _HomeTab.codex,
-        onTap: () => onSelectTab(_HomeTab.codex),
-      ),
     ];
     return SizedBox(
       key: const ValueKey('profile-quick-switch-bar'),
@@ -324,6 +334,118 @@ class _HomeTabBar extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ControlSurfaceStatusBar extends StatelessWidget {
+  const _ControlSurfaceStatusBar({required this.status});
+
+  final ControlSurfaceStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final desktopLabel = status.desktopSynced
+        ? 'Desktop: Synced'
+        : status.desktopDiscovered
+        ? 'Desktop: Syncing'
+        : 'Desktop: Offline';
+    final (appLabel, appIcon, appColor) = switch (status.foregroundStatus) {
+      ForegroundWorkspaceStatus.ready => (
+        'App: ${status.foregroundApplicationName}',
+        Icons.center_focus_strong,
+        Colors.lightGreenAccent,
+      ),
+      ForegroundWorkspaceStatus.unavailableActions => (
+        'App: No actions',
+        Icons.warning_amber_outlined,
+        Colors.amberAccent,
+      ),
+      ForegroundWorkspaceStatus.unknown => (
+        'App: Unknown',
+        Icons.help_outline,
+        Colors.white60,
+      ),
+      ForegroundWorkspaceStatus.unavailable => (
+        'App: Unavailable',
+        Icons.remove_circle_outline,
+        Colors.white38,
+      ),
+    };
+    return Semantics(
+      container: true,
+      label:
+          'HID ${status.hidConnected ? 'connected' : 'not connected'}, '
+          '$desktopLabel, $appLabel',
+      child: Row(
+        key: const ValueKey('control-surface-status-bar'),
+        children: [
+          _StatusIndicator(
+            key: const ValueKey('indicator-hid'),
+            label: status.hidConnected ? 'HID: Connected' : 'HID: Offline',
+            icon: Icons.bluetooth,
+            color: status.hidConnected
+                ? Colors.lightBlueAccent
+                : Colors.white38,
+          ),
+          const SizedBox(width: 5),
+          _StatusIndicator(
+            key: const ValueKey('indicator-desktop'),
+            label: desktopLabel,
+            icon: Icons.desktop_windows_outlined,
+            color: status.desktopSynced
+                ? Colors.lightGreenAccent
+                : Colors.white60,
+          ),
+          const SizedBox(width: 5),
+          _StatusIndicator(
+            key: const ValueKey('indicator-foreground-app'),
+            label: appLabel,
+            icon: appIcon,
+            color: appColor,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusIndicator extends StatelessWidget {
+  const _StatusIndicator({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Container(
+      height: 27,
+      padding: const EdgeInsets.symmetric(horizontal: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFF151C26),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: .45)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _HomeTabChip extends StatelessWidget {
