@@ -210,11 +210,18 @@ class _BrandLogo extends StatelessWidget {
         ),
         if (extended) ...[
           const SizedBox(width: 10),
-          Text(
-            'LumiaKeys',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'LumiaKeys',
+                maxLines: 1,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
           ),
         ],
       ],

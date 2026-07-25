@@ -279,6 +279,11 @@ void main() {
   });
 
   testWidgets('shows the desktop settings navigation', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1080, 720);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
     final controller = DesktopController(
       store: MemoryDesktopConfigStore(),
       discovery: _NoopDiscovery(),
@@ -302,6 +307,7 @@ void main() {
     expect(find.byIcon(Icons.keyboard_command_key), findsNothing);
     expect(find.text('Desktop offline'), findsOneWidget);
     expect(find.text('Waiting for phone'), findsOneWidget);
+    expect(tester.takeException(), isNull);
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pump();
