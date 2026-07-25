@@ -32,6 +32,17 @@ void main() {
       'codex.sidebar',
     ]);
     expect(restored.applicationById('vscode')!.layoutId, 'app.vscode');
+    expect(restored.applicationById('codex')!.name, 'Codex / ChatGPT');
+    expect(restored.layoutById('app.chrome')!.buttons, hasLength(15));
+    expect(restored.buttonById('chrome.bookmark'), isNotNull);
+    expect(restored.buttonById('chrome.nextTab'), isNotNull);
+    expect(
+      restored.buttonById('chrome.passwordManager')!.target,
+      'https://passwords.google.com/',
+    );
+    expect(restored.buttonById('chrome.playPause')!.shortcut, ['SPACE']);
+    expect(restored.buttonById('chrome.stop')!.shortcut, ['ESC']);
+    expect(restored.buttonById('chrome.mute')!.shortcut, ['M']);
     expect(restored.profiles.map((profile) => profile.id), ['default']);
   });
 

@@ -479,9 +479,32 @@ class DesktopManifest {
     final chrome = appLayout('app.chrome', 'Chrome', [
       shortcut('chrome.newTab', 'New Tab', 'add', ['PRIMARY', 'T']),
       shortcut('chrome.closeTab', 'Close Tab', 'close', ['PRIMARY', 'W']),
-      shortcut('chrome.reopen', 'Reopen', 'restore', ['PRIMARY', 'SHIFT', 'T']),
-      shortcut('chrome.address', 'Address', 'link', ['PRIMARY', 'L']),
+      shortcut('chrome.bookmark', 'Bookmark', 'bookmark', ['PRIMARY', 'D']),
+      shortcut('chrome.previousTab', 'Previous Tab', 'arrow_back', [
+        'CTRL',
+        'SHIFT',
+        'TAB',
+      ]),
+      shortcut('chrome.nextTab', 'Next Tab', 'arrow_next', ['CTRL', 'TAB']),
+      shortcut('chrome.back', 'Go Back', 'arrow_back', ['BROWSER_BACK']),
+      shortcut('chrome.forward', 'Go Forward', 'arrow_next', [
+        'BROWSER_FORWARD',
+      ]),
+      shortcut('chrome.copy', 'Copy', 'copy', ['PRIMARY', 'C']),
+      shortcut('chrome.paste', 'Paste', 'paste', ['PRIMARY', 'V']),
+      const RemoteShortcutButton(
+        id: 'chrome.passwordManager',
+        name: 'Passwords',
+        icon: 'password',
+        targetType: RemoteTargetType.openUrl,
+        target: 'https://passwords.google.com/',
+        description: 'Open Google Password Manager',
+      ),
+      shortcut('chrome.playPause', 'Play / Pause', 'play', ['SPACE']),
+      shortcut('chrome.stop', 'Stop', 'stop', ['ESC']),
+      shortcut('chrome.mute', 'Mute', 'volume_off', ['M']),
       shortcut('chrome.refresh', 'Refresh', 'refresh', ['PRIMARY', 'R']),
+      shortcut('chrome.address', 'Address', 'link', ['PRIMARY', 'L']),
     ]);
     final illustrator = appLayout('app.illustrator', 'Illustrator', [
       shortcut('illustrator.open', 'Open', 'folder_open', ['PRIMARY', 'O']),
@@ -575,7 +598,7 @@ class DesktopManifest {
       applications: const [
         RemoteApplication(
           id: 'codex',
-          name: 'Codex',
+          name: 'Codex / ChatGPT',
           icon: 'code',
           executable: 'Codex',
           layoutId: 'codex',

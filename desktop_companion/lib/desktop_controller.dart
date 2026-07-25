@@ -78,6 +78,14 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             running &&
             candidates.any(foregroundProcess.contains);
         if (Platform.isMacOS) {
+          final chatGptDetected =
+              app.id == 'codex' &&
+              (installedMacApps.any(
+                    (installed) => installed.contains('chatgpt'),
+                  ) ||
+                  runningProcesses.any(
+                    (process) => process.contains('chatgpt'),
+                  ));
           final detected = installedMacApps.any(
             (installed) => candidates.any(installed.contains),
           );
@@ -85,6 +93,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             detected: detected || running,
             running: running,
             foreground: foreground,
+            executable: chatGptDetected ? 'ChatGPT' : app.executable,
           );
         }
         if (Platform.isWindows) {
@@ -146,6 +155,8 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
       if (app.id == 'illustrator') 'illustrator.exe',
       if (app.id == 'premiere') 'adobe premiere pro.exe',
       if (app.id == 'codex') 'codex.exe',
+      if (app.id == 'codex') 'chatgpt',
+      if (app.id == 'codex') 'chatgpt.app',
     ];
   }
 
@@ -258,6 +269,11 @@ class DesktopController extends ChangeNotifier {
   String? get error => _error;
   String? get connectedPhone => _connectedPhone;
   int get selectedSection => _selectedSection;
+  RemoteApplication? get foregroundApplication =>
+      _manifest.applications.cast<RemoteApplication?>().firstWhere(
+        (application) => application?.foreground == true,
+        orElse: () => null,
+      );
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -381,23 +397,48 @@ class DesktopController extends ChangeNotifier {
         .toList(growable: false);
     if (profiles.isEmpty) return starter;
     final starterCodex = starter.layoutById('codex')!;
+    final starterChrome = starter.layoutById('app.chrome')!;
     final hasCurrentCodexActions =
         manifest.buttonById('codex.open') != null &&
         manifest.buttonById('codex.voice') != null &&
         manifest.buttonById('codex.newChat') != null &&
         manifest.buttonById('codex.searchChats') != null &&
         manifest.buttonById('codex.review') != null;
+    final hasCurrentChromeActions =
+        manifest.buttonById('chrome.bookmark') != null &&
+        manifest.buttonById('chrome.nextTab') != null &&
+        manifest.buttonById('chrome.passwordManager') != null &&
+        manifest.buttonById('chrome.mute') != null;
     final layouts = manifest.layouts
-        .map(
-          (layout) => layout.id == 'codex' && !hasCurrentCodexActions
-              ? starterCodex
-              : layout,
-        )
+        .map((layout) {
+          if (layout.id == 'codex' && !hasCurrentCodexActions) {
+            return starterCodex;
+          }
+          if (layout.id == 'app.chrome' && !hasCurrentChromeActions) {
+            final existingById = {
+              for (final button in layout.buttons) button.id: button,
+            };
+            return starterChrome.copyWith(
+              name: layout.name,
+              buttons: starterChrome.buttons
+                  .map((button) => existingById[button.id] ?? button)
+                  .toList(growable: false),
+            );
+          }
+          return layout;
+        })
         .toList(growable: true);
     if (!layouts.any((layout) => layout.id == 'codex')) {
       layouts.add(starterCodex);
     }
-    final applications = manifest.applications.toList(growable: true);
+    final starterCodexApp = starter.applicationById('codex')!;
+    final applications = manifest.applications
+        .map(
+          (application) => application.id == 'codex'
+              ? application.copyWith(name: starterCodexApp.name)
+              : application,
+        )
+        .toList(growable: true);
     for (final starterApp in starter.applications) {
       if (!applications.any((application) => application.id == starterApp.id)) {
         applications.add(starterApp);

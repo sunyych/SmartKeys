@@ -66,6 +66,7 @@ class DesktopSettingsHome extends StatelessWidget {
                     ],
                   ),
                 Expanded(child: _selectedPage()),
+                _DesktopStatusBar(controller: controller, server: server),
               ],
             ),
           ),
@@ -82,6 +83,88 @@ class DesktopSettingsHome extends StatelessWidget {
     4 => _ProfilesPage(controller: controller),
     _ => const _AboutPage(),
   };
+}
+
+class _DesktopStatusBar extends StatelessWidget {
+  const _DesktopStatusBar({required this.controller, required this.server});
+
+  final DesktopController controller;
+  final CompanionServer server;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = controller.foregroundApplication;
+    return Container(
+      key: const ValueKey('desktop-status-bar'),
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Colors.black12)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _DesktopStatusItem(
+              icon: server.running ? Icons.sync : Icons.sync_problem,
+              label: server.running ? 'Desktop ready' : 'Desktop offline',
+              active: server.running,
+            ),
+          ),
+          const VerticalDivider(indent: 8, endIndent: 8),
+          Expanded(
+            child: _DesktopStatusItem(
+              icon: Icons.phone_android,
+              label: controller.connectedPhone == null
+                  ? 'Waiting for phone'
+                  : 'Phone connected',
+              active: controller.connectedPhone != null,
+            ),
+          ),
+          const VerticalDivider(indent: 8, endIndent: 8),
+          Expanded(
+            child: _DesktopStatusItem(
+              icon: Icons.center_focus_strong,
+              label: foreground?.name ?? 'No mapped foreground app',
+              active: foreground != null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopStatusItem extends StatelessWidget {
+  const _DesktopStatusItem({
+    required this.icon,
+    required this.label,
+    required this.active,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(
+        icon,
+        size: 14,
+        color: active ? Theme.of(context).colorScheme.primary : Colors.black45,
+      ),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
+      ),
+    ],
+  );
 }
 
 class _TitleBar extends StatelessWidget {

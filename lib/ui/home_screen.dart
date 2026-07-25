@@ -38,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final accent = controller.activeProfile.accentColor == null
         ? Theme.of(context).colorScheme.primary
         : Color(controller.activeProfile.accentColor!);
-    final selectedApplication = controller.runningApplications
+    final selectedApplication = controller.syncedApplications
         .cast<RemoteApplication?>()
         .firstWhere(
           (application) => application?.id == selectedApplicationId,
@@ -80,11 +80,6 @@ class _HomeScreenState extends State<HomeScreen> {
             remoteLayout: remoteLayout,
             onToggleEditing: () => setState(() => editing = !editing),
           );
-    final content = switch (effectiveTab) {
-      _HomeTab.keyboard || _HomeTab.application => keyboardSurface,
-      _HomeTab.apps => _SyncedAppsPage(controller: controller),
-      _HomeTab.codex => keyboardSurface,
-    };
     void selectTab(_HomeTab tab) => setState(() {
       selectedTab = tab;
       selectedApplicationId = null;
@@ -97,6 +92,17 @@ class _HomeScreenState extends State<HomeScreen> {
       editing = false;
       _followForeground = false;
     });
+    final content = switch (effectiveTab) {
+      _HomeTab.keyboard || _HomeTab.application => keyboardSurface,
+      _HomeTab.apps => _SyncedAppsPage(
+        controller: controller,
+        onOpenApplication: (application) {
+          selectApplication(application);
+          controller.launchRemoteApplication(application);
+        },
+      ),
+      _HomeTab.codex => keyboardSurface,
+    };
 
     return Theme(
       data: Theme.of(context).copyWith(
@@ -119,8 +125,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 onSelectApplication: selectApplication,
               ),
             ),
-            const SizedBox(height: 6),
-            _ControlSurfaceStatusBar(status: controller.controlSurfaceStatus),
             const Divider(height: 1),
             Expanded(child: content),
           ],
@@ -273,7 +277,7 @@ class _HomeTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <Widget>[
-      ...controller.orderedProfiles.map(
+      ...controller.visibleHomeProfiles.map(
         (profile) => _HomeTabChip(
           key: ValueKey('profile-quick-${profile.id}'),
           label: profile.name,
@@ -334,118 +338,6 @@ class _HomeTabBar extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ControlSurfaceStatusBar extends StatelessWidget {
-  const _ControlSurfaceStatusBar({required this.status});
-
-  final ControlSurfaceStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final desktopLabel = status.desktopSynced
-        ? 'Desktop: Synced'
-        : status.desktopDiscovered
-        ? 'Desktop: Syncing'
-        : 'Desktop: Offline';
-    final (appLabel, appIcon, appColor) = switch (status.foregroundStatus) {
-      ForegroundWorkspaceStatus.ready => (
-        'App: ${status.foregroundApplicationName}',
-        Icons.center_focus_strong,
-        Colors.lightGreenAccent,
-      ),
-      ForegroundWorkspaceStatus.unavailableActions => (
-        'App: No actions',
-        Icons.warning_amber_outlined,
-        Colors.amberAccent,
-      ),
-      ForegroundWorkspaceStatus.unknown => (
-        'App: Unknown',
-        Icons.help_outline,
-        Colors.white60,
-      ),
-      ForegroundWorkspaceStatus.unavailable => (
-        'App: Unavailable',
-        Icons.remove_circle_outline,
-        Colors.white38,
-      ),
-    };
-    return Semantics(
-      container: true,
-      label:
-          'HID ${status.hidConnected ? 'connected' : 'not connected'}, '
-          '$desktopLabel, $appLabel',
-      child: Row(
-        key: const ValueKey('control-surface-status-bar'),
-        children: [
-          _StatusIndicator(
-            key: const ValueKey('indicator-hid'),
-            label: status.hidConnected ? 'HID: Connected' : 'HID: Offline',
-            icon: Icons.bluetooth,
-            color: status.hidConnected
-                ? Colors.lightBlueAccent
-                : Colors.white38,
-          ),
-          const SizedBox(width: 5),
-          _StatusIndicator(
-            key: const ValueKey('indicator-desktop'),
-            label: desktopLabel,
-            icon: Icons.desktop_windows_outlined,
-            color: status.desktopSynced
-                ? Colors.lightGreenAccent
-                : Colors.white60,
-          ),
-          const SizedBox(width: 5),
-          _StatusIndicator(
-            key: const ValueKey('indicator-foreground-app'),
-            label: appLabel,
-            icon: appIcon,
-            color: appColor,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusIndicator extends StatelessWidget {
-  const _StatusIndicator({
-    super.key,
-    required this.label,
-    required this.icon,
-    required this.color,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      height: 27,
-      padding: const EdgeInsets.symmetric(horizontal: 7),
-      decoration: BoxDecoration(
-        color: const Color(0xFF151C26),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: .45)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 class _HomeTabChip extends StatelessWidget {
@@ -603,9 +495,13 @@ class _RemoteButtonGrid extends StatelessWidget {
 }
 
 class _SyncedAppsPage extends StatelessWidget {
-  const _SyncedAppsPage({required this.controller});
+  const _SyncedAppsPage({
+    required this.controller,
+    required this.onOpenApplication,
+  });
 
   final AppController controller;
+  final ValueChanged<RemoteApplication> onOpenApplication;
 
   @override
   Widget build(BuildContext context) {
@@ -637,7 +533,7 @@ class _SyncedAppsPage extends StatelessWidget {
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               key: ValueKey('remote-app-${app.id}'),
-              onTap: () => controller.launchRemoteApplication(app),
+              onTap: () => onOpenApplication(app),
               child: Padding(
                 padding: const EdgeInsets.all(10),
                 child: Column(
@@ -776,6 +672,9 @@ IconData remoteIcon(String id) => switch (id) {
   'group' => Icons.group_work,
   'restore' => Icons.restore,
   'link' => Icons.link,
+  'bookmark' => Icons.bookmark_outline,
+  'password' => Icons.password,
+  'volume_off' => Icons.volume_off,
   'add' => Icons.add,
   'mic' => Icons.mic,
   'send' => Icons.send,
@@ -1023,104 +922,150 @@ class _CompactControlMenu extends StatelessWidget {
       valueListenable: controller.hid.connectionStatus,
       builder: (context, status, _) => ValueListenableBuilder<bool?>(
         valueListenable: controller.powerBrightnessService.isPluggedIn,
-        builder: (context, pluggedIn, _) => PopupMenuButton<_ControlMenuAction>(
-          key: const ValueKey('control-menu'),
-          tooltip: 'Controls menu',
-          position: PopupMenuPosition.under,
-          padding: EdgeInsets.zero,
-          onSelected: (action) => _handleAction(context, action),
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              value: _ControlMenuAction.profiles,
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.dashboard_customize_outlined),
-                title: Text('Profiles · ${controller.activeProfile.name}'),
-              ),
-            ),
-            PopupMenuItem(
-              value: _ControlMenuAction.bluetooth,
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(_connectionIcon(status)),
-                title: Text('Bluetooth · ${_connectionLabel(status)}'),
-              ),
-            ),
-            PopupMenuItem(
-              value: _ControlMenuAction.toggleEditing,
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(editing ? Icons.check : Icons.edit_outlined),
-                title: Text(editing ? 'Done editing' : 'Edit buttons'),
-              ),
-            ),
-            const PopupMenuItem(
-              value: _ControlMenuAction.settings,
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.settings_outlined),
-                title: Text('Settings'),
-              ),
-            ),
-          ],
-          icon: Tooltip(
-            message: switch (pluggedIn) {
-              true => 'External power connected',
-              false => 'Running on battery',
-              null => 'Power status unavailable',
-            },
-            child: Container(
-              key: ValueKey('connection-${status.name}'),
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xD9101720),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _connectionColor(status).withValues(alpha: 0.7),
+        builder: (context, pluggedIn, _) {
+          final display = _statusDisplay(
+            controller.controlSurfaceStatus,
+            status,
+          );
+          return SizedBox(
+            width: 124,
+            height: 40,
+            child: PopupMenuButton<_ControlMenuAction>(
+              key: const ValueKey('control-menu'),
+              tooltip: display.tooltip,
+              position: PopupMenuPosition.under,
+              padding: EdgeInsets.zero,
+              onSelected: (action) => _handleAction(context, action),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: _ControlMenuAction.profiles,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.dashboard_customize_outlined),
+                    title: Text('Profiles · ${controller.activeProfile.name}'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _ControlMenuAction.bluetooth,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(_connectionIcon(status)),
+                    title: Text('Bluetooth · ${_connectionLabel(status)}'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _ControlMenuAction.toggleEditing,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(editing ? Icons.check : Icons.edit_outlined),
+                    title: Text(editing ? 'Done editing' : 'Edit buttons'),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: _ControlMenuAction.settings,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.settings_outlined),
+                    title: Text('Settings'),
+                  ),
+                ),
+              ],
+              child: Tooltip(
+                message: display.tooltip,
+                child: Container(
+                  key: ValueKey('status-mode-${display.key}'),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xD9101720),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: display.color.withValues(alpha: 0.72),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        editing ? Icons.check : display.icon,
+                        size: 17,
+                        color: display.color,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          editing ? 'Editing' : display.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Tooltip(
+                        message: switch (pluggedIn) {
+                          true => 'External power connected',
+                          false => 'Running on battery',
+                          null => 'Power status unavailable',
+                        },
+                        child: Icon(
+                          pluggedIn == true
+                              ? Icons.bolt
+                              : pluggedIn == false
+                              ? Icons.battery_full
+                              : Icons.battery_unknown,
+                          key: ValueKey('power-indicator-$pluggedIn'),
+                          size: 12,
+                          color: pluggedIn == true
+                              ? const Color(0xFF7BD4E4)
+                              : Colors.white54,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Icon(
-                    editing ? Icons.check : Icons.more_horiz,
-                    color: Colors.white,
-                  ),
-                  Positioned(
-                    left: 4,
-                    bottom: 4,
-                    child: Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: _connectionColor(status),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 3,
-                    top: 3,
-                    child: Icon(
-                      pluggedIn == true
-                          ? Icons.bolt
-                          : pluggedIn == false
-                          ? Icons.battery_full
-                          : Icons.battery_unknown,
-                      key: ValueKey('power-indicator-$pluggedIn'),
-                      size: 11,
-                      color: pluggedIn == true
-                          ? const Color(0xFF7BD4E4)
-                          : Colors.white54,
-                    ),
-                  ),
-                ],
-              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
+    );
+  }
+
+  static _CompactStatusDisplay _statusDisplay(
+    ControlSurfaceStatus surface,
+    HidConnectionStatus hidStatus,
+  ) {
+    if (surface.desktopSynced &&
+        surface.foregroundStatus == ForegroundWorkspaceStatus.ready) {
+      final name = surface.foregroundApplicationName ?? 'App';
+      return _CompactStatusDisplay(
+        key: 'app',
+        label: name,
+        tooltip: 'Foreground app · $name',
+        icon: Icons.center_focus_strong,
+        color: Colors.lightGreenAccent,
+      );
+    }
+    if (surface.desktopDiscovered) {
+      return _CompactStatusDisplay(
+        key: 'desktop',
+        label: 'Desktop',
+        tooltip: surface.desktopSynced
+            ? 'LumiaKeys Desktop connected'
+            : 'LumiaKeys Desktop syncing',
+        icon: Icons.desktop_windows_outlined,
+        color: surface.desktopSynced
+            ? Colors.lightGreenAccent
+            : Colors.amberAccent,
+      );
+    }
+    return _CompactStatusDisplay(
+      key: 'hid',
+      label: 'HID',
+      tooltip: 'Bluetooth HID · ${_connectionLabel(hidStatus)}',
+      icon: _connectionIcon(hidStatus),
+      color: _connectionColor(hidStatus),
     );
   }
 
@@ -1170,6 +1115,22 @@ class _CompactControlMenu extends StatelessWidget {
     HidConnectionStatus.bluetoothOff ||
     HidConnectionStatus.unavailable => Colors.redAccent,
   };
+}
+
+class _CompactStatusDisplay {
+  const _CompactStatusDisplay({
+    required this.key,
+    required this.label,
+    required this.tooltip,
+    required this.icon,
+    required this.color,
+  });
+
+  final String key;
+  final String label;
+  final String tooltip;
+  final IconData icon;
+  final Color color;
 }
 
 Future<void> _showProfileSelector(

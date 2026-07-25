@@ -219,7 +219,7 @@ class DesktopActions {
   }
 
   Future<void> sendShortcut(List<String> rawKeys) async {
-    final keys = rawKeys
+    var keys = rawKeys
         .map((key) => key.trim().toUpperCase())
         .map(
           (key) => key == 'PRIMARY'
@@ -229,6 +229,13 @@ class DesktopActions {
               : key,
         )
         .toList(growable: false);
+    keys = switch (keys) {
+      ['BROWSER_BACK'] =>
+        Platform.isMacOS ? const ['COMMAND', '['] : const ['ALT', 'LEFT'],
+      ['BROWSER_FORWARD'] =>
+        Platform.isMacOS ? const ['COMMAND', ']'] : const ['ALT', 'RIGHT'],
+      _ => keys,
+    };
     if (keys.isEmpty || keys.any((key) => !allowedKeys.contains(key))) {
       throw const FormatException('unsupported shortcut');
     }

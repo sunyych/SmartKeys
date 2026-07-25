@@ -160,6 +160,21 @@ class AppController extends ChangeNotifier {
         .toList(growable: false);
   }
 
+  /// Desktop layouts replace the Web/meeting/custom phone tabs while synced.
+  /// General remains available as the explicit Bluetooth HID fallback.
+  List<ProfileConfig> get visibleHomeProfiles {
+    final profiles = orderedProfiles;
+    if (!isDesktopSynced) return profiles;
+    final general = profiles
+        .where(
+          (profile) =>
+              profile.id == 'profile_general' ||
+              profile.name.trim().toLowerCase() == 'general',
+        )
+        .toList(growable: false);
+    return general.isEmpty && profiles.isNotEmpty ? [profiles.first] : general;
+  }
+
   ShortcutPlatform get effectiveShortcutPlatform {
     final configured = config.preferences.shortcutPlatform;
     if (configured != ShortcutPlatform.automatic) return configured;

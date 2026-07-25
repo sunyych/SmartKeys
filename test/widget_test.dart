@@ -37,11 +37,10 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('control-surface-status-bar')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('HID: Connected'), findsOneWidget);
-    expect(find.text('Desktop: Offline'), findsOneWidget);
-    expect(find.text('App: Unavailable'), findsOneWidget);
+    expect(find.byKey(const ValueKey('status-mode-hid')), findsOneWidget);
+    expect(find.text('HID'), findsOneWidget);
     expect(find.byKey(const ValueKey('control-menu')), findsOneWidget);
   });
 
@@ -58,21 +57,30 @@ void main() {
       await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
       await tester.pump();
       expect(find.byKey(const ValueKey('button-grid-3x5')), findsOneWidget);
-      expect(find.text('Desktop: Offline'), findsOneWidget);
-      expect(find.text('App: Unavailable'), findsOneWidget);
+      expect(find.byKey(const ValueKey('status-mode-hid')), findsOneWidget);
+
+      harness.companion.syncedManifest.value = desktopManifest(
+        installed: const {'vscode'},
+      );
+      harness.companion.host.value = connectedCompanionHost;
+      harness.companion.status.value = CompanionSyncStatus.ready;
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('status-mode-desktop')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('remote-layout-keyboard')),
+        findsOneWidget,
+      );
 
       harness.companion.syncedManifest.value = desktopManifest(
         installed: const {'vscode'},
         running: const {'vscode'},
         foreground: 'vscode',
       );
-      harness.companion.host.value = connectedCompanionHost;
-      harness.companion.status.value = CompanionSyncStatus.ready;
       await tester.pump();
 
-      expect(find.text('HID: Connected'), findsOneWidget);
-      expect(find.text('Desktop: Synced'), findsOneWidget);
-      expect(find.text('App: VSCode'), findsOneWidget);
+      expect(find.byKey(const ValueKey('status-mode-app')), findsOneWidget);
+      expect(find.text('VSCode'), findsWidgets);
       expect(
         find.byKey(const ValueKey('remote-layout-app.vscode')),
         findsOneWidget,
@@ -82,7 +90,7 @@ void main() {
       harness.companion.status.value = CompanionSyncStatus.discovering;
       await tester.pump();
 
-      expect(find.text('Desktop: Offline'), findsOneWidget);
+      expect(find.byKey(const ValueKey('status-mode-hid')), findsOneWidget);
       expect(find.byKey(const ValueKey('button-grid-3x5')), findsOneWidget);
     },
   );
@@ -124,11 +132,6 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const ValueKey('remote-app-vscode')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('remote-app-vscode')));
-    await tester.pump();
-
-    expect(harness.companion.remoteActions.single.applicationId, 'vscode');
-    expect(find.byKey(const ValueKey('apps-grid')), findsOneWidget);
     final appButtonSize = tester.getSize(
       find.byKey(const ValueKey('remote-app-vscode')),
     );
@@ -143,22 +146,16 @@ void main() {
       (appIcon.image as AssetImage).assetName,
       'assets/app_icons/vscode.png',
     );
-    expect(
-      find.byKey(const ValueKey('remote-layout-app.vscode')),
-      findsNothing,
-    );
-
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(600, 0),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('workspace-app-vscode')));
+    await tester.tap(find.byKey(const ValueKey('remote-app-vscode')));
     await tester.pump();
+
+    expect(harness.companion.remoteActions.single.applicationId, 'vscode');
+    expect(find.byKey(const ValueKey('apps-grid')), findsNothing);
     expect(
       find.byKey(const ValueKey('remote-layout-app.vscode')),
       findsOneWidget,
     );
+
     expect(find.byKey(const ValueKey('wheel-region')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('remote-button-vscode.save')));
     await tester.pump();
@@ -173,6 +170,47 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('remote-layout-codex')), findsOneWidget);
     expect(find.byKey(const ValueKey('wheel-region')), findsOneWidget);
+  });
+
+  testWidgets('opening an installed Chrome app enters its shortcut layout', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final harness = await TestHarness.create();
+    addTearDown(() => _disposeHarness(tester, harness));
+    harness.companion.syncedManifest.value = desktopManifest(
+      installed: const {'chrome'},
+    );
+    harness.companion.host.value = connectedCompanionHost;
+    harness.companion.status.value = CompanionSyncStatus.ready;
+
+    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('home-tab-apps')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('remote-app-chrome')));
+    await tester.pump();
+
+    expect(harness.companion.remoteActions.single.applicationId, 'chrome');
+    expect(
+      find.byKey(const ValueKey('remote-layout-app.chrome')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('remote-button-chrome.bookmark')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('remote-button-chrome.passwordManager')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('remote-button-chrome.mute')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('landscape uses 5 by 3 and a two-thirds/one-third split', (
@@ -226,6 +264,14 @@ void main() {
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
     await tester.pump();
+    expect(
+      find.descendant(of: navigation, matching: find.text('Web')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: navigation, matching: find.text('Teams')),
+      findsNothing,
+    );
     await tester.tap(find.byKey(const ValueKey('home-tab-codex')));
     await tester.pump();
     expect(find.byKey(const ValueKey('remote-layout-codex')), findsOneWidget);

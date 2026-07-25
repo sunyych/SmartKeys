@@ -20,18 +20,24 @@ This monorepo also contains the independent LumiaKeys Desktop app in
 - Shortcut Layout edits Button Name, Icon, Target Type, Shortcut, Launch App,
   URL, and Description. Keyboard Shortcut, Launch Application, and Open URL are
   executable in V1.2. Macro and Script are modeled but intentionally disabled.
-- Apps Manager detects the supported catalog (including Codex, Photoshop,
+- Apps Manager detects the supported catalog (including Codex / ChatGPT,
+  Photoshop,
   Illustrator, VSCode, SolidWorks, Premiere, and Chrome) on the current
   computer. Only detected applications are sent to Android; a three-second
   runtime reconciliation marks which of those apps are running.
-- The Android top strip is one unified control surface: local Profiles remain
-  visible before, during, and after Desktop connection. A running application
-  adds a temporary Workspace to that same strip; stopping it removes the
-  Workspace without replacing the selected local Profile.
+- The Android top strip is one unified control surface. All local Profiles are
+  available while Desktop is offline; Desktop sync keeps General as the HID
+  fallback and replaces Web, Zoom / Teams, and Custom tabs with managed Apps
+  and Workspaces. The top-right control-menu pill displays the highest useful
+  state: foreground app, Desktop, then HID.
 - Apps is a launch-only square button grid using offline brand icons. Tapping
   Chrome, Codex, or VSCode sends its managed application ID to Desktop and
-  stays on Apps. Application shortcuts appear only through the running
-  application's dynamic Workspace.
+  immediately opens that application's shortcut layout. Chrome ships a
+  15-button common layout for navigation, tabs, clipboard, bookmarks, password
+  manager, media, mute, address, and refresh.
+- macOS maps the installed/running `ChatGPT.app` process to the Desktop-owned
+  Codex application ID, so the phone shows one `Codex / ChatGPT` Workspace
+  without exposing a process name or executable path as an action.
 - Codex uses the same 3 × 5 / 5 × 3 key region and the existing wheel/touchpad,
   rather than replacing the whole app. Its editable defaults prioritize Open
   Codex, Dictation, New/Previous/Next Chat, Send, search, folder, command menu,

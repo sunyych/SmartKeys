@@ -17,9 +17,9 @@ class DesktopTrayShell with TrayListener, WindowListener {
     windowManager.addListener(this);
     controller.addListener(_controllerChanged);
     await trayManager.setIcon(
-      Platform.isWindows
-          ? 'assets/tray_icon.ico'
-          : 'assets/tray_icon.png',
+      Platform.isWindows ? 'assets/tray_icon.ico' : 'assets/tray_icon.png',
+      isTemplate: Platform.isMacOS,
+      iconSize: 18,
     );
     await trayManager.setToolTip('LumiaKeys');
     await windowManager.setPreventClose(true);

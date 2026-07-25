@@ -65,6 +65,27 @@ void main() {
     );
   });
 
+  test('resolves browser navigation to the host shortcut', () async {
+    final runner = _RecordingRunner();
+    final actions = DesktopActions(runner: runner);
+
+    await actions.sendShortcut(const ['BROWSER_BACK']);
+
+    expect(runner.calls, hasLength(1));
+    final call = runner.calls.single;
+    if (Platform.isMacOS) {
+      expect(call.$1, '/usr/bin/osascript');
+      expect(call.$2.join(' '), contains('command down'));
+      expect(call.$2.join(' '), contains('['));
+    } else if (Platform.isWindows) {
+      expect(call.$1, 'powershell.exe');
+      expect(call.$2.last, '%{LEFT}');
+    } else {
+      expect(call.$1, 'xdotool');
+      expect(call.$2, ['key', 'ALT+LEFT']);
+    }
+  });
+
   test(
     'accepts the fixed dark action without arbitrary command input',
     () async {
@@ -118,9 +139,28 @@ void main() {
               ),
             ],
           );
+      final legacyChrome = starter
+          .layoutById('app.chrome')!
+          .copyWith(
+            buttons: starter
+                .layoutById('app.chrome')!
+                .buttons
+                .where(
+                  (button) =>
+                      button.id == 'chrome.newTab' ||
+                      button.id == 'chrome.closeTab',
+                )
+                .toList(growable: false),
+          );
       final legacy = starter.copyWith(
         layouts: starter.layouts
-            .map((layout) => layout.id == 'codex' ? legacyCodex : layout)
+            .map(
+              (layout) => switch (layout.id) {
+                'codex' => legacyCodex,
+                'app.chrome' => legacyChrome,
+                _ => layout,
+              },
+            )
             .toList(growable: false),
         profiles: const [
           RemoteProfile(id: 'default', name: 'Default', layoutId: 'keyboard'),
@@ -154,6 +194,19 @@ void main() {
       expect(controller.manifest.buttonById('codex.voice'), isNotNull);
       expect(controller.manifest.buttonById('codex.send'), isNotNull);
       expect(controller.manifest.buttonById('codex.accept'), isNull);
+      expect(
+        controller.manifest.applicationById('codex')!.name,
+        'Codex / ChatGPT',
+      );
+      expect(
+        controller.manifest.layoutById('app.chrome')!.buttons,
+        hasLength(15),
+      );
+      expect(
+        controller.manifest.buttonById('chrome.passwordManager'),
+        isNotNull,
+      );
+      expect(controller.manifest.buttonById('chrome.mute'), isNotNull);
       expect(
         controller.manifest
             .layoutById('codex')!
@@ -197,6 +250,9 @@ void main() {
     expect(find.text('Shortcut Layout'), findsOneWidget);
     expect(find.text('Enable Apps Sync'), findsOneWidget);
     expect(find.text('Current Shortcut Profile'), findsOneWidget);
+    expect(find.byKey(const ValueKey('desktop-status-bar')), findsOneWidget);
+    expect(find.text('Desktop offline'), findsOneWidget);
+    expect(find.text('Waiting for phone'), findsOneWidget);
   });
 
   testWidgets('shortcut layout editor persists desktop-owned changes', (
