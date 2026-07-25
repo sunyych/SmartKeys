@@ -5,6 +5,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'companion_server.dart';
 import 'desktop_controller.dart';
+import 'shortcut_transfer_service.dart';
 
 class DesktopSettingsHome extends StatelessWidget {
   const DesktopSettingsHome({
@@ -421,7 +422,9 @@ class _ShortcutLayoutsPage extends StatefulWidget {
 }
 
 class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
+  static const transfer = DesktopShortcutTransferService();
   String? selectedLayoutId;
+  bool transferring = false;
 
   @override
   Widget build(BuildContext context) {
@@ -462,6 +465,24 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
               ),
               const SizedBox(width: 16),
               Chip(label: Text('${selected.buttons.length} buttons')),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: [
+              OutlinedButton.icon(
+                key: const ValueKey('desktop-import-shortcuts-json'),
+                onPressed: transferring ? null : _importJson,
+                icon: const Icon(Icons.file_download_outlined),
+                label: const Text('Import JSON'),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('desktop-export-shortcuts-json'),
+                onPressed: transferring ? null : _exportJson,
+                icon: const Icon(Icons.ios_share_outlined),
+                label: const Text('Export JSON'),
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -525,6 +546,40 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _importJson() async {
+    setState(() => transferring = true);
+    try {
+      final raw = await transfer.importJson();
+      if (raw == null) return;
+      await widget.controller.importShortcutLayouts(transfer.decode(raw));
+      if (mounted) _showTransferMessage('Shortcut JSON imported');
+    } catch (error) {
+      if (mounted) _showTransferMessage('$error');
+    } finally {
+      if (mounted) setState(() => transferring = false);
+    }
+  }
+
+  Future<void> _exportJson() async {
+    setState(() => transferring = true);
+    try {
+      final exported = await transfer.exportJson(widget.controller.manifest);
+      if (exported && mounted) {
+        _showTransferMessage('Shortcut JSON exported');
+      }
+    } catch (error) {
+      if (mounted) _showTransferMessage('$error');
+    } finally {
+      if (mounted) setState(() => transferring = false);
+    }
+  }
+
+  void _showTransferMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _editButton(
@@ -1044,5 +1099,15 @@ IconData desktopIcon(String id) => switch (id) {
   'restore' => Icons.restore,
   'link' => Icons.link,
   'add' => Icons.add,
+  'volume_up' => Icons.volume_up,
+  'volume_down' => Icons.volume_down,
+  'music' => Icons.music_note,
+  'create_new_folder' => Icons.create_new_folder_outlined,
+  'info' => Icons.info_outline,
+  'delete' => Icons.delete_outline,
+  'grid_view' => Icons.grid_view,
+  'view_list' => Icons.view_list,
+  'view_column' => Icons.view_column,
+  'visibility' => Icons.visibility_outlined,
   _ => Icons.keyboard_command_key,
 };

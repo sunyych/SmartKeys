@@ -26,6 +26,26 @@ class _InstalledDiscovery implements ApplicationDiscovery {
   }
 }
 
+class _SequencedDiscovery implements ApplicationDiscovery {
+  final foregrounds = <String?>[null, 'finder', 'finder', 'appleMusic'];
+  int index = 0;
+
+  @override
+  Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async {
+    final foreground = foregrounds[index.clamp(0, foregrounds.length - 1)];
+    index++;
+    return apps
+        .map(
+          (app) => app.copyWith(
+            detected: app.id == 'finder' || app.id == 'appleMusic',
+            running: app.id == foreground,
+            foreground: app.id == foreground,
+          ),
+        )
+        .toList(growable: false);
+  }
+}
+
 class _RecordingRunner implements DesktopProcessRunner {
   final List<(String, List<String>)> calls = [];
 
@@ -190,7 +210,8 @@ void main() {
       expect(controller.manifest.profiles.map((profile) => profile.id), [
         'default',
       ]);
-      expect(controller.manifest.buttonById('codex.open'), isNotNull);
+      expect(controller.manifest.buttonById('codex.open'), isNull);
+      expect(controller.manifest.buttonById('codex.focusInput'), isNotNull);
       expect(controller.manifest.buttonById('codex.voice'), isNotNull);
       expect(controller.manifest.buttonById('codex.send'), isNotNull);
       expect(controller.manifest.buttonById('codex.accept'), isNull);
@@ -214,7 +235,7 @@ void main() {
             .take(6)
             .map((button) => button.id),
         [
-          'codex.open',
+          'codex.focusInput',
           'codex.voice',
           'codex.newChat',
           'codex.previousConversation',
@@ -234,6 +255,28 @@ void main() {
       expect(synced.applicationById('vscode')!.foreground, isTrue);
     },
   );
+
+  test('publishes one activation sequence per foreground app change', () async {
+    final discovery = _SequencedDiscovery();
+    final controller = DesktopController(
+      store: MemoryDesktopConfigStore(),
+      discovery: discovery,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    expect(controller.manifest.applicationActivationSequence, 0);
+
+    await controller.refreshApplications();
+    expect(controller.manifest.applicationActivationSequence, 1);
+    expect(controller.manifest.activatedApplicationId, 'finder');
+
+    await controller.refreshApplications();
+    expect(controller.manifest.applicationActivationSequence, 1);
+
+    await controller.refreshApplications();
+    expect(controller.manifest.applicationActivationSequence, 2);
+    expect(controller.manifest.activatedApplicationId, 'appleMusic');
+  });
 
   testWidgets('shows the desktop settings navigation', (tester) async {
     final controller = DesktopController(

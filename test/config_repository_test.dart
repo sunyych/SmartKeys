@@ -278,6 +278,21 @@ void main() {
       () => transfer.decodeImportedProfile('{"hello":"world"}'),
       throwsFormatException,
     );
+    final unsafe = profile().copyWith(
+      buttons: [
+        profile().buttons.first.copyWith(
+          action: const HidAction(
+            type: ActionType.companion,
+            value: '{"kind":"launch","target":"/tmp/arbitrary"}',
+          ),
+        ),
+        ...profile().buttons.skip(1),
+      ],
+    );
+    expect(
+      () => transfer.decodeImportedProfile(jsonEncode(unsafe.toJson())),
+      throwsFormatException,
+    );
   });
 
   test(

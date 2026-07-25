@@ -16,9 +16,13 @@ DesktopManifest desktopManifest({
   Set<String> installed = const {},
   Set<String> running = const {},
   String? foreground,
+  int activationSequence = 0,
+  String? activatedApplicationId,
 }) {
   final starter = DesktopManifest.starter();
   return starter.copyWith(
+    applicationActivationSequence: activationSequence,
+    activatedApplicationId: activatedApplicationId,
     applications: starter.applications
         .map(
           (application) => application.copyWith(
@@ -38,7 +42,13 @@ const connectedCompanionHost = CompanionHost(
   port: 45678,
   token: 'test',
   protocolVersion: 2,
-  capabilities: {'manifest', 'apps', 'codex', 'foreground-app'},
+  capabilities: {
+    'manifest',
+    'apps',
+    'codex',
+    'foreground-app',
+    'app-activation',
+  },
 );
 
 ProfileConfig profile({

@@ -42,6 +42,16 @@ void main() {
     expect(find.byKey(const ValueKey('status-mode-hid')), findsOneWidget);
     expect(find.text('HID'), findsOneWidget);
     expect(find.byKey(const ValueKey('control-menu')), findsOneWidget);
+    final statusRect = tester.getRect(
+      find.byKey(const ValueKey('control-menu')),
+    );
+    final tabsRect = tester.getRect(
+      find.byKey(const ValueKey('profile-quick-switch-bar')),
+    );
+    expect(statusRect.top, lessThanOrEqualTo(tabsRect.top));
+    expect(390 - statusRect.right, lessThanOrEqualTo(10));
+    await _openControlMenu(tester);
+    expect(find.text('Import / export JSON'), findsOneWidget);
   });
 
   testWidgets(
@@ -121,10 +131,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('home-tab-apps')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-tab-codex')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('profile-quick-profile_general')),
-      findsOneWidget,
-    );
     expect(find.byKey(const ValueKey('desktop-profile-default')), findsNothing);
     expect(find.byKey(const ValueKey('workspace-app-vscode')), findsOneWidget);
     expect(find.byKey(const ValueKey('workspace-app-codex')), findsNothing);
@@ -135,7 +141,6 @@ void main() {
     final appButtonSize = tester.getSize(
       find.byKey(const ValueKey('remote-app-vscode')),
     );
-    expect(appButtonSize.width / appButtonSize.height, closeTo(1, 0.05));
     final appIcon = tester.widget<Image>(
       find.descendant(
         of: find.byKey(const ValueKey('remote-app-vscode')),
@@ -155,6 +160,11 @@ void main() {
       find.byKey(const ValueKey('remote-layout-app.vscode')),
       findsOneWidget,
     );
+    final shortcutButtonSize = tester.getSize(
+      find.byKey(const ValueKey('remote-button-vscode.save')),
+    );
+    expect(appButtonSize.width, closeTo(shortcutButtonSize.width, 1));
+    expect(appButtonSize.height, closeTo(shortcutButtonSize.height, 1));
 
     expect(find.byKey(const ValueKey('wheel-region')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('remote-button-vscode.save')));
@@ -170,6 +180,68 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('remote-layout-codex')), findsOneWidget);
     expect(find.byKey(const ValueKey('wheel-region')), findsOneWidget);
+  });
+
+  testWidgets('consumes each Desktop app activation only once', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final harness = await TestHarness.create();
+    addTearDown(() => _disposeHarness(tester, harness));
+    harness.companion.host.value = connectedCompanionHost;
+    harness.companion.status.value = CompanionSyncStatus.ready;
+    harness.companion.syncedManifest.value = desktopManifest(
+      installed: const {'chrome', 'vscode'},
+      running: const {'chrome'},
+      foreground: 'chrome',
+      activationSequence: 1,
+      activatedApplicationId: 'chrome',
+    );
+
+    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('remote-layout-app.chrome')),
+      findsOneWidget,
+    );
+
+    final generalTab = find.byKey(
+      const ValueKey('profile-quick-profile_general'),
+    );
+    await tester.ensureVisible(generalTab);
+    await tester.tap(generalTab);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('remote-layout-keyboard')),
+      findsOneWidget,
+    );
+
+    harness.companion.syncedManifest.value = desktopManifest(
+      installed: const {'chrome', 'vscode'},
+      running: const {'chrome'},
+      foreground: 'chrome',
+      activationSequence: 1,
+      activatedApplicationId: 'chrome',
+    ).copyWith(revision: 20);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('remote-layout-keyboard')),
+      findsOneWidget,
+    );
+
+    harness.companion.syncedManifest.value = desktopManifest(
+      installed: const {'chrome', 'vscode'},
+      running: const {'vscode'},
+      foreground: 'vscode',
+      activationSequence: 2,
+      activatedApplicationId: 'vscode',
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('remote-layout-app.vscode')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('opening an installed Chrome app enters its shortcut layout', (

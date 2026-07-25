@@ -275,6 +275,8 @@ class DesktopManifest {
     required this.applications,
     required this.profiles,
     this.schemaVersion = 1,
+    this.applicationActivationSequence = 0,
+    this.activatedApplicationId,
   });
 
   final int schemaVersion;
@@ -284,6 +286,8 @@ class DesktopManifest {
   final List<RemoteShortcutLayout> layouts;
   final List<RemoteApplication> applications;
   final List<RemoteProfile> profiles;
+  final int applicationActivationSequence;
+  final String? activatedApplicationId;
 
   RemoteProfile? get currentProfile =>
       profiles.cast<RemoteProfile?>().firstWhere(
@@ -318,6 +322,8 @@ class DesktopManifest {
     List<RemoteShortcutLayout>? layouts,
     List<RemoteApplication>? applications,
     List<RemoteProfile>? profiles,
+    int? applicationActivationSequence,
+    String? activatedApplicationId,
   }) => DesktopManifest(
     schemaVersion: schemaVersion,
     revision: revision ?? this.revision,
@@ -326,6 +332,10 @@ class DesktopManifest {
     layouts: layouts ?? this.layouts,
     applications: applications ?? this.applications,
     profiles: profiles ?? this.profiles,
+    applicationActivationSequence:
+        applicationActivationSequence ?? this.applicationActivationSequence,
+    activatedApplicationId:
+        activatedApplicationId ?? this.activatedApplicationId,
   );
 
   Map<String, Object?> toJson({bool forSync = false}) {
@@ -337,6 +347,11 @@ class DesktopManifest {
                     .toList(growable: false)
               : const <RemoteApplication>[]
         : applications;
+    final syncedActivationApplicationId =
+        activatedApplicationId != null &&
+            syncedApplications.any((app) => app.id == activatedApplicationId)
+        ? activatedApplicationId
+        : null;
     return {
       'schemaVersion': schemaVersion,
       'revision': revision,
@@ -349,6 +364,8 @@ class DesktopManifest {
           .map((app) => app.toJson(includeIcon: includeIcons))
           .toList(growable: false),
       'profiles': profiles.map((profile) => profile.toJson()).toList(),
+      'applicationActivationSequence': applicationActivationSequence,
+      'activatedApplicationId': syncedActivationApplicationId,
     };
   }
 
@@ -371,6 +388,11 @@ class DesktopManifest {
       profiles: _mapList(
         json['profiles'],
       ).map(RemoteProfile.fromJson).toList(growable: false),
+      applicationActivationSequence:
+          json['applicationActivationSequence'] is int
+          ? json['applicationActivationSequence']! as int
+          : 0,
+      activatedApplicationId: _nullableString(json['activatedApplicationId']),
     );
     manifest.validate();
     return manifest;
@@ -386,6 +408,11 @@ class DesktopManifest {
         applications.any((app) => !layoutIds.contains(app.layoutId)) ||
         !profiles.any((profile) => profile.id == currentProfileId)) {
       throw const FormatException('Manifest contains invalid references');
+    }
+    if (applicationActivationSequence < 0 ||
+        (activatedApplicationId != null &&
+            !applications.any((app) => app.id == activatedApplicationId))) {
+      throw const FormatException('Manifest contains invalid app activation');
     }
     final buttonIds = <String>{};
     if (applications.where((application) => application.foreground).length >
@@ -526,14 +553,9 @@ class DesktopManifest {
       name: 'Codex',
       kind: RemoteLayoutKind.codex,
       buttons: [
-        const RemoteShortcutButton(
-          id: 'codex.open',
-          name: 'Open Codex',
-          icon: 'code',
-          targetType: RemoteTargetType.launchApplication,
-          target: 'codex',
-          description: 'Bring Codex to the foreground',
-        ),
+        shortcut('codex.focusInput', 'Focus Input', 'center_focus_strong', [
+          'ESC',
+        ]),
         const RemoteShortcutButton(
           id: 'codex.voice',
           name: 'Voice Input',
@@ -581,6 +603,53 @@ class DesktopManifest {
         shortcut('codex.sidebar', 'Sidebar', 'menu_open', ['PRIMARY', 'B']),
       ],
     );
+    final appleMusic = appLayout('app.appleMusic', 'Apple Music', [
+      shortcut('appleMusic.playPause', 'Play / Pause', 'play', ['SPACE']),
+      shortcut('appleMusic.next', 'Next Song', 'skip_next', [
+        'PRIMARY',
+        'RIGHT',
+      ]),
+      shortcut('appleMusic.previous', 'Previous Song', 'skip_previous', [
+        'PRIMARY',
+        'LEFT',
+      ]),
+      shortcut('appleMusic.volumeUp', 'Volume Up', 'volume_up', [
+        'PRIMARY',
+        'UP',
+      ]),
+      shortcut('appleMusic.volumeDown', 'Volume Down', 'volume_down', [
+        'PRIMARY',
+        'DOWN',
+      ]),
+      shortcut('appleMusic.search', 'Search', 'search', ['PRIMARY', 'F']),
+    ]);
+    final finder = appLayout('app.finder', 'Finder', [
+      shortcut('finder.newWindow', 'New Window', 'add', ['PRIMARY', 'N']),
+      shortcut('finder.newFolder', 'New Folder', 'create_new_folder', [
+        'PRIMARY',
+        'SHIFT',
+        'N',
+      ]),
+      shortcut('finder.open', 'Open', 'folder_open', ['PRIMARY', 'O']),
+      shortcut('finder.getInfo', 'Get Info', 'info', ['PRIMARY', 'I']),
+      shortcut('finder.copy', 'Copy', 'copy', ['PRIMARY', 'C']),
+      shortcut('finder.paste', 'Paste', 'paste', ['PRIMARY', 'V']),
+      shortcut('finder.trash', 'Move to Trash', 'delete', [
+        'PRIMARY',
+        'BACKSPACE',
+      ]),
+      shortcut('finder.search', 'Search', 'search', ['PRIMARY', 'F']),
+      shortcut('finder.back', 'Back', 'arrow_back', ['PRIMARY', '[']),
+      shortcut('finder.forward', 'Forward', 'arrow_next', ['PRIMARY', ']']),
+      shortcut('finder.iconView', 'Icon View', 'grid_view', ['PRIMARY', '1']),
+      shortcut('finder.listView', 'List View', 'view_list', ['PRIMARY', '2']),
+      shortcut('finder.columnView', 'Column View', 'view_column', [
+        'PRIMARY',
+        '3',
+      ]),
+      shortcut('finder.galleryView', 'Gallery View', 'image', ['PRIMARY', '4']),
+      shortcut('finder.quickLook', 'Quick Look', 'visibility', ['SPACE']),
+    ]);
     return DesktopManifest(
       revision: 1,
       currentProfileId: 'default',
@@ -594,6 +663,8 @@ class DesktopManifest {
         illustrator,
         solidworks,
         codex,
+        appleMusic,
+        finder,
       ],
       applications: const [
         RemoteApplication(
@@ -644,6 +715,20 @@ class DesktopManifest {
           icon: 'language',
           executable: 'Google Chrome',
           layoutId: 'app.chrome',
+        ),
+        RemoteApplication(
+          id: 'appleMusic',
+          name: 'Apple Music',
+          icon: 'music',
+          executable: 'Music',
+          layoutId: 'app.appleMusic',
+        ),
+        RemoteApplication(
+          id: 'finder',
+          name: 'Finder',
+          icon: 'folder_open',
+          executable: 'Finder',
+          layoutId: 'app.finder',
         ),
       ],
       profiles: const [

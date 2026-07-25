@@ -28,8 +28,9 @@ This monorepo also contains the independent LumiaKeys Desktop app in
 - The Android top strip is one unified control surface. All local Profiles are
   available while Desktop is offline; Desktop sync keeps General as the HID
   fallback and replaces Web, Zoom / Teams, and Custom tabs with managed Apps
-  and Workspaces. The top-right control-menu pill displays the highest useful
-  state: foreground app, Desktop, then HID.
+  and Workspaces. The control-menu/status pill sits at the screen's top-right,
+  outside the wheel/touchpad, and displays the highest useful state:
+  foreground app, Desktop, then HID.
 - Apps is a launch-only square button grid using offline brand icons. Tapping
   Chrome, Codex, or VSCode sends its managed application ID to Desktop and
   immediately opens that application's shortcut layout. Chrome ships a
@@ -42,10 +43,19 @@ This monorepo also contains the independent LumiaKeys Desktop app in
 - macOS maps the installed/running `ChatGPT.app` process to the Desktop-owned
   Codex application ID, so the phone shows one `Codex / ChatGPT` Workspace
   without exposing a process name or executable path as an action.
+- macOS also publishes Apple Music and Finder when detected. Their buttons open
+  the Desktop-owned `Music` and `Finder` application IDs and expose managed
+  playback, search, navigation, view, file, and Quick Look shortcuts.
 - Codex uses the same 3 × 5 / 5 × 3 key region and the existing wheel/touchpad,
-  rather than replacing the whole app. Its editable defaults prioritize Open
-  Codex, Dictation, New/Previous/Next Chat, Send, search, folder, command menu,
-  Terminal, Review, navigation, and Sidebar actions documented by Codex.
+  rather than replacing the whole app. Its editable defaults replace Open
+  Codex with Focus Input, then prioritize Dictation, New/Previous/Next Chat,
+  Send, search, folder, command menu, Terminal, Review, navigation, and Sidebar.
+- Desktop foreground changes carry an incrementing activation sequence. Android
+  consumes each sequence once to enter the matching app tab, so ordinary
+  manifest refreshes cannot repeatedly pull the user away from a manual tab.
+- Phone Profile JSON import/export is available from the top-right menu and
+  rejects Companion actions. Desktop Shortcut Layout JSON import/export omits
+  executable data, only replaces known layouts, and validates application IDs.
 - Settings records shortcut counts in a separate phone-only preference. It
   shows most/least-used shortcuts, can reorder the current local Profile by
   usage, and states explicitly that the data is never sent to Desktop/cloud or

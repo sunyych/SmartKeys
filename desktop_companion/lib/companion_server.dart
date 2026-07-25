@@ -73,6 +73,7 @@ class CompanionServer extends ChangeNotifier {
           'codex',
           'icons',
           'foreground-app',
+          'app-activation',
         ],
       }),
     );

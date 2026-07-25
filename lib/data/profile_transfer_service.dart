@@ -66,6 +66,21 @@ class ProfileTransferService {
       );
     }
     final profile = ProfileConfig.fromJson(decoded);
+    final importedActions = [
+      ...profile.buttons.map((button) => button.action),
+      profile.wheel.clockwise,
+      profile.wheel.counterClockwise,
+      profile.wheel.center,
+      profile.wheel.up,
+      profile.wheel.down,
+      profile.wheel.left,
+      profile.wheel.right,
+    ];
+    if (importedActions.any((action) => action.type == ActionType.companion)) {
+      throw const FormatException(
+        'Imported phone Profiles cannot contain Desktop companion actions.',
+      );
+    }
     final stamp = DateTime.now().microsecondsSinceEpoch;
     return profile.copyWith(
       id: 'profile_imported_$stamp',

@@ -57,6 +57,7 @@ abstract interface class ApplicationDiscovery {
 class PlatformApplicationDiscovery implements ApplicationDiscovery {
   const PlatformApplicationDiscovery();
 
+  static const _macOnlyApplicationIds = {'appleMusic', 'finder'};
   @override
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async {
     final installedMacApps = Platform.isMacOS
@@ -69,6 +70,16 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     final foregroundProcess = await _foregroundProcessName();
     return Future.wait(
       apps.map((app) async {
+        if ((Platform.isWindows && _macOnlyApplicationIds.contains(app.id)) ||
+            (!Platform.isMacOS &&
+                !Platform.isWindows &&
+                _macOnlyApplicationIds.contains(app.id))) {
+          return app.copyWith(
+            detected: false,
+            running: false,
+            foreground: false,
+          );
+        }
         final candidates = _candidateNames(app);
         final running = runningProcesses.any(
           (process) => candidates.any(process.contains),
@@ -282,7 +293,7 @@ class DesktopController extends ChangeNotifier {
       final loaded = await store.load() ?? DesktopManifest.starter();
       _manifest = _upgradeManifest(loaded);
       final apps = await discovery.refresh(_manifest.applications);
-      _manifest = _manifest.copyWith(applications: apps);
+      _manifest = _withApplications(apps);
       if (jsonEncode(_manifest.toJson()) != jsonEncode(loaded.toJson())) {
         _manifest = _manifest.copyWith(revision: loaded.revision + 1);
       }
@@ -340,10 +351,45 @@ class DesktopController extends ChangeNotifier {
     await _commit(_manifest.copyWith(applications: apps));
   }
 
+  Future<void> importShortcutLayouts(
+    List<RemoteShortcutLayout> imported,
+  ) async {
+    if (imported.isEmpty) {
+      throw const FormatException('No shortcut layouts to import');
+    }
+    final existingById = {
+      for (final layout in _manifest.layouts) layout.id: layout,
+    };
+    for (final layout in imported) {
+      final existing = existingById[layout.id];
+      if (existing == null || existing.kind != layout.kind) {
+        throw const FormatException(
+          'Imported JSON contains an unknown shortcut layout',
+        );
+      }
+      for (final button in layout.buttons) {
+        if (button.targetType == RemoteTargetType.launchApplication &&
+            _manifest.applicationById(button.target ?? '') == null) {
+          throw const FormatException(
+            'Imported shortcut references an unknown application',
+          );
+        }
+      }
+    }
+    final importedById = {for (final layout in imported) layout.id: layout};
+    final candidate = _manifest.copyWith(
+      layouts: _manifest.layouts
+          .map((layout) => importedById[layout.id] ?? layout)
+          .toList(growable: false),
+    );
+    candidate.validate();
+    await _commit(candidate);
+  }
+
   Future<void> refreshApplications() async {
     try {
       final apps = await discovery.refresh(_manifest.applications);
-      await _commit(_manifest.copyWith(applications: apps));
+      await _commit(_withApplications(apps));
       _error = null;
     } catch (error) {
       _error = 'App discovery failed: $error';
@@ -357,7 +403,7 @@ class DesktopController extends ChangeNotifier {
     try {
       final apps = await discovery.refresh(_manifest.applications);
       if (!_sameApplications(apps, _manifest.applications)) {
-        await _commit(_manifest.copyWith(applications: apps));
+        await _commit(_withApplications(apps));
       }
     } catch (error) {
       _error = 'App monitor failed: $error';
@@ -389,6 +435,25 @@ class DesktopController extends ChangeNotifier {
     return true;
   }
 
+  DesktopManifest _withApplications(List<RemoteApplication> apps) {
+    final previousForeground = foregroundApplication?.id;
+    final nextForeground = apps.cast<RemoteApplication?>().firstWhere(
+      (application) => application?.foreground == true,
+      orElse: () => null,
+    );
+    final activationChanged =
+        nextForeground != null && nextForeground.id != previousForeground;
+    return _manifest.copyWith(
+      applications: apps,
+      applicationActivationSequence: activationChanged
+          ? _manifest.applicationActivationSequence + 1
+          : _manifest.applicationActivationSequence,
+      activatedApplicationId: activationChanged
+          ? nextForeground.id
+          : _manifest.activatedApplicationId,
+    );
+  }
+
   static DesktopManifest _upgradeManifest(DesktopManifest manifest) {
     final starter = DesktopManifest.starter();
     const legacyIds = {'windows', 'mac', 'photoshop', 'vscode', 'premiere'};
@@ -399,7 +464,7 @@ class DesktopController extends ChangeNotifier {
     final starterCodex = starter.layoutById('codex')!;
     final starterChrome = starter.layoutById('app.chrome')!;
     final hasCurrentCodexActions =
-        manifest.buttonById('codex.open') != null &&
+        manifest.buttonById('codex.focusInput') != null &&
         manifest.buttonById('codex.voice') != null &&
         manifest.buttonById('codex.newChat') != null &&
         manifest.buttonById('codex.searchChats') != null &&
@@ -430,6 +495,11 @@ class DesktopController extends ChangeNotifier {
         .toList(growable: true);
     if (!layouts.any((layout) => layout.id == 'codex')) {
       layouts.add(starterCodex);
+    }
+    for (final starterLayout in starter.layouts) {
+      if (!layouts.any((layout) => layout.id == starterLayout.id)) {
+        layouts.add(starterLayout);
+      }
     }
     final starterCodexApp = starter.applicationById('codex')!;
     final applications = manifest.applications

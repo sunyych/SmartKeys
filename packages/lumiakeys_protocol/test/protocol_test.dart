@@ -8,14 +8,15 @@ void main() {
 
     expect(restored.currentProfileId, 'default');
     expect(restored.layoutById('codex')!.buttons, hasLength(15));
-    expect(restored.buttonById('codex.open')!.target, 'codex');
+    expect(restored.buttonById('codex.open'), isNull);
+    expect(restored.buttonById('codex.focusInput')!.shortcut, ['ESC']);
     expect(
       restored.buttonById('codex.voice')!.targetType,
       RemoteTargetType.voiceInput,
     );
     expect(restored.buttonById('codex.send')!.shortcut, ['ENTER']);
     expect(restored.layoutById('codex')!.buttons.map((button) => button.id), [
-      'codex.open',
+      'codex.focusInput',
       'codex.voice',
       'codex.newChat',
       'codex.previousConversation',
@@ -33,6 +34,9 @@ void main() {
     ]);
     expect(restored.applicationById('vscode')!.layoutId, 'app.vscode');
     expect(restored.applicationById('codex')!.name, 'Codex / ChatGPT');
+    expect(restored.applicationById('appleMusic')!.executable, 'Music');
+    expect(restored.applicationById('finder')!.executable, 'Finder');
+    expect(restored.layoutById('app.finder')!.buttons, hasLength(15));
     expect(restored.layoutById('app.chrome')!.buttons, hasLength(15));
     expect(restored.buttonById('chrome.bookmark'), isNotNull);
     expect(restored.buttonById('chrome.pageUp'), isNull);
@@ -102,6 +106,33 @@ void main() {
     expect(synced.applications.single.id, 'vscode');
     expect(synced.applications.single.foreground, isTrue);
   });
+
+  test(
+    'app activation signal round trips without exposing executable data',
+    () {
+      final manifest = DesktopManifest.starter().copyWith(
+        applicationActivationSequence: 4,
+        activatedApplicationId: 'finder',
+        applications: DesktopManifest.starter().applications
+            .map(
+              (app) => app.id == 'finder'
+                  ? app.copyWith(
+                      detected: true,
+                      running: true,
+                      foreground: true,
+                    )
+                  : app,
+            )
+            .toList(growable: false),
+      );
+
+      final restored = DesktopManifest.fromJson(manifest.toJson(forSync: true));
+
+      expect(restored.applicationActivationSequence, 4);
+      expect(restored.activatedApplicationId, 'finder');
+      expect(restored.applicationById('finder')!.foreground, isTrue);
+    },
+  );
 
   test('remote actions only contain desktop-owned identifiers', () {
     expect(

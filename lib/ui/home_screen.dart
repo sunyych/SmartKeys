@@ -11,6 +11,7 @@ import 'button_editor_screen.dart';
 import 'bluetooth_connection_sheet.dart';
 import 'profile_management_screen.dart';
 import 'settings_screen.dart';
+import 'shortcut_community_screen.dart';
 import 'wheel_editor_screen.dart';
 import 'widgets/button_face.dart';
 import 'widgets/jog_wheel.dart';
@@ -28,10 +29,12 @@ class _HomeScreenState extends State<HomeScreen> {
   _HomeTab selectedTab = _HomeTab.keyboard;
   String? selectedApplicationId;
   bool _followForeground = true;
+  String? _handledActivationToken;
 
   @override
   Widget build(BuildContext context) {
     final controller = SmartKeysScope.of(context);
+    _consumeDesktopActivation(controller);
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     controller.registerLayoutOrientation(landscape);
@@ -113,24 +116,68 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       child: Scaffold(
-        body: Column(
+        body: Stack(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-              child: _HomeTabBar(
+            Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 140, 6),
+                  child: _HomeTabBar(
+                    controller: controller,
+                    selectedTab: effectiveTab,
+                    selectedApplicationId: effectiveApplication?.id,
+                    onSelectTab: selectTab,
+                    onSelectApplication: selectApplication,
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(child: content),
+              ],
+            ),
+            Positioned(
+              top: 7,
+              right: 10,
+              child: _CompactControlMenu(
                 controller: controller,
-                selectedTab: effectiveTab,
-                selectedApplicationId: effectiveApplication?.id,
-                onSelectTab: selectTab,
-                onSelectApplication: selectApplication,
+                editing: editing,
+                onToggleEditing: () => setState(() => editing = !editing),
               ),
             ),
-            const Divider(height: 1),
-            Expanded(child: content),
           ],
         ),
       ),
     );
+  }
+
+  void _consumeDesktopActivation(AppController controller) {
+    final manifest = controller.desktopManifest;
+    final host = controller.companion.activeHost.value;
+    final appId = manifest?.activatedApplicationId;
+    final sequence = manifest?.applicationActivationSequence ?? 0;
+    if (!controller.isDesktopSynced ||
+        host == null ||
+        appId == null ||
+        sequence <= 0) {
+      return;
+    }
+    final token = '${host.token}:$sequence';
+    if (_handledActivationToken == token) return;
+    final app = controller.syncedApplications
+        .cast<RemoteApplication?>()
+        .firstWhere(
+          (candidate) =>
+              candidate?.id == appId && candidate?.foreground == true,
+          orElse: () => null,
+        );
+    if (app == null ||
+        controller.layoutForApplication(app)?.buttons.isEmpty != false) {
+      return;
+    }
+    _handledActivationToken = token;
+    selectedTab = app.id == 'codex' ? _HomeTab.codex : _HomeTab.application;
+    selectedApplicationId = app.id;
+    editing = false;
+    _followForeground = false;
   }
 }
 
@@ -514,55 +561,90 @@ class _SyncedAppsPage extends StatelessWidget {
     final columns = MediaQuery.orientationOf(context) == Orientation.landscape
         ? 5
         : 3;
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     return SafeArea(
-      child: GridView.builder(
-        key: const ValueKey('apps-grid'),
-        padding: const EdgeInsets.all(12),
-        itemCount: apps.length,
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns,
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-          childAspectRatio: 1,
-        ),
-        itemBuilder: (context, index) {
-          final app = apps[index];
-          return Material(
-            color: const Color(0xFF151C26),
-            borderRadius: BorderRadius.circular(14),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: ValueKey('remote-app-${app.id}'),
-              onTap: () => onOpenApplication(app),
-              child: Padding(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final gridWidth = landscape
+              ? constraints.maxWidth * 2 / 3
+              : constraints.maxWidth;
+          final gridHeight = landscape
+              ? constraints.maxHeight
+              : constraints.maxHeight * 62 / 95;
+          final rows = (controlButtonCount / columns).ceil();
+          const horizontalSpacing = 4.0;
+          const verticalSpacing = 8.0;
+          const horizontalPadding = 10.0;
+          const verticalPadding = 10.0;
+          final width =
+              (gridWidth -
+                  horizontalPadding * 2 -
+                  horizontalSpacing * (columns - 1)) /
+              columns;
+          final height =
+              (gridHeight -
+                  verticalPadding * 2 -
+                  verticalSpacing * (rows - 1)) /
+              rows;
+          return Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: gridWidth,
+              height: gridHeight,
+              child: GridView.builder(
+                key: const ValueKey('apps-grid'),
+                physics: const NeverScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(10),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: _RemoteApplicationIcon(application: app),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      app.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    Text(
-                      app.running ? 'Running' : 'Open',
-                      maxLines: 1,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white54,
-                      ),
-                    ),
-                  ],
+                itemCount: apps.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: horizontalSpacing,
+                  mainAxisSpacing: verticalSpacing,
+                  childAspectRatio: width / height,
                 ),
+                itemBuilder: (context, index) {
+                  final app = apps[index];
+                  return Material(
+                    color: const Color(0xFF151C26),
+                    borderRadius: BorderRadius.circular(14),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      key: ValueKey('remote-app-${app.id}'),
+                      onTap: () => onOpenApplication(app),
+                      child: Padding(
+                        padding: const EdgeInsets.all(9),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox.square(
+                              dimension: 34,
+                              child: _RemoteApplicationIcon(application: app),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              app.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              app.running ? 'Running' : 'Open',
+                              maxLines: 1,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.white54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           );
@@ -675,6 +757,26 @@ IconData remoteIcon(String id) => switch (id) {
   'bookmark' => Icons.bookmark_outline,
   'password' => Icons.password,
   'volume_off' => Icons.volume_off,
+  'volume_up' => Icons.volume_up,
+  'volume_down' => Icons.volume_down,
+  'music' => Icons.music_note,
+  'map' => Icons.map_outlined,
+  'calendar' => Icons.calendar_month_outlined,
+  'journal' => Icons.edit_note,
+  'note' => Icons.note_alt_outlined,
+  'home' => Icons.home_outlined,
+  'zoom_in' => Icons.zoom_in,
+  'zoom_out' => Icons.zoom_out,
+  'select_all' => Icons.select_all,
+  'find_replace' => Icons.find_replace,
+  'print' => Icons.print_outlined,
+  'create_new_folder' => Icons.create_new_folder_outlined,
+  'info' => Icons.info_outline,
+  'delete' => Icons.delete_outline,
+  'grid_view' => Icons.grid_view,
+  'view_list' => Icons.view_list,
+  'view_column' => Icons.view_column,
+  'visibility' => Icons.visibility_outlined,
   'add' => Icons.add,
   'mic' => Icons.mic,
   'send' => Icons.send,
@@ -874,14 +976,6 @@ class _WheelPanel extends StatelessWidget {
               ),
             ),
           ),
-        Align(
-          alignment: Alignment.topRight,
-          child: _CompactControlMenu(
-            controller: controller,
-            editing: editing,
-            onToggleEditing: onToggleEditing,
-          ),
-        ),
       ],
     );
     if (isTouchpad) return panel;
@@ -903,7 +997,13 @@ class _WheelPanel extends StatelessWidget {
   }
 }
 
-enum _ControlMenuAction { profiles, bluetooth, toggleEditing, settings }
+enum _ControlMenuAction {
+  profiles,
+  bluetooth,
+  importExport,
+  toggleEditing,
+  settings,
+}
 
 class _CompactControlMenu extends StatelessWidget {
   const _CompactControlMenu({
@@ -959,6 +1059,14 @@ class _CompactControlMenu extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(editing ? Icons.check : Icons.edit_outlined),
                     title: Text(editing ? 'Done editing' : 'Edit buttons'),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: _ControlMenuAction.importExport,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.import_export),
+                    title: Text('Import / export JSON'),
                   ),
                 ),
                 const PopupMenuItem(
@@ -1077,6 +1185,12 @@ class _CompactControlMenu extends StatelessWidget {
         showBluetoothConnectionSheet(context, controller.hid);
       case _ControlMenuAction.toggleEditing:
         onToggleEditing();
+      case _ControlMenuAction.importExport:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const ShortcutCommunityScreen(),
+          ),
+        );
       case _ControlMenuAction.settings:
         Navigator.of(
           context,
