@@ -35,6 +35,10 @@ This monorepo also contains the independent LumiaKeys Desktop app in
   immediately opens that application's shortcut layout. Chrome ships a
   15-button common layout for navigation, tabs, clipboard, bookmarks, password
   manager, media, mute, address, and refresh.
+- Chrome already fills the 3 × 5 shortcut limit, so Page Up / Page Down remain
+  deferred. Mouse-pad profiles instead expose a dedicated right-edge scroll
+  strip: slide one finger vertically there for direct scrolling without
+  triggering pointer movement or clicks.
 - macOS maps the installed/running `ChatGPT.app` process to the Desktop-owned
   Codex application ID, so the phone shows one `Codex / ChatGPT` Workspace
   without exposing a process name or executable path as an action.

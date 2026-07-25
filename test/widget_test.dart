@@ -315,7 +315,7 @@ void main() {
     expect(find.text('Zoom / Teams'), findsAtLeast(1));
   });
 
-  testWidgets('touchpad moves, left-clicks, and two-finger right-clicks', (
+  testWidgets('touchpad moves, clicks, and supports two scroll gestures', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -397,6 +397,41 @@ void main() {
     );
     expect(scrollActions, isNotEmpty);
     expect(scrollActions.last.value, '1');
+    final scrollCountBeforeStrip = scrollActions.length;
+
+    final moveCountBeforeStrip = harness.hid.pressedActions.length;
+    final clickCountBeforeStrip = harness.hid.steppedActions
+        .where((action) => action.type == ActionType.mouseButton)
+        .length;
+    final scrollStrip = find.byKey(const ValueKey('mouse-scroll-strip'));
+    expect(scrollStrip, findsOneWidget);
+    final stripRect = tester.getRect(scrollStrip);
+    final touchpadRect = tester.getRect(touchpad);
+    expect(stripRect.width, lessThanOrEqualTo(44));
+    expect(stripRect.right, lessThanOrEqualTo(touchpadRect.right));
+    expect(touchpadRect.right - stripRect.right, lessThanOrEqualTo(8));
+
+    final stripGesture = await tester.startGesture(
+      tester.getCenter(scrollStrip),
+      pointer: 31,
+    );
+    await stripGesture.moveBy(const Offset(0, -24));
+    await tester.pump();
+    await stripGesture.up();
+    await tester.pump();
+
+    final directScrollActions = harness.hid.steppedActions.where(
+      (action) => action.type == ActionType.mouseWheel,
+    );
+    expect(directScrollActions.length, greaterThan(scrollCountBeforeStrip));
+    expect(directScrollActions.last.value, '2');
+    expect(harness.hid.pressedActions, hasLength(moveCountBeforeStrip));
+    expect(
+      harness.hid.steppedActions
+          .where((action) => action.type == ActionType.mouseButton)
+          .length,
+      clickCountBeforeStrip,
+    );
   });
 
   testWidgets('edit mode long-press drag swaps two button positions', (

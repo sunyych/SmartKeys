@@ -35,6 +35,8 @@ void main() {
     expect(restored.applicationById('codex')!.name, 'Codex / ChatGPT');
     expect(restored.layoutById('app.chrome')!.buttons, hasLength(15));
     expect(restored.buttonById('chrome.bookmark'), isNotNull);
+    expect(restored.buttonById('chrome.pageUp'), isNull);
+    expect(restored.buttonById('chrome.pageDown'), isNull);
     expect(restored.buttonById('chrome.nextTab'), isNotNull);
     expect(
       restored.buttonById('chrome.passwordManager')!.target,
