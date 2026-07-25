@@ -12,6 +12,7 @@ export 'companion_server.dart';
 export 'desktop_actions.dart';
 export 'desktop_controller.dart';
 export 'shortcut_transfer_service.dart';
+export 'tray_shell.dart' show desktopBrandAsset;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

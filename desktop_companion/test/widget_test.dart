@@ -294,10 +294,11 @@ void main() {
     expect(find.text('Enable Apps Sync'), findsOneWidget);
     expect(find.text('Current Shortcut Profile'), findsOneWidget);
     expect(find.byKey(const ValueKey('desktop-status-bar')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('desktop-brand-wordmark')),
-      findsOneWidget,
+    expect(find.byKey(const ValueKey('desktop-brand-logo')), findsOneWidget);
+    final navigationLogo = tester.widget<Image>(
+      find.byKey(const ValueKey('desktop-brand-logo-image')),
     );
+    expect((navigationLogo.image as AssetImage).assetName, desktopBrandAsset);
     expect(find.byIcon(Icons.keyboard_command_key), findsNothing);
     expect(find.text('Desktop offline'), findsOneWidget);
     expect(find.text('Waiting for phone'), findsOneWidget);
@@ -305,6 +306,10 @@ void main() {
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pump();
     expect(find.text('LumiaKeys Desktop'), findsOneWidget);
+    final aboutLogo = tester.widget<Image>(
+      find.byKey(const ValueKey('desktop-about-logo-image')),
+    );
+    expect((aboutLogo.image as AssetImage).assetName, desktopBrandAsset);
     expect(find.byIcon(Icons.keyboard_command_key), findsNothing);
   });
 

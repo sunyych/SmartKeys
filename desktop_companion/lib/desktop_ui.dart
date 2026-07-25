@@ -6,6 +6,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'companion_server.dart';
 import 'desktop_controller.dart';
 import 'shortcut_transfer_service.dart';
+import 'tray_shell.dart' show desktopBrandAsset;
 
 class DesktopSettingsHome extends StatelessWidget {
   const DesktopSettingsHome({
@@ -41,7 +42,7 @@ class DesktopSettingsHome extends StatelessWidget {
             onDestinationSelected: controller.selectSection,
             leading: Padding(
               padding: const EdgeInsets.only(top: 16, bottom: 20),
-              child: _BrandWordmark(extended: extendedNavigation),
+              child: _BrandLogo(extended: extendedNavigation),
             ),
             destinations: sections
                 .map(
@@ -186,25 +187,37 @@ class _TitleBar extends StatelessWidget {
   );
 }
 
-class _BrandWordmark extends StatelessWidget {
-  const _BrandWordmark({required this.extended});
+class _BrandLogo extends StatelessWidget {
+  const _BrandLogo({required this.extended});
 
   final bool extended;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    key: const ValueKey('desktop-brand-wordmark'),
+    key: const ValueKey('desktop-brand-logo'),
     width: extended ? 160 : 48,
     height: 42,
-    child: FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: Alignment.center,
-      child: Text(
-        extended ? 'LumiaKeys' : 'LK',
-        style: Theme.of(
-          context,
-        ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-      ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Image.asset(
+          desktopBrandAsset,
+          key: const ValueKey('desktop-brand-logo-image'),
+          width: 42,
+          height: 42,
+          filterQuality: FilterQuality.high,
+          semanticLabel: 'LumiaKeys logo',
+        ),
+        if (extended) ...[
+          const SizedBox(width: 10),
+          Text(
+            'LumiaKeys',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ],
+      ],
     ),
   );
 }
@@ -817,6 +830,15 @@ class _AboutPage extends StatelessWidget {
           padding: EdgeInsets.all(28),
           child: Column(
             children: [
+              Image(
+                key: ValueKey('desktop-about-logo-image'),
+                image: AssetImage(desktopBrandAsset),
+                width: 80,
+                height: 80,
+                filterQuality: FilterQuality.high,
+                semanticLabel: 'LumiaKeys logo',
+              ),
+              SizedBox(height: 16),
               Text(
                 'LumiaKeys Desktop',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),

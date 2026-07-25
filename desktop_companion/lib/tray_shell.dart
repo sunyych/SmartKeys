@@ -6,6 +6,8 @@ import 'package:window_manager/window_manager.dart';
 
 import 'desktop_controller.dart';
 
+const desktopBrandAsset = 'assets/tray_icon.png';
+
 class DesktopTrayShell with TrayListener, WindowListener {
   DesktopTrayShell({required this.controller});
 
@@ -17,9 +19,11 @@ class DesktopTrayShell with TrayListener, WindowListener {
     windowManager.addListener(this);
     controller.addListener(_controllerChanged);
     await trayManager.setIcon(
-      Platform.isWindows ? 'assets/tray_icon.ico' : 'assets/tray_icon.png',
-      isTemplate: Platform.isMacOS,
-      iconSize: 18,
+      Platform.isWindows ? 'assets/tray_icon.ico' : desktopBrandAsset,
+      // The LumiaKeys artwork is a full-color mark. Treating it as a macOS
+      // template image collapses its opaque circular background into a mask.
+      isTemplate: false,
+      iconSize: 20,
     );
     await trayManager.setToolTip('LumiaKeys');
     await windowManager.setPreventClose(true);
