@@ -294,8 +294,18 @@ void main() {
     expect(find.text('Enable Apps Sync'), findsOneWidget);
     expect(find.text('Current Shortcut Profile'), findsOneWidget);
     expect(find.byKey(const ValueKey('desktop-status-bar')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('desktop-brand-wordmark')),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.keyboard_command_key), findsNothing);
     expect(find.text('Desktop offline'), findsOneWidget);
     expect(find.text('Waiting for phone'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pump();
+    expect(find.text('LumiaKeys Desktop'), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_command_key), findsNothing);
   });
 
   testWidgets('shortcut layout editor persists desktop-owned changes', (

@@ -31,16 +31,17 @@ class DesktopSettingsHome extends StatelessWidget {
     if (controller.loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    final extendedNavigation = MediaQuery.sizeOf(context).width >= 920;
     return Scaffold(
       body: Row(
         children: [
           NavigationRail(
-            extended: MediaQuery.sizeOf(context).width >= 920,
+            extended: extendedNavigation,
             selectedIndex: controller.selectedSection,
             onDestinationSelected: controller.selectSection,
-            leading: const Padding(
-              padding: EdgeInsets.only(top: 16, bottom: 20),
-              child: _BrandMark(),
+            leading: Padding(
+              padding: const EdgeInsets.only(top: 16, bottom: 20),
+              child: _BrandWordmark(extended: extendedNavigation),
             ),
             destinations: sections
                 .map(
@@ -185,20 +186,25 @@ class _TitleBar extends StatelessWidget {
   );
 }
 
-class _BrandMark extends StatelessWidget {
-  const _BrandMark();
+class _BrandWordmark extends StatelessWidget {
+  const _BrandWordmark({required this.extended});
+
+  final bool extended;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: 'LumiaKeys Desktop',
-    child: Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(12),
+  Widget build(BuildContext context) => SizedBox(
+    key: const ValueKey('desktop-brand-wordmark'),
+    width: extended ? 160 : 48,
+    height: 42,
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: Text(
+        extended ? 'LumiaKeys' : 'LK',
+        style: Theme.of(
+          context,
+        ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
       ),
-      child: const Icon(Icons.keyboard_command_key),
     ),
   );
 }
@@ -811,8 +817,6 @@ class _AboutPage extends StatelessWidget {
           padding: EdgeInsets.all(28),
           child: Column(
             children: [
-              Icon(Icons.keyboard_command_key, size: 64),
-              SizedBox(height: 16),
               Text(
                 'LumiaKeys Desktop',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
