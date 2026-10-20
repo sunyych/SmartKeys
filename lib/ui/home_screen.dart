@@ -155,15 +155,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   button: true,
                   label: 'Local quick dictation',
                   hint:
-                      'Recognize speech on this phone and send text to Desktop',
+                      'Recognize speech on this phone and type ASCII text over Bluetooth HID',
                   child: IconButton.filledTonal(
                     key: const ValueKey('local-quick-output'),
                     tooltip: 'Local quick dictation',
                     visualDensity: VisualDensity.compact,
-                    onPressed: () => showLocalDictationPanel(
-                      context,
-                      companion: controller.companion,
-                    ),
+                    onPressed: () =>
+                        showLocalDictationPanel(context, hid: controller.hid),
                     icon: const Icon(Icons.mic_external_on),
                   ),
                 ),

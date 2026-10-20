@@ -39,6 +39,7 @@ dependencies:
   wakelock_plus: ^1.4.0
 
 dev_dependencies:
+  crypto: ^3.0.7
   flutter_test:
     sdk: flutter
 
@@ -64,6 +65,7 @@ flutter:
     - assets/app_icons/
     - assets/profiles/
     - assets/community/
+    - assets/desktop_installers/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

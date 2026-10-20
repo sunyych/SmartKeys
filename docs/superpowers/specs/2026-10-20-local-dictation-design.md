@@ -1,5 +1,8 @@
 # SmartKeys 本地快速听写设计
 
+后续要求已将手机听写传输改为蓝牙 HID，不再依赖电脑接收程序。本文末尾的
+“Bluetooth transport and installer follow-up”说明覆盖早期 LAN 传输设计。
+
 用户已要求完成全部实现、功能测试、全量单元测试和覆盖率测试，全部检查通过后提交并推送。现有应用语音输入与新增本地听写必须使用不同图标，并在首次使用时说明区别。
 
 ## 目标与范围
@@ -81,3 +84,27 @@
 2. 扩展手机文字投递协议及 Windows/macOS 原生文字注入。
 3. 集成 Android 快速输出与电脑本机听写、模型管理、全局快捷键。
 4. 审查隐私与停止/切换行为，运行分析、测试、构建及可用硬件验证，提交并推送。
+# Bluetooth transport and installer follow-up
+
+The subsequent user requirement supersedes the Android-to-Companion dictation
+transport described below: phone dictation must work with a standard Bluetooth
+keyboard connection and no computer receiver. Android output validates complete
+phrases, pins one host/session, serializes bounded reports and never retries an
+uncertain partial delivery. US ASCII is the default; Windows HexNumpad is an
+explicit optional profile with system-setup and BMP compatibility guidance.
+Recognition language/model selection remains independent of keyboard encoding.
+No Windows setting is changed automatically.
+
+Install the Windows desktop application for the current user with a Start Menu
+entry. Tagged release jobs build Windows/macOS installers before Android,
+embed exactly those same-run packages with version/commit/size/hash metadata,
+and verify their presence and hashes inside the resulting APK. Android can
+verify and export packages to an explicitly selected local SAF folder for USB
+file transfer. Ordinary Android APIs cannot expose a true USB mass-storage
+drive; that deployment choice remains separate from the implemented MTP export.
+
+Validation includes full package suites and coverage, native HID encoding,
+transactional install/uninstall and bundle failure tests, and generated UI
+screenshots with an offline HTML index. Generated images, catalogs, installer
+binaries and reports remain outside Git. Native macOS and live Bluetooth target
+acceptance must be reported separately from Windows-hosted automated evidence.

@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smart_keys/services/companion_service.dart';
+import 'package:smart_keys/services/hid_service.dart';
+import 'package:smart_keys/services/hid_text_output_service.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
 import 'package:smart_keys/ui/local_dictation_panel.dart';
 
@@ -17,7 +18,7 @@ void main() {
     'first use explains both entries and does not open the microphone',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
-      final companion = _readyCompanion();
+      final hid = _readyHid();
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -45,7 +46,7 @@ void main() {
       await tester.pumpAndSettle();
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool(dictationConsentPreferenceKey), isNot(true));
-      companion.dispose();
+      hid.dispose();
     },
   );
 
@@ -81,12 +82,12 @@ void main() {
       tester.view.resetPhysicalSize();
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       tester.view.physicalSize = const Size(915, 412);
-      final companion = _readyCompanion();
+      final hid = _readyHid();
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: LocalDictationPanel(
-              companion: companion,
+              hid: hid,
               modelManager: manager,
               capture: capture,
               recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -105,10 +106,75 @@ void main() {
       expect(find.byKey(const ValueKey('dictation-model')), findsOneWidget);
       expect(find.byKey(const ValueKey('start-dictation')), findsOneWidget);
       expect(tester.takeException(), isNull);
-      companion.dispose();
+      hid.dispose();
       tester.view.resetPhysicalSize();
     },
   );
+
+  testWidgets('Windows Unicode profile requires explicit opt-in and persists', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final hid = _readyHid();
+    final capture = _FakeCapture();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LocalDictationPanel(
+            hid: hid,
+            modelManager: _FakeModelManager(),
+            capture: capture,
+            recognizerFactory: (_, _) async => _FakeRecognizer(),
+            enableWakeLock: () async {},
+            disableWakeLock: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final profileField = find.byKey(const ValueKey('dictation-text-profile'));
+    await tester.tap(profileField);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Windows Unicode HexNumpad').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('windows-unicode-profile-consent')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('EnableHexNumpad'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('windows-unicode-consent-cancel')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        'dictation.text_profile.v1',
+      ),
+      isNull,
+    );
+
+    await tester.tap(profileField);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Windows Unicode HexNumpad').last);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('windows-unicode-consent-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        'dictation.text_profile.v1',
+      ),
+      'windowsHexNumpad',
+    );
+    expect(
+      find.textContaining('Windows Unicode HexNumpad types printable BMP text'),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    hid.dispose();
+  });
 
   testWidgets('start holds wake lock and disconnect/background stop capture', (
     tester,
@@ -116,14 +182,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final capture = _FakeCapture();
     final manager = _FakeModelManager();
-    final companion = _readyCompanion();
+    final hid = _readyHid();
     var wakeCount = 0;
     var releaseCount = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LocalDictationPanel(
-            companion: companion,
+            hid: hid,
             modelManager: manager,
             capture: capture,
             recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -144,7 +210,8 @@ void main() {
     expect(wakeCount, 1);
     expect(find.byKey(const ValueKey('stop-dictation')), findsOneWidget);
 
-    companion.host.value = null;
+    hid.selectedHost.value = null;
+    hid.status.value = HidConnectionStatus.disconnected;
     for (var frame = 0; frame < 20 && releaseCount == 0; frame++) {
       await tester.pump(const Duration(milliseconds: 20));
       await tester.runAsync(
@@ -154,17 +221,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(capture.stopCount, 1);
     expect(releaseCount, greaterThanOrEqualTo(1));
-    expect(find.textContaining('Desktop disconnected'), findsOneWidget);
+    expect(find.textContaining('Bluetooth host disconnected'), findsOneWidget);
 
-    companion.host.value = const CompanionHost(
+    hid.selectedHost.value = const HidHost(
+      id: 'test-host',
       name: 'Desktop',
-      platform: 'windows',
-      address: '127.0.0.1',
-      port: 1,
-      token: 'token',
-      protocolVersion: 2,
-      capabilities: {'local-dictation-v1'},
+      address: '00:11:22:33:44:55',
     );
+    hid.status.value = HidConnectionStatus.connected;
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('start-dictation')));
     await tester.pumpAndSettle();
@@ -179,20 +243,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(capture.stopCount, 2);
     expect(releaseCount, greaterThanOrEqualTo(2));
-    companion.dispose();
+    hid.dispose();
   });
 
-  testWidgets('dictation session stays pinned to its desktop identity', (
+  testWidgets('dictation session stays pinned to its Bluetooth address', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
     final capture = _FakeCapture();
-    final companion = _readyCompanion();
+    final hid = _readyHid();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LocalDictationPanel(
-            companion: companion,
+            hid: hid,
             modelManager: _FakeModelManager(),
             capture: capture,
             recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -206,35 +270,21 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('start-dictation')));
     await tester.pumpAndSettle();
 
-    companion.host.value = const CompanionHost(
-      name: 'Desktop',
-      platform: 'windows',
-      address: '127.0.0.1',
-      port: 1,
-      token: 'token',
-      protocolVersion: 2,
-      revision: 4,
-      capabilities: {'local-dictation-v1'},
+    hid.selectedHost.value = const HidHost(
+      id: 'test-host',
+      name: 'Renamed computer',
+      address: '00:11:22:33:44:55',
     );
-    companion.status.value = CompanionSyncStatus.syncing;
     await tester.pumpAndSettle();
     expect(
       capture.stopCount,
       0,
       reason: 'manifest refresh keeps the same selected host active',
     );
-    companion.status.value = CompanionSyncStatus.ready;
-    await tester.pumpAndSettle();
-
-    companion.host.value = const CompanionHost(
-      name: 'Other desktop',
-      platform: 'windows',
-      address: '127.0.0.2',
-      port: 2,
-      token: 'other-token',
-      protocolVersion: 2,
-      revision: 1,
-      capabilities: {'local-dictation-v1'},
+    hid.selectedHost.value = const HidHost(
+      id: 'other-host',
+      name: 'Other computer',
+      address: '11:22:33:44:55:66',
     );
     for (var frame = 0; frame < 20 && capture.stopCount == 0; frame++) {
       await tester.pump(const Duration(milliseconds: 20));
@@ -243,8 +293,8 @@ void main() {
       );
     }
     expect(capture.stopCount, 1);
-    expect(companion.dictationRequests, isEmpty);
-    companion.dispose();
+    expect(hid.textBatches, isEmpty);
+    hid.dispose();
   });
 
   testWidgets('wake-lock failure stops the microphone after capture starts', (
@@ -252,13 +302,13 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final capture = _FakeCapture();
-    final companion = _readyCompanion();
+    final hid = _readyHid();
     var releaseCount = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LocalDictationPanel(
-            companion: companion,
+            hid: hid,
             modelManager: _FakeModelManager(),
             capture: capture,
             recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -285,7 +335,7 @@ void main() {
     expect(find.textContaining('wake lock failed'), findsOneWidget);
     await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
     await tester.pumpAndSettle();
-    companion.dispose();
+    hid.dispose();
   });
 
   testWidgets('unexpected capture failure releases the wake lock', (
@@ -293,13 +343,13 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final capture = _FakeCapture();
-    final companion = _readyCompanion();
+    final hid = _readyHid();
     var releaseCount = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LocalDictationPanel(
-            companion: companion,
+            hid: hid,
             modelManager: _FakeModelManager(),
             capture: capture,
             recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -326,20 +376,20 @@ void main() {
     expect(find.textContaining('capture interrupted'), findsOneWidget);
     await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
     await tester.pumpAndSettle();
-    companion.dispose();
+    hid.dispose();
   });
 
-  testWidgets('Stop delivers each finalized phrase once to the desktop', (
+  testWidgets('Stop types each finalized ASCII phrase once over Bluetooth', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
     final capture = _FakeCapture();
-    final companion = _readyCompanion();
+    final hid = _readyHid();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LocalDictationPanel(
-            companion: companion,
+            hid: hid,
             modelManager: _FakeModelManager(),
             capture: capture,
             recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -358,24 +408,139 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 20));
     await tester.tap(find.byKey(const ValueKey('stop-dictation')));
-    for (
-      var frame = 0;
-      frame < 20 && companion.dictationRequests.isEmpty;
-      frame++
-    ) {
+    for (var frame = 0; frame < 20 && hid.textBatches.isEmpty; frame++) {
       await tester.pump(const Duration(milliseconds: 20));
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 1)),
       );
     }
-    expect(companion.dictationRequests, hasLength(1));
-    expect(companion.dictationRequests.single.text, 'recognized phrase');
-    expect(companion.dictationRequests.single.sequence, 1);
+    expect(hid.textBatches, hasLength(1));
+    expect(hid.textBatches.single.expectedAddress, '00:11:22:33:44:55');
+    expect(
+      hid.textBatches.single.strokes,
+      hasLength('recognized phrase'.length),
+    );
 
     await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
     await tester.pumpAndSettle();
-    companion.dispose();
+    hid.dispose();
   });
+
+  testWidgets('Bluetooth report failure is visible and never retried', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final capture = _FakeCapture();
+    final hid = _readyHid()
+      ..textBatchError = StateError('Bluetooth rejected a keyboard report');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LocalDictationPanel(
+            hid: hid,
+            modelManager: _FakeModelManager(),
+            capture: capture,
+            recognizerFactory: (_, _) async => _FakeRecognizer(),
+            enableWakeLock: () async {},
+            disableWakeLock: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('start-dictation')));
+    await tester.pumpAndSettle();
+    capture.audio.add(
+      List<int>.generate(3200, (index) => index.isEven ? 16 : 39),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1)),
+      );
+      if (find.byKey(const ValueKey('dictation-error')).evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(hid.textBatches, hasLength(1));
+    expect(
+      find.textContaining('Bluetooth rejected a keyboard report'),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    hid.dispose();
+  });
+
+  testWidgets(
+    'disconnect cancels text output while Stop flushes its final phrase',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final capture = _FakeCapture();
+      final hid = _readyHid();
+      final batchStarted = Completer<void>();
+      final batchCancelled = Completer<void>();
+      final batchRelease = Completer<void>();
+      hid.onTextBatch = () {
+        if (!batchStarted.isCompleted) batchStarted.complete();
+        return batchRelease.future;
+      };
+      hid.onCancelTextBatch = (_) async {
+        if (!batchCancelled.isCompleted) batchCancelled.complete();
+        if (!batchRelease.isCompleted) {
+          batchRelease.completeError(
+            const HidTextOutputException('Bluetooth dictation was cancelled.'),
+          );
+        }
+      };
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, _) async => _FakeRecognizer(),
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      capture.audio.add(
+        List<int>.generate(3200, (index) => index.isEven ? 16 : 39),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+      for (var frame = 0; frame < 20 && !batchStarted.isCompleted; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(batchStarted.isCompleted, isTrue);
+
+      hid.selectedHost.value = null;
+      hid.status.value = HidConnectionStatus.disconnected;
+      for (var frame = 0; frame < 20 && !batchCancelled.isCompleted; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(batchCancelled.isCompleted, isTrue);
+      expect(hid.cancelledTextBatches, hasLength(1));
+      expect(capture.stopCount, 1);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      hid.dispose();
+    },
+  );
 
   testWidgets(
     'quick entry auto-starts a warm model and never downloads implicitly',
@@ -383,12 +548,12 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final warmCapture = _FakeCapture();
       final warmManager = _FakeModelManager();
-      final warmCompanion = _readyCompanion();
+      final warmHid = _readyHid();
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: LocalDictationPanel(
-              companion: warmCompanion,
+              hid: warmHid,
               modelManager: warmManager,
               capture: warmCapture,
               recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -407,16 +572,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       await tester.pumpAndSettle();
-      warmCompanion.dispose();
+      warmHid.dispose();
 
       final missingCapture = _FakeCapture();
       final missingManager = _FakeModelManager(ready: false);
-      final missingCompanion = _readyCompanion();
+      final missingHid = _readyHid();
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: LocalDictationPanel(
-              companion: missingCompanion,
+              hid: missingHid,
               modelManager: missingManager,
               capture: missingCapture,
               recognizerFactory: (_, _) async => _FakeRecognizer(),
@@ -436,7 +601,7 @@ void main() {
       );
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       await tester.pumpAndSettle();
-      missingCompanion.dispose();
+      missingHid.dispose();
     },
   );
 
@@ -446,18 +611,22 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final capture = _FakeCapture()..permitted = false;
       final manager = _FakeModelManager(ready: false);
-      final companion = _readyCompanion();
+      final hid = _readyHid();
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: LocalDictationPanel(
-              companion: companion,
+              hid: hid,
               modelManager: manager,
               capture: capture,
               recognizerFactory: (_, _) async => _FakeRecognizer(),
             ),
           ),
         ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('download-dictation-model')),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('download-dictation-model')));
@@ -480,23 +649,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(manager.deleteCount, 1);
       expect(find.textContaining('Not installed'), findsOneWidget);
-      companion.dispose();
+      hid.dispose();
     },
   );
 }
 
-RecordingCompanionService _readyCompanion() {
-  final service = RecordingCompanionService();
-  service.host.value = const CompanionHost(
-    name: 'Desktop',
-    platform: 'windows',
-    address: '127.0.0.1',
-    port: 1,
-    token: 'token',
-    protocolVersion: 2,
-    capabilities: {'local-dictation-v1'},
+RecordingHidService _readyHid() {
+  final service = RecordingHidService();
+  service.selectedHost.value = const HidHost(
+    id: 'test-host',
+    name: 'Computer',
+    address: '00:11:22:33:44:55',
   );
-  service.status.value = CompanionSyncStatus.ready;
+  service.status.value = HidConnectionStatus.connected;
   return service;
 }
 

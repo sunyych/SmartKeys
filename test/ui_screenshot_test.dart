@@ -7,7 +7,7 @@ import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/models/config.dart';
-import 'package:smart_keys/services/companion_service.dart';
+import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/ui/bluetooth_connection_sheet.dart';
 import 'package:smart_keys/ui/button_editor_screen.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
@@ -152,22 +152,40 @@ void main() {
       _app(harness, settingsMidKey, const SettingsScreen()),
     );
     await tester.pumpAndSettle();
-    for (
-      var attempt = 0;
-      attempt < 8 && find.text('CHARGING DISPLAY').evaluate().isEmpty;
-      attempt++
-    ) {
-      await tester.drag(find.byType(ListView).first, const Offset(0, -320));
-      await tester.pumpAndSettle();
-    }
+    final settingsScrollable = find
+        .descendant(
+          of: find.byType(ListView).first,
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.text('SCREEN ORIENTATION'),
+      240,
+      scrollable: settingsScrollable,
+      maxScrolls: 20,
+    );
+    await tester.pumpAndSettle();
     expect(find.text('SCREEN ORIENTATION'), findsOneWidget);
-    expect(find.text('Fixed while charging'), findsOneWidget);
     await shots.capture(
       id: 'phone-settings-orientation-charging',
       title: 'Settings · orientation and charging display',
       orientation: 'portrait',
-      notes:
-          'Scrolled middle section with orientation and charging brightness options.',
+      notes: 'Scrolled middle section showing screen orientation controls.',
+      boundaryKey: settingsMidKey,
+    );
+    await tester.scrollUntilVisible(
+      find.text('Fixed while charging'),
+      240,
+      scrollable: settingsScrollable,
+      maxScrolls: 20,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Fixed while charging'), findsOneWidget);
+    await shots.capture(
+      id: 'phone-settings-charging-display',
+      title: 'Settings · charging display',
+      orientation: 'portrait',
+      notes: 'Scrolled to the charging display controls.',
       boundaryKey: settingsMidKey,
     );
     for (
@@ -380,16 +398,7 @@ void main() {
       shots.resetViewport();
       await harness.dispose();
     });
-    harness.companion.host.value = const CompanionHost(
-      name: 'Studio Desktop',
-      platform: 'windows',
-      address: '127.0.0.1',
-      port: 45678,
-      token: 'screenshot',
-      protocolVersion: 2,
-      capabilities: {'local-dictation-v1'},
-    );
-    harness.companion.status.value = CompanionSyncStatus.ready;
+    harness.hid.status.value = HidConnectionStatus.disconnected;
     await shots.setViewport(const Size(412, 915));
 
     Future<GlobalKey> mountPanel({bool allowed = true}) async {
@@ -402,7 +411,7 @@ void main() {
           Scaffold(
             body: Center(
               child: LocalDictationPanel(
-                companion: harness.companion,
+                hid: harness.hid,
                 modelManager: manager,
                 capture: capture,
                 recognizerFactory: (_, _) async => _ScreenshotRecognizer(),
@@ -430,6 +439,14 @@ void main() {
       orientation: 'portrait',
       notes:
           'Explicit download/import controls shown; no download is started automatically.',
+      boundaryKey: key,
+    );
+    await shots.capture(
+      id: 'phone-dictation-bluetooth-disconnected',
+      title: 'Local dictation · Bluetooth disconnected',
+      orientation: 'portrait',
+      notes:
+          'Shows that local dictation needs a connected Bluetooth HID computer before microphone capture.',
       boundaryKey: key,
     );
 
@@ -484,8 +501,54 @@ void main() {
     );
     await shots.unmount();
 
+    harness.hid.status.value = HidConnectionStatus.connected;
     manager.readyModels.add(LocalAsrModel.cohere);
     key = await mountPanel();
+    final asciiHelp = find.textContaining('printable ASCII key presses');
+    await tester.ensureVisible(asciiHelp);
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'phone-dictation-ascii-help',
+      title: 'Local dictation · Bluetooth text limits',
+      orientation: 'portrait',
+      notes:
+          'Connected local dictation explains whole-phrase rejection for non-ASCII output and the US keyboard/English input requirement.',
+      boundaryKey: key,
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('start-dictation')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('dictation-text-profile')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Windows Unicode HexNumpad').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('windows-unicode-profile-consent')),
+      findsOneWidget,
+    );
+    await shots.capture(
+      id: 'phone-dictation-windows-unicode-consent',
+      title: 'Local dictation · Windows Unicode profile setup',
+      orientation: 'portrait',
+      notes:
+          'Explicit opt-in explains manual Windows HexNumpad setup, Num Lock, app compatibility, and whole-phrase rejection boundaries.',
+      boundaryKey: key,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('windows-unicode-consent-confirm')),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('dictation-text-profile')),
+    );
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'phone-dictation-windows-unicode-selected',
+      title: 'Local dictation · Windows Unicode profile selected',
+      orientation: 'portrait',
+      notes:
+          'User explicitly accepted the profile guidance; selected output mode and manual setup requirements are visible.',
+      boundaryKey: key,
+    );
     await tester.tap(find.byKey(const ValueKey('start-dictation')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('stop-dictation')), findsOneWidget);

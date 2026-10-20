@@ -6,6 +6,7 @@ import '../models/config.dart';
 import 'bluetooth_connection_sheet.dart';
 import 'profile_management_screen.dart';
 import 'shortcut_community_screen.dart';
+import 'desktop_installers_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -97,6 +98,20 @@ class SettingsScreen extends StatelessWidget {
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => const ShortcutCommunityScreen(),
+            ),
+          ),
+        ),
+        ListTile(
+          key: const ValueKey('open-desktop-installers'),
+          leading: const Icon(Icons.install_desktop_outlined),
+          title: const Text('Desktop installers'),
+          subtitle: const Text(
+            'Verify and export bundled Windows and macOS installers',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const DesktopInstallersScreen(),
             ),
           ),
         ),

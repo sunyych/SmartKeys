@@ -1,9 +1,10 @@
 # LumiaKey
 
-LumiaKey is a desktop-driven shortcut platform with an Android Bluetooth HID
-control surface. The Android phone app requires Android 9 (API 28) or later.
-This monorepo also contains the independent LumiaKey Desktop app in
-`desktop_companion/` for Windows and macOS.
+LumiaKey provides Bluetooth keyboard controls and on-device speech dictation.
+The Android phone app requires Android 9 (API 28) or later; its direct keyboard
+and dictation output do not require a computer receiver. This monorepo also
+contains the optional LumiaKey Desktop app in `desktop_companion/` for Windows
+and macOS, with desktop microphone dictation and managed application shortcuts.
 
 ## Implemented V1.2
 
@@ -66,6 +67,23 @@ This monorepo also contains the independent LumiaKey Desktop app in
   the actual shortcut, executable, voice-input request, or URL.
 - Shared wire models live in `packages/lumiakeys_protocol/`. Manifest schema 1
   validates layout/profile/app references and globally unique button IDs.
+
+### Desktop installers on Android
+
+Tagged Android releases bundle the Windows installer and macOS disk image
+produced by the same GitHub Actions run. The Android app displays their release
+version, source commit, size, and SHA-256, and can verify the bundled bytes
+before exporting them. Development builds without the release catalog report
+that the installers are unavailable; they do not show placeholder packages.
+
+Export uses Android's system folder picker and writes to a local shared-storage
+folder explicitly selected by the user. After checking the packaged bytes, the
+app reserves the requested filename without replacing an existing file,
+streams the package there, and keeps the UI in its exporting state until the
+stored size and SHA-256 pass verification. To retrieve it over USB, connect
+the phone and choose Android's file-transfer (MTP) mode. This copies a regular
+file from the selected folder; it does not make the phone a USB mass-storage
+drive.
 
 ### V1.2 transport boundary
 
@@ -191,29 +209,36 @@ Android's **Local quick dictation** microphone button is separate from the
 existing **Application voice input** waveform button. Application voice input
 keeps its configured app shortcut (including Codex `Ctrl+Shift+D`); local quick
 dictation captures microphone PCM in bounded memory on the phone, recognizes
-speech with an installed local model, and sends only finalized text to a
-connected Desktop that advertises
-`local-dictation-v1`. The first use of either entry explains the difference and
-asks for acknowledgement. Declining the explanation does not open the
-microphone.
+speech with an installed local model, and types only finalized text through the
+connected computer's Bluetooth HID keyboard. It does not require Desktop
+Companion, a receiver, or a network connection. The first use of either entry
+explains the difference and asks for acknowledgement. Declining the explanation
+does not open the microphone.
 
 Audio remains in bounded memory on the phone. It is never sent to Desktop or
 written to an audio file, log, or history. The phone stores only the explicitly
 downloaded/imported model files and the selected model/language preferences.
 SenseVoice Small is the default model (about 229 MiB); Cohere Transcribe is an
-optional larger model (about 2.55 GiB). Downloading checks pinned file sizes and
+optional larger model (about 2.7 GiB). Downloading checks pinned file sizes and
 SHA-256 hashes. Imported models receive the same checks. A model must be
 installed before Start; deletion stops capture and releases the recognizer
 first. Chinese and English recognition can be switched independently of the
 app display language.
 
+US ASCII output is the default and requires a US keyboard layout with English
+input active. An optional Windows Unicode HexNumpad profile supports printable
+ASCII and BMP Chinese after you manually enable
+`HKCU\Control Panel\Input Method\EnableHexNumpad` as `REG_SZ` value `1`, then
+sign out and back in or restart Windows. Keep Num Lock on and use a tested-
+compatible foreground app. This supports printable BMP text, including Chinese,
+Japanese, and Korean; emoji, controls, and non-BMP text are rejected as a whole
+phrase. The app never changes Windows settings. Output errors are shown and
+phrases are never retried automatically.
+
 The screen stays awake only while dictation is active. Stopping, closing the
-panel, leaving the foreground, losing Desktop, or changing the selected Desktop
-stops capture and releases the wake lock. A rejected phrase is shown in the
-panel while a still-connected session can continue with the next phrase. The
-phone sends one authenticated text request per final phrase; it never retries a
-phrase automatically after an uncertain delivery. Android microphone
-permission and a compatible Desktop connection are required.
+panel, leaving the foreground, disconnecting Bluetooth, or changing the
+selected computer stops capture and releases held keys and the wake lock.
+Android microphone and Bluetooth permissions are required.
 
 ### Desktop local dictation
 

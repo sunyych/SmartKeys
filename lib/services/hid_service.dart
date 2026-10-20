@@ -5,6 +5,32 @@ import 'package:flutter/services.dart';
 
 import '../models/config.dart';
 
+@immutable
+class HidTextStroke {
+  const HidTextStroke({required this.usage, required this.shift});
+
+  final int usage;
+  final bool shift;
+
+  Map<String, Object> toJson() => {'usage': usage, 'shift': shift};
+
+  @override
+  bool operator ==(Object other) =>
+      other is HidTextStroke && other.usage == usage && other.shift == shift;
+
+  @override
+  int get hashCode => Object.hash(usage, shift);
+}
+
+enum HidTextProfile {
+  usAscii('usAscii'),
+  windowsHexNumpad('windowsHexNumpad');
+
+  const HidTextProfile(this.wireName);
+
+  final String wireName;
+}
+
 enum HidConnectionStatus {
   unavailable,
   permissionRequired,
@@ -55,6 +81,14 @@ abstract interface class HidService {
   Future<void> sendPress(HidAction action);
   Future<void> sendRelease(HidAction action);
   Future<void> sendStep(HidAction action);
+  Future<void> sendTextBatch({
+    required String sessionToken,
+    required String expectedAddress,
+    required HidTextProfile profile,
+    required List<HidTextStroke> strokes,
+    required List<int> codePoints,
+  });
+  Future<void> cancelTextBatch(String sessionToken);
   Future<void> releaseAllKeys();
   void dispose();
 }
@@ -210,6 +244,53 @@ class MethodChannelHidService implements HidService {
   Future<void> sendStep(HidAction action) => _input('sendStep', action);
 
   @override
+  Future<void> sendTextBatch({
+    required String sessionToken,
+    required String expectedAddress,
+    required HidTextProfile profile,
+    required List<HidTextStroke> strokes,
+    required List<int> codePoints,
+  }) async {
+    try {
+      final response = await _channel.invokeMethod<Object?>('sendTextBatch', {
+        'sessionToken': sessionToken,
+        'expectedAddress': expectedAddress,
+        'profile': profile.wireName,
+        'strokes': strokes.map((stroke) => stroke.toJson()).toList(),
+        'codePoints': codePoints,
+      });
+      _applySnapshot(response);
+    } on MissingPluginException {
+      _status.value = HidConnectionStatus.unavailable;
+      _error.value = 'The native Bluetooth HID module is unavailable.';
+      rethrow;
+    } on PlatformException catch (error) {
+      final message = error.message ?? error.code;
+      _error.value = message;
+      if (error.code == 'NOT_CONNECTED' || error.code == 'HOST_CHANGED') {
+        _status.value = HidConnectionStatus.disconnected;
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> cancelTextBatch(String sessionToken) async {
+    try {
+      await _channel.invokeMethod<void>('cancelTextBatch', {
+        'sessionToken': sessionToken,
+      });
+    } on MissingPluginException {
+      _status.value = HidConnectionStatus.unavailable;
+      _error.value = 'The native Bluetooth HID module is unavailable.';
+      rethrow;
+    } on PlatformException catch (error) {
+      _error.value = error.message ?? error.code;
+      rethrow;
+    }
+  }
+
+  @override
   void dispose() {
     _disposed = true;
     _channel.setMethodCallHandler(null);
@@ -226,13 +307,31 @@ class RecordingHidService implements HidService {
   );
   final ValueNotifier<List<HidHost>> hosts = ValueNotifier(const []);
   final ValueNotifier<HidHost?> selectedHost = ValueNotifier(
-    const HidHost(id: 'test-host', name: 'Test Computer', address: '00:00'),
+    const HidHost(
+      id: 'test-host',
+      name: 'Test Computer',
+      address: '00:11:22:33:44:55',
+    ),
   );
   final ValueNotifier<String?> errors = ValueNotifier(null);
   final List<String> calls = [];
   final List<HidAction> pressedActions = [];
   final List<HidAction> releasedActions = [];
   final List<HidAction> steppedActions = [];
+  final List<
+    ({
+      String sessionToken,
+      String expectedAddress,
+      HidTextProfile profile,
+      List<HidTextStroke> strokes,
+      List<int> codePoints,
+    })
+  >
+  textBatches = [];
+  final List<String> cancelledTextBatches = [];
+  Object? textBatchError;
+  Future<void> Function()? onTextBatch;
+  Future<void> Function(String sessionToken)? onCancelTextBatch;
 
   @override
   ValueListenable<HidConnectionStatus> get connectionStatus => status;
@@ -283,6 +382,34 @@ class RecordingHidService implements HidService {
   Future<void> sendStep(HidAction action) async {
     steppedActions.add(action);
     calls.add('step:${action.keyCode ?? action.value}');
+  }
+
+  @override
+  Future<void> sendTextBatch({
+    required String sessionToken,
+    required String expectedAddress,
+    required HidTextProfile profile,
+    required List<HidTextStroke> strokes,
+    required List<int> codePoints,
+  }) async {
+    textBatches.add((
+      sessionToken: sessionToken,
+      expectedAddress: expectedAddress,
+      profile: profile,
+      strokes: List.unmodifiable(strokes),
+      codePoints: List.unmodifiable(codePoints),
+    ));
+    calls.add('textBatch:${strokes.length}');
+    await onTextBatch?.call();
+    final error = textBatchError;
+    if (error != null) throw error;
+  }
+
+  @override
+  Future<void> cancelTextBatch(String sessionToken) async {
+    cancelledTextBatches.add(sessionToken);
+    calls.add('cancelTextBatch:$sessionToken');
+    await onCancelTextBatch?.call(sessionToken);
   }
 
   @override

@@ -23,11 +23,20 @@ class AndroidHidController(
     private val activity: MainActivity,
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
+    private data class TextBatch(
+        val sessionToken: String,
+        val expectedAddress: String,
+        val strokes: List<HidTextKeyStroke>,
+        val result: MethodChannel.Result,
+        var index: Int = 0,
+    )
+
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
     private val manager = activity.getSystemService(BluetoothManager::class.java)
     private val adapter: BluetoothAdapter? = manager?.adapter
     private val preferences = activity.getSharedPreferences(HID_PREFERENCES, Context.MODE_PRIVATE)
     private val encoder = HidReportEncoder()
+    private val textBatchGate = HidTextBatchGate()
     private val handler = Handler(Looper.getMainLooper())
     private val stepQueue = ArrayDeque<HidActionData>()
 
@@ -40,6 +49,8 @@ class AndroidHidController(
     private var lastError: String? = null
     private var stepInFlight = false
     private var stepGeneration = 0
+    private var textBatch: TextBatch? = null
+    private var textBatchGeneration = 0
 
     init {
         channel.setMethodCallHandler(this)
@@ -59,9 +70,17 @@ class AndroidHidController(
             }
             "connect" -> connect(call.argument<String>("address"), result)
             "disconnect" -> disconnect(result)
-            "sendPress" -> sendSingle(encoder.press(HidActionData.from(call.arguments)), result)
-            "sendRelease" -> sendSingle(encoder.release(HidActionData.from(call.arguments)), result)
+            "sendPress" -> {
+                if (textBatchGate.isActive()) releaseAllInput()
+                sendSingle(encoder.press(HidActionData.from(call.arguments)), result)
+            }
+            "sendRelease" -> {
+                if (textBatchGate.isActive()) releaseAllInput()
+                sendSingle(encoder.release(HidActionData.from(call.arguments)), result)
+            }
             "sendStep" -> sendStep(HidActionData.from(call.arguments), result)
+            "sendTextBatch" -> sendTextBatch(call.arguments, result)
+            "cancelTextBatch" -> cancelTextBatch(call.argument<String>("sessionToken"), result)
             "releaseAllKeys" -> {
                 releaseAllInput()
                 result.success(null)
@@ -232,6 +251,7 @@ class AndroidHidController(
     }
 
     private fun sendStep(action: HidActionData, result: MethodChannel.Result) {
+        if (textBatchGate.isActive()) releaseAllInput()
         if (action.type !in setOf("keyboard", "consumerControl", "mouseWheel", "mouseMove", "mouseButton")) {
             result.error("INVALID_ACTION", "The configured navigation action is not supported.", null)
             return
@@ -243,6 +263,139 @@ class AndroidHidController(
         stepQueue.addLast(action)
         processNextStep()
         result.success(null)
+    }
+
+    private fun sendTextBatch(arguments: Any?, result: MethodChannel.Result) {
+        val request = HidTextBatchValidator.parse(arguments)
+        if (request == null) {
+            result.error("INVALID_BATCH", "The Bluetooth text batch is malformed or too large.", null)
+            return
+        }
+        if (textBatchGate.isActive()) {
+            result.error("TEXT_BATCH_BUSY", "Another Bluetooth text batch is already active.", null)
+            return
+        }
+        if (!requireReadyPermission(result)) return
+        if (status != STATUS_CONNECTED || currentDevice?.address != request.expectedAddress) {
+            result.error("HOST_CHANGED", "The connected Bluetooth host changed. Dictation stopped.", snapshot())
+            return
+        }
+        if (encoder.hasHeldInput || stepInFlight || stepQueue.isNotEmpty()) {
+            result.error("INPUT_BUSY", "Release other Bluetooth input before dictation.", null)
+            return
+        }
+        val batch = TextBatch(
+            sessionToken = request.sessionToken,
+            expectedAddress = request.expectedAddress,
+            strokes = request.strokes,
+            result = result,
+        )
+        if (!textBatchGate.begin(batch.sessionToken)) {
+            result.error("TEXT_BATCH_BUSY", "Another Bluetooth text batch is already active.", null)
+            return
+        }
+        textBatch = batch
+        val generation = ++textBatchGeneration
+        handler.post { processTextBatch(batch, generation) }
+    }
+
+    private fun processTextBatch(batch: TextBatch, generation: Int) {
+        if (textBatch !== batch || generation != textBatchGeneration ||
+            !textBatchGate.isActive(batch.sessionToken)
+        ) return
+        if (!batchTargetIsCurrent(batch)) {
+            failTextBatch(batch, "HOST_CHANGED", "The Bluetooth host changed. Dictation stopped.")
+            return
+        }
+        if (batch.index >= batch.strokes.size) {
+            finishTextBatch(batch)
+            return
+        }
+        val stroke = batch.strokes[batch.index]
+        val pressed = if (stroke.unicodeHex) {
+            encoder.pressUnicodeHexStroke(stroke)
+        } else {
+            encoder.pressTextStroke(HidTextStroke(stroke.usage, stroke.shift))
+        }
+        if (pressed == null || !sendReport(pressed)) {
+            failTextBatch(batch, "REPORT_FAILED", "Bluetooth rejected a keyboard report. Dictation stopped.")
+            handleSendFailure()
+            return
+        }
+        handler.postDelayed({
+            if (textBatch !== batch || generation != textBatchGeneration ||
+                !textBatchGate.isActive(batch.sessionToken)
+            ) return@postDelayed
+            if (!batchTargetIsCurrent(batch)) {
+                failTextBatch(batch, "HOST_CHANGED", "The Bluetooth host changed. Dictation stopped.")
+                return@postDelayed
+            }
+            val released = if (stroke.unicodeHex) {
+                encoder.releaseUnicodeHexStroke(stroke)
+            } else {
+                encoder.releaseTextStroke(HidTextStroke(stroke.usage, stroke.shift))
+            }
+            if (released == null || !sendReport(released)) {
+                failTextBatch(batch, "REPORT_FAILED", "Bluetooth rejected a keyboard release report. Dictation stopped.")
+                handleSendFailure()
+                return@postDelayed
+            }
+            batch.index++
+            handler.postDelayed({ processTextBatch(batch, generation) }, TEXT_REPORT_GAP_MS)
+        }, TEXT_REPORT_RELEASE_DELAY_MS)
+    }
+
+    private fun batchTargetIsCurrent(batch: TextBatch): Boolean =
+        status == STATUS_CONNECTED && currentDevice?.address == batch.expectedAddress
+
+    private fun finishTextBatch(batch: TextBatch) {
+        if (textBatch !== batch) return
+        textBatch = null
+        textBatchGate.finish(batch.sessionToken)
+        textBatchGeneration++
+        if (!sendReportsChecked(encoder.releaseAll())) {
+            handleSendFailure()
+            batch.result.error("REPORT_FAILED", "Bluetooth could not release all keyboard keys.", null)
+            return
+        }
+        batch.result.success(snapshot())
+    }
+
+    private fun failTextBatch(batch: TextBatch, code: String, message: String) {
+        if (textBatch !== batch) return
+        // Attempt neutral reports while the original host is still pinned.
+        sendReportsChecked(encoder.releaseAll())
+        textBatch = null
+        textBatchGate.finish(batch.sessionToken)
+        textBatchGeneration++
+        batch.result.error(code, message, null)
+    }
+
+    private fun cancelTextBatch(sessionToken: String?, result: MethodChannel.Result) {
+        val active = textBatch
+        if (active == null || active.sessionToken != sessionToken) {
+            result.success(false)
+            return
+        }
+        textBatch = null
+        textBatchGate.cancel(sessionToken)
+        textBatchGeneration++
+        val hadHeldInput = encoder.hasHeldInput
+        val neutralReports = encoder.releaseAll()
+        val released = !hadHeldInput || sendReportsChecked(neutralReports)
+        active.result.error("CANCELLED", "Bluetooth text output was cancelled.", null)
+        if (released) {
+            result.success(true)
+        } else {
+            handleSendFailure()
+            result.error("REPORT_FAILED", "Bluetooth could not release all keyboard keys during cancellation.", null)
+        }
+    }
+
+    private fun sendReportsChecked(reports: List<HidReport>): Boolean {
+        var success = true
+        reports.forEach { report -> if (!sendReport(report)) success = false }
+        return success
     }
 
     private fun processNextStep() {
@@ -277,6 +430,12 @@ class AndroidHidController(
         stepQueue.clear()
         stepGeneration++
         stepInFlight = false
+        textBatch?.let { active ->
+            textBatch = null
+            textBatchGate.cancelForNavigation()
+            textBatchGeneration++
+            active.result.error("CANCELLED", "Bluetooth input was cancelled.", null)
+        }
         sendReports(encoder.releaseAll())
     }
 
@@ -356,8 +515,12 @@ class AndroidHidController(
     private val hidCallback = object : BluetoothHidDevice.Callback() {
         @SuppressLint("MissingPermission")
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
+            if (textBatch != null && pluggedDevice?.address != textBatch?.expectedAddress) {
+                releaseAllInput()
+            }
             appRegistered = registered
             if (!registered) {
+                releaseAllInput()
                 currentDevice = null
                 status = if (bluetoothEnabled()) STATUS_DISCONNECTED else STATUS_BLUETOOTH_OFF
                 emitState()
@@ -382,8 +545,16 @@ class AndroidHidController(
         }
 
         override fun onConnectionStateChanged(device: BluetoothDevice, state: Int) {
+            if (textBatch != null &&
+                (device.address != textBatch?.expectedAddress || state != BluetoothProfile.STATE_CONNECTED)
+            ) {
+                releaseAllInput()
+            }
             when (state) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    if (textBatch != null && currentDevice?.address != device.address) {
+                        releaseAllInput()
+                    }
                     currentDevice = device
                     rememberHost(device.address)
                     status = STATUS_CONNECTED
@@ -392,7 +563,10 @@ class AndroidHidController(
                 BluetoothProfile.STATE_CONNECTING -> status = STATUS_CONNECTING
                 BluetoothProfile.STATE_DISCONNECTING -> status = STATUS_CONNECTING
                 else -> {
-                    if (currentDevice?.address == device.address) currentDevice = null
+                    if (currentDevice?.address == device.address) {
+                        releaseAllInput()
+                        currentDevice = null
+                    }
                     status = STATUS_DISCONNECTED
                 }
             }
@@ -409,7 +583,10 @@ class AndroidHidController(
         }
 
         override fun onVirtualCableUnplug(device: BluetoothDevice) {
-            if (currentDevice?.address == device.address) currentDevice = null
+            if (currentDevice?.address == device.address) {
+                releaseAllInput()
+                currentDevice = null
+            }
             status = STATUS_DISCONNECTED
             emitState()
         }
@@ -521,6 +698,8 @@ class AndroidHidController(
         private const val DISCOVERABLE_SECONDS = 300
         private const val REPORT_RELEASE_DELAY_MS = 12L
         private const val REPORT_GAP_MS = 4L
+        private const val TEXT_REPORT_RELEASE_DELAY_MS = 8L
+        private const val TEXT_REPORT_GAP_MS = 2L
 
         private const val STATUS_UNAVAILABLE = "unavailable"
         private const val STATUS_PERMISSION_REQUIRED = "permissionRequired"

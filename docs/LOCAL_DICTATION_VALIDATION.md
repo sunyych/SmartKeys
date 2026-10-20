@@ -1,113 +1,122 @@
 # Local dictation validation — 2026-10-20
 
-The final source passed the available Windows-hosted validation. Phone audio is
-recognized on the phone; the authenticated LAN request carries final text only.
-Desktop microphone recognition uses the same local engine. Neither path writes
-audio recordings or queues failed phrases for automatic replay.
+The final executable source passed the available Windows-hosted automated
+checks. Phone microphone audio is recognized on the phone; final text is typed
+through Bluetooth HID without a computer receiver. Desktop microphone
+recognition uses the same local engine. Dictation saves no audio recordings and
+never automatically replays failed or uncertain partial output.
 
 ## Automated results
 
 | Suite | Passed | Skipped | Measured Dart line coverage |
 | --- | ---: | ---: | ---: |
-| Phone app, including screenshot tests | 79 | 0 | 3121 / 4061 (76.85%) |
+| Phone app, including screenshot tests | 103 | 0 | 3574 / 4568 (78.24%) |
 | Desktop Companion, including screenshot tests | 25 | 0 | 1090 / 1765 (61.76%) |
 | Shared protocol | 6 | 0 | 304 / 351 (86.61%) |
 | Local dictation engine, including real SenseVoice FFI | 20 | 0 | 528 / 657 (80.37%) |
-| Android Kotlin encoder unit tests | 8 | 0 | Not instrumented |
+| Android Kotlin HID and installer validation | 16 | 0 | Not instrumented |
 
-All **138 tests** passed. All four Dart/Flutter packages passed static analysis.
-Formatting checks passed for all 33 changed/new Dart files. Aggregate coverage
-of owned Dart `lib` source is **5043 / 6834 lines (73.79%)**, deduplicated across
-the four packages. These are measured results, not a claim of 100% coverage;
-native C++, Swift and Kotlin coverage is outside the LCOV figure.
+All **170 tests** passed. All four package analyses passed, and all 15
+changed/new Dart files passed formatting checks. Aggregate owned Dart `lib`
+coverage is **5496 / 7341 lines (74.87%)**, deduplicated across packages. These
+are measured results, without an arbitrary threshold; native C++, Swift and
+Kotlin coverage is outside the LCOV figure.
 
-The regression tests exercise bounded audio segmentation, cancellation and
-shutdown races, final-phrase flush, microphone/wakelock failures, host switching,
-same-host manifest refresh, authentication, request bounds, serialized Unicode
-delivery, failed/partial insertion tombstones, first-use consent, and UI model
-and language selection. Existing application, shortcut and protocol suites were
-retained.
+Separate PowerShell fixture suites passed for Windows install/uninstall and
+rollback, installer staging/publication failures, and APK ZIP verification.
+They cover unmanaged/tampered-file preservation, invalid manifests, version,
+filename, size/hash constraints, missing packages, unlisted nested content,
+duplicate ZIP entries, idempotent staging and release-directory switching.
+A disposable debug APK was built with tiny test installer fixtures; the
+catalog and both nested assets matched their expected sizes and SHA-256 values.
+The fixture APK was removed and assets/pubspec restored. The deliverable APK
+was independently checked to contain no test installers or generated catalog.
 
-The real SenseVoice test ran against verified local model files and 16 kHz WAV
-fixtures. Its `zh → en → zh → en → en` outputs matched fresh language-specific
-recognizers. It validates native loading and recognizer replacement, rather than
-measuring recognition accuracy or live microphone latency.
+Phone regressions cover printable ASCII, mixed BMP Unicode, unsupported/overlong
+phrase rejection before output, fixed Windows Alt/keypad sequences, modifier
+release, exclusive batches, bounded queues, host A → B → A invalidation, late
+cleanup across panels, output errors without replay and updated first-use help.
+Installer tests cover actual MethodChannel contracts, metadata/receipt checks,
+folder selection, verified-success/error states and locking folder changes
+during export.
 
-## Builds and packaged checks
+The real SenseVoice test used verified local model files and existing 16 kHz
+WAV fixtures. Its `zh → en → zh → en → en` results matched fresh recognizers.
+This confirms native loading and language replacement, rather than live
+microphone quality or latency. Cohere management/selection uses deterministic
+fixtures; real Cohere inference was not run.
 
-- Android debug APK built successfully from the final phone/shared source.
-- Windows Release built successfully with the final desktop UI fixes.
-- The Windows bundle contains ONNX Runtime, sherpa-onnx and microphone plugins.
-  Its ONNX Runtime SHA-256 matched the resolved dependency.
-- The final Windows executable was launched hidden and checked through actual
-  UDP discovery and HTTP: unauthenticated manifest `403`, authenticated manifest
-  `200`, invalid dictation `400`, and `local-dictation-v1` advertised. The
-  process was closed afterwards; this check captured no microphone audio and
-  injected no text into another application.
+## Builds and current computer installation
 
-Flutter 3.44.2 / Dart 3.12.2 and the installed Windows/Android toolchains were
-used. The checkout is on exFAT, which cannot provide Flutter's required Windows
-plugin symlinks and causes Kotlin cache errors. Builds/tests therefore ran in a
-short NTFS temporary source copy. All source file hashes matched the checkout
-after validation; generated outputs were copied back to ignored directories.
+- The final Android debug APK built successfully. Application ID/namespace is
+  `com.lumiaiq.smartkey`; the public name remains **LumiaKey**. The prior
+  identity change also updated macOS/Linux IDs and Windows product resources.
+- Windows Release was built and smoke-checked during the preceding identity
+  change. Desktop/shared-engine executable source is unchanged in this follow-up.
+  That bundle was installed in `%LOCALAPPDATA%\Programs\LumiaKey`, with a
+  current-user Start Menu shortcut and uninstall helper. All 23 application
+  files matched their SHA-256 inventory, and the tray process launched.
+- Existing verified SenseVoice model/token files were copied into LumiaKey's
+  own application-support cache. No download, microphone capture, clipboard
+  operation, target text insertion or Windows HexNumpad setting change occurred.
+  The installed uninstall helper was updated to the tested version. Uninstall
+  preserves separate preferences/models and refuses unmanaged or corrupted
+  program-directory contents.
+- Tagged release CI now builds Windows/macOS installers before Android, embeds
+  artifacts from that exact run, and checks the built APK's catalog and installer
+  hashes before upload. No tag/release was created here; the remote macOS/signing
+  pipeline has not run for this change. Development builds without release
+  packages explicitly report them as unavailable.
+
+Flutter 3.44.2 / Dart 3.12.2 and installed Windows/Android toolchains were used.
+The exFAT checkout cannot provide Windows plugin symlinks and causes Kotlin
+cache failures, so builds/tests ran in a short NTFS source copy. Executable,
+configuration and test hashes were checked against the checkout.
 
 ## Screenshot report
 
-Six screenshot widget tests (already included in the counts above) produced
-**46 PNGs** with metadata: 24 phone captures and 22 desktop captures. Coverage
-includes all public phone screens, the seven desktop settings sections at normal
-and narrow widths, editing/import dialogs, first-use explanations, and dictation
-model/language/download/listening/error states. Captures assert expected content,
-valid image dimensions and absence of Flutter/layout exceptions. They do not use
-committed pixel baselines.
+Seven screenshot widget tests, included above, produced **58 PNGs** with
+metadata: **36 phone** and **22 desktop** captures. They cover public screens,
+normal/narrow desktop settings, editing/import dialogs, first-use explanations,
+Bluetooth readiness, models/languages/output profiles, Windows Unicode setup,
+listening/errors, and installer catalog/verification/export states. Captures
+check content, PNG dimensions and absence of Flutter/layout exceptions. No
+committed pixel baselines are used.
 
-All captures were visually inspected; the final report uses real text/icon fonts
-with Chinese and symbol fallback. Screenshot validation found and fixed a real
-desktop model-selector `setState` error. These are deterministic Flutter widget
-renders with injected dependencies, not physical-device or macOS screenshots.
+New/changed states were visually reviewed with CJK and symbol fonts; unchanged
+desktop states were reviewed in the preceding validation. The run fixed lazy
+list screenshot scrolling with larger fonts and an actual stale verification
+status after successful export. These are deterministic Flutter widget renders
+with injected dependencies, not native macOS or physical-device screenshots.
 
 Generated artifacts, excluded from Git:
 
-- `build/ui_screenshots/index.html` — offline gallery with filters and image zoom.
-- `build/ui_screenshots.zip` — portable gallery, images and metadata.
-- `coverage/summary.json`, `coverage/local-dictation-merged.lcov`, per-package
-  LCOV reports, Android JUnit XML, and full validation/build logs.
-- `build/artifacts/LumiaKey-Android-debug.apk` and
+- `build/ui_screenshots-bluetooth/index.html` — searchable offline gallery.
+- `build/ui_screenshots-bluetooth.zip` — HTML, PNGs and metadata.
+- `coverage/summary.json`, merged/per-package LCOV, Android JUnit XML,
+  source/installation evidence and validation logs.
+- `build/artifacts/LumiaKey-Android-debug.apk` and the previously verified
   `build/artifacts/LumiaKey-Windows-portable.zip`.
 
-## Reproduction and remaining acceptance
+The full Dart/build run is in `final-bluetooth-validation.log`; its native phase
+initially exposed two incorrect test expectations. After correcting only those
+native test fixtures, all 16 Kotlin tests passed in `final-kotlin-validation.log`.
+Coverage/gallery aggregation and compiled APK embedding checks completed
+afterwards. Production code did not change between the passing Dart/build run
+and native rerun.
+
+## Reproduction and acceptance boundaries
 
 Run `scripts/validate_local_dictation.ps1 -BuildAndroid` on a supported Windows
-filesystem, optionally supplying `-PubCache`. The real FFI test additionally
-requires `LOCAL_DICTATION_MODEL_DIR`, `LOCAL_DICTATION_ZH_WAV`,
-`LOCAL_DICTATION_EN_WAV` and `LOCAL_DICTATION_NATIVE_DIR`; without them it reports
-an explicit skip. This validation supplied all four. Optional
-`SMARTKEYS_SCREENSHOT_FONT` and `SMARTKEYS_SCREENSHOT_SYMBOL_FONT` provide local
-CJK and symbol fonts for the generated gallery. No fonts, model files, WAVs,
-screenshots, HTML reports or build products were added to Git.
+filesystem, optionally supplying `-PubCache`. Real FFI tests also need
+`LOCAL_DICTATION_MODEL_DIR`, `LOCAL_DICTATION_ZH_WAV`, `LOCAL_DICTATION_EN_WAV`
+and `LOCAL_DICTATION_NATIVE_DIR`; all were supplied. Optional
+`SMARTKEYS_SCREENSHOT_FONT` and `SMARTKEYS_SCREENSHOT_SYMBOL_FONT` supply fonts.
+Installer test commands are in `GITHUB_RELEASES.md` and `WINDOWS_INSTALL.md`.
 
-No physical Android phone was connected. Live phone/desktop microphone quality,
-latency, actual cursor insertion into target applications and macOS native
-build/permissions still need device acceptance. Cohere model management and
-selection use deterministic fixtures here; a real Cohere inference run was not
-performed. Tagged release CI retains native macOS packaging and uploads test
-reports separately from release installers.
-
-## Application identity follow-up
-
-The public app name is now **LumiaKey**. Android application ID/namespace,
-macOS bundle ID and Linux application ID are **`com.lumiaiq.smartkey`**.
-Android Kotlin main/test package declarations and source directories were moved
-together. macOS product/scheme/test-host references and release artifact paths
-were updated for `LumiaKey.app`. Windows product resources, window/tray titles
-and installer display name use LumiaKey; its existing installer upgrade GUID
-and executable filename remain compatible.
-
-The complete validation was rerun after the identity change: 138 tests passed,
-four package analyses passed, coverage remained 73.79%, 46 screenshot renders
-were regenerated, and Android debug / Windows Release builds passed. APK
-badging confirmed package `com.lumiaiq.smartkey`, label `LumiaKey` and launcher
-`com.lumiaiq.smartkey.MainActivity`. Windows executable ProductName and
-FileDescription both read `LumiaKey`. macOS plist/scheme XML was parsed, but no
-native macOS build was performed. Generated identity evidence is in
-`coverage/application-identity.json`.
+A Moto g play was detected by ADB, but no new phone app was installed and no
+live microphone or Bluetooth target-input test was performed. Windows Unicode
+mode requires manual HexNumpad setup, Num Lock and a compatible application;
+actual input acceptance and native macOS build/permissions remain separate.
+USB export uses a local SAF folder and MTP; it does not expose a USB
+mass-storage drive or Windows drive letter.

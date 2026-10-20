@@ -2,9 +2,162 @@ package com.lumiaiq.smartkey
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HidReportEncoderTest {
+    @Test
+    fun asciiTextStrokePressAndReleaseUseUsKeyboardUsageAndShiftBit() {
+        val encoder = HidReportEncoder()
+        val uppercaseA = HidTextStroke(usage = 0x04, shift = true)
+
+        val pressed = encoder.pressTextStroke(uppercaseA)!!
+        assertEquals(HidReportEncoder.KEYBOARD_REPORT_ID, pressed.id)
+        assertArrayEquals(byteArrayOf(0x02, 0, 0x04, 0, 0, 0, 0, 0), pressed.data)
+        assertTrue(encoder.hasHeldInput)
+
+        val released = encoder.releaseTextStroke(uppercaseA)!!
+        assertArrayEquals(ByteArray(8), released.data)
+        assertFalse(encoder.hasHeldInput)
+        assertNull(encoder.pressTextStroke(HidTextStroke(usage = 0x03, shift = false)))
+        assertNull(encoder.pressTextStroke(HidTextStroke(usage = 0x28, shift = false)))
+        assertNull(encoder.pressTextStroke(HidTextStroke(usage = 0x2b, shift = false)))
+        assertNull(encoder.pressTextStroke(HidTextStroke(usage = 0x39, shift = false)))
+    }
+
+    @Test
+    fun unicodeHexFramesHoldAndReleaseOnlyLeftAltAndKeypadKeys() {
+        val encoder = HidReportEncoder()
+        val frames = WindowsHexNumpadEncoder.strokesFor(0x4e2d)
+        assertEquals(5, frames.size)
+        frames.forEachIndexed { index, stroke ->
+            val pressed = encoder.pressUnicodeHexStroke(stroke)!!
+            assertEquals(HidReportEncoder.KEYBOARD_REPORT_ID, pressed.id)
+            assertEquals(4, pressed.data[0].toInt())
+            assertEquals(stroke.usage, pressed.data[2].toInt())
+            val released = encoder.releaseUnicodeHexStroke(stroke)!!
+            if (index == frames.lastIndex) {
+                assertArrayEquals(ByteArray(8), released.data)
+            } else {
+                assertEquals(4, released.data[0].toInt())
+            }
+        }
+        assertFalse(encoder.hasHeldInput)
+        assertNull(
+            encoder.pressUnicodeHexStroke(
+                HidTextKeyStroke(usage = 0x28, unicodeHex = true, altStart = true),
+            ),
+        )
+    }
+
+    @Test
+    fun textBatchBoundaryRejectsMalformedBoundsAndNonPrintableUsages() {
+        fun request(strokes: Any? = listOf(mapOf("usage" to 0x04, "shift" to false))) =
+            mapOf(
+                "sessionToken" to "session-a",
+                "expectedAddress" to "00:11:22:33:44:55",
+                "profile" to "usAscii",
+                "strokes" to strokes,
+                "codePoints" to emptyList<Int>(),
+            )
+
+        val valid = HidTextBatchValidator.parse(request())!!
+        assertEquals("session-a", valid.sessionToken)
+        assertEquals("00:11:22:33:44:55", valid.expectedAddress)
+        assertEquals(listOf(HidTextKeyStroke(0x04, false)), valid.strokes)
+
+        assertNull(HidTextBatchValidator.parse(null))
+        assertNull(HidTextBatchValidator.parse(request(emptyList<Any>())))
+        assertNull(
+            HidTextBatchValidator.parse(
+                request(List(HidTextBatchValidator.MAX_STROKES + 1) {
+                    mapOf("usage" to 0x04, "shift" to false)
+                }),
+            ),
+        )
+        assertNull(
+            HidTextBatchValidator.parse(
+                request(listOf(mapOf("usage" to 0x28, "shift" to false))),
+            ),
+        )
+        assertNull(
+            HidTextBatchValidator.parse(
+                request(listOf(mapOf("usage" to 4.5, "shift" to false))),
+            ),
+        )
+        assertNull(
+            HidTextBatchValidator.parse(
+                request().toMutableMap().apply { put("expectedAddress", "bad-address") },
+            ),
+        )
+        assertNull(
+            HidTextBatchValidator.parse(
+                request(listOf(mapOf("usage" to 0x04, "shift" to false, "extra" to true))),
+            ),
+        )
+    }
+
+    @Test
+    fun windowsUnicodeBatchGeneratesOnlyAltHexNumpadFrames() {
+        val request = HidTextBatchValidator.parse(
+            mapOf(
+                "sessionToken" to "windows-session",
+                "expectedAddress" to "00:11:22:33:44:55",
+                "profile" to "windowsHexNumpad",
+                "strokes" to emptyList<Any>(),
+                "codePoints" to listOf(0x41, 0x4e2d),
+            ),
+        )!!
+        assertEquals(HidTextProfile.WINDOWS_HEX_NUMPAD, request.profile)
+        // U+0041 is 0, 0, keypad-4, keypad-1; U+4E2D is keypad-4, E, keypad-2, D.
+        assertEquals(
+            listOf(0x57, 0x62, 0x62, 0x5c, 0x59, 0x57, 0x5c, 0x08, 0x5a, 0x07),
+            request.strokes.map { it.usage },
+        )
+        assertTrue(request.strokes.first().altStart)
+        assertTrue(request.strokes[4].altEnd)
+        assertTrue(request.strokes[5].altStart)
+        assertTrue(request.strokes.last().altEnd)
+        assertTrue(request.strokes.all { it.unicodeHex && !it.shift })
+
+        fun accepted(vararg codePoints: Int): Boolean = HidTextBatchValidator.parse(
+            mapOf(
+                "sessionToken" to "windows-session",
+                "expectedAddress" to "00:11:22:33:44:55",
+                "profile" to "windowsHexNumpad",
+                "strokes" to emptyList<Any>(),
+                "codePoints" to codePoints.toList(),
+            ),
+        ) != null
+        fun rejected(codePoint: Int): Boolean = !accepted(codePoint)
+        assertTrue(accepted(0x4f60, 0x597d, 0xff0c, 0x4e16, 0x754c, 0xff01, 0x3042, 0xd55c))
+        assertTrue(rejected(0x0a))
+        assertTrue(rejected(0x80))
+        assertTrue(rejected(0x1f600))
+        assertTrue(rejected(0xd800))
+        assertTrue(rejected(0x2028))
+        assertTrue(rejected(0xfeff))
+        assertTrue(rejected(0xfffe))
+    }
+
+    @Test
+    fun navigationInputCancelsAnActiveTextBatchBeforeInterleaving() {
+        val gate = HidTextBatchGate()
+        assertTrue(gate.begin("dictation-1"))
+        assertFalse(gate.allowsNavigationInput())
+        assertFalse(gate.begin("dictation-2"))
+        assertFalse(gate.cancel("another-session"))
+
+        // sendPress/sendRelease/sendStep call releaseAllInput before emitting
+        // their report; this gate is the controller's native exclusivity state.
+        assertTrue(gate.cancelForNavigation())
+        assertTrue(gate.allowsNavigationInput())
+        assertFalse(gate.isActive())
+        assertFalse(gate.finish("dictation-1"))
+    }
+
     @Test
     fun ctrlCPressAndReleaseProduceKeyboardReports() {
         val encoder = HidReportEncoder()

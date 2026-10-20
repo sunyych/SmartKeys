@@ -1,0 +1,4 @@
+catalog.json
+.catalog-*.tmp
+.staging/
+releases/

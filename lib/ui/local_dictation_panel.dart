@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,40 +7,43 @@ import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../services/companion_service.dart';
+import '../services/hid_service.dart';
+import '../services/hid_text_output_service.dart';
 import 'dictation_entry_consent.dart';
 
 const _modelPreferenceKey = 'dictation.model.v1';
 const _languagePreferenceKey = 'dictation.language.v1';
+const _textProfilePreferenceKey = 'dictation.text_profile.v1';
 
 Future<void> showLocalDictationPanel(
   BuildContext context, {
-  required CompanionService companion,
+  required HidService hid,
 }) async {
   if (!await ensureDictationEntryExplained(context) || !context.mounted) return;
   await showDialog<void>(
     context: context,
-    builder: (_) =>
-        LocalDictationPanel(companion: companion, autoStartWhenReady: true),
+    builder: (_) => LocalDictationPanel(hid: hid, autoStartWhenReady: true),
   );
 }
 
 class LocalDictationPanel extends StatefulWidget {
   const LocalDictationPanel({
     super.key,
-    required this.companion,
+    required this.hid,
     this.autoStartWhenReady = false,
     this.modelManager,
     this.capture,
+    this.textOutput,
     this.recognizerFactory,
     this.enableWakeLock = WakelockPlus.enable,
     this.disableWakeLock = WakelockPlus.disable,
   });
 
-  final CompanionService companion;
+  final HidService hid;
   final bool autoStartWhenReady;
   final ModelManager? modelManager;
   final DictationCapture? capture;
+  final HidTextOutputService? textOutput;
   final Future<DictationRecognizer> Function(
     LocalAsrModelFiles,
     DictationLanguage,
@@ -60,8 +61,11 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   late final ModelManager _models;
   late final LocalDictationController _dictation;
   late final DictationCapture _capture;
+  late final HidTextOutputService _textOutput;
+  late final bool _ownsTextOutput;
   LocalAsrModel _model = LocalAsrModel.senseVoice;
   DictationLanguage _language = DictationLanguage.chinese;
+  HidTextProfile _textProfile = HidTextProfile.usAscii;
   bool _initialized = false;
   bool _modelReady = false;
   bool _permissionGranted = false;
@@ -72,22 +76,21 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   bool _wakeLockHeld = false;
   int _startGeneration = 0;
   ModelDownloadProgress? _progress;
-  String? _sessionId;
-  CompanionHost? _sessionHost;
-  int _sequence = 0;
+  HidTextOutputSession? _textSession;
+  HidHost? _sessionHost;
   String? _panelError;
 
-  bool get _desktopReady {
-    final host = widget.companion.activeHost.value;
-    return host != null &&
-        host.capabilities.contains('local-dictation-v1') &&
-        widget.companion.syncStatus.value == CompanionSyncStatus.ready;
+  bool get _hidReady {
+    final host = widget.hid.activeHost.value;
+    return widget.hid.connectionStatus.value == HidConnectionStatus.connected &&
+        host != null &&
+        host.address.isNotEmpty;
   }
 
   bool get _sessionHostValid {
     final host = _currentHost;
-    return host != null &&
-        host.capabilities.contains('local-dictation-v1') &&
+    return widget.hid.connectionStatus.value == HidConnectionStatus.connected &&
+        host != null &&
         _sameHostIdentity(_sessionHost, host);
   }
 
@@ -100,6 +103,8 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     WidgetsBinding.instance.addObserver(this);
     _models = widget.modelManager ?? ModelManager();
     _capture = widget.capture ?? RecordDictationCapture();
+    _ownsTextOutput = widget.textOutput == null;
+    _textOutput = widget.textOutput ?? HidTextOutputService(hid: widget.hid);
     _dictation = LocalDictationController(
       modelManager: _models,
       capture: _capture,
@@ -109,8 +114,8 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
               LocalAsrWorker.start(model: model, language: language),
       onText: _deliverText,
     );
-    widget.companion.activeHost.addListener(_handleConnectionChanged);
-    widget.companion.syncStatus.addListener(_handleConnectionChanged);
+    widget.hid.activeHost.addListener(_handleConnectionChanged);
+    widget.hid.connectionStatus.addListener(_handleConnectionChanged);
     _dictation.addListener(_handleDictationChanged);
     unawaited(_initialize());
   }
@@ -120,6 +125,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       final preferences = await SharedPreferences.getInstance();
       final modelName = preferences.getString(_modelPreferenceKey);
       final languageName = preferences.getString(_languagePreferenceKey);
+      final profileName = preferences.getString(_textProfilePreferenceKey);
       final model = LocalAsrModel.values.firstWhere(
         (value) => value.name == modelName,
         orElse: () => LocalAsrModel.senseVoice,
@@ -128,6 +134,10 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         (value) => value.name == languageName,
         orElse: () => DictationLanguage.chinese,
       );
+      final profile = HidTextProfile.values.firstWhere(
+        (value) => value.wireName == profileName,
+        orElse: () => HidTextProfile.usAscii,
+      );
       await _dictation.configure(model: model, language: language);
       final permission = await _capture.hasPermission();
       final ready = await _models.areModelsAvailable(model: model);
@@ -135,11 +145,12 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       setState(() {
         _model = model;
         _language = language;
+        _textProfile = profile;
         _permissionGranted = permission;
         _modelReady = ready;
         _initialized = true;
       });
-      if (widget.autoStartWhenReady && ready && _desktopReady && _appResumed) {
+      if (widget.autoStartWhenReady && ready && _hidReady && _appResumed) {
         unawaited(_start());
       }
     } catch (error) {
@@ -152,37 +163,30 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   Future<void> _deliverText(String text) async {
-    final sessionId = _sessionId;
-    final sessionHost = _sessionHost;
-    if (sessionId == null || !_sameHostIdentity(sessionHost, _currentHost)) {
-      throw StateError('Dictation session has ended or its desktop changed.');
+    final session = _textSession;
+    if (session == null || !_sessionHostValid) {
+      throw StateError(
+        'Dictation session has ended or its Bluetooth host changed.',
+      );
     }
-    await widget.companion.sendDictation(
-      sessionId: sessionId,
-      sequence: ++_sequence,
-      text: text,
-    );
+    await _textOutput.sendText(session, text);
   }
 
   void _handleConnectionChanged() {
-    if (_sessionInProgress && !_sessionHostValid) {
+    if (_sessionHost != null && _sessionInProgress && !_sessionHostValid) {
       unawaited(_cancelForLostConnection());
     }
     if (mounted) setState(() {});
   }
 
-  CompanionHost? get _currentHost => widget.companion.activeHost.value;
+  HidHost? get _currentHost => widget.hid.activeHost.value;
 
-  bool _sameHostIdentity(CompanionHost? first, CompanionHost? second) =>
-      first != null &&
-      second != null &&
-      first.address == second.address &&
-      first.port == second.port &&
-      first.token == second.token;
+  bool _sameHostIdentity(HidHost? first, HidHost? second) =>
+      first != null && second != null && first.address == second.address;
 
   void _handleDictationChanged() {
     if (mounted) setState(() {});
-    if (_sessionId != null &&
+    if (_textSession != null &&
         !_starting &&
         !_stopping &&
         !_dictation.listening &&
@@ -193,24 +197,33 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   Future<void> _releaseAfterUnexpectedStop() async {
-    if (_sessionId == null ||
+    final session = _textSession;
+    if (session == null ||
         _starting ||
         _stopping ||
         _dictation.listening ||
         _dictation.busy) {
       return;
     }
-    _sessionId = null;
+    _textSession = null;
     _sessionHost = null;
-    _wakeLockHeld = false;
-    await widget.disableWakeLock?.call();
-    if (mounted) setState(() {});
+    final cleanupError = await _cleanupSession(
+      session: session,
+      cancelCapture: false,
+    );
+    if (mounted) {
+      setState(() {
+        if (cleanupError != null) _panelError = '$cleanupError';
+      });
+    }
   }
 
   Future<void> _cancelForLostConnection() async {
     await _cancelCurrentSession();
     if (mounted) {
-      setState(() => _panelError = 'Desktop disconnected. Dictation stopped.');
+      setState(
+        () => _panelError = 'Bluetooth host disconnected. Dictation stopped.',
+      );
     }
   }
 
@@ -229,18 +242,52 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   Future<void> _cancelCurrentSession() async {
     ++_startGeneration;
     _starting = false;
-    _sessionId = null;
+    final session = _textSession;
+    _textSession = null;
     _sessionHost = null;
-    await _dictation.cancel();
+    final cleanupError = await _cleanupSession(
+      session: session,
+      cancelCapture: true,
+    );
+    if (cleanupError != null && mounted) {
+      setState(() => _panelError = '$cleanupError');
+    }
+  }
+
+  Future<Object?> _cleanupSession({
+    required HidTextOutputSession? session,
+    required bool cancelCapture,
+  }) async {
+    Object? cleanupError;
+    if (session != null) {
+      try {
+        await _textOutput.cancelSession(session);
+      } catch (error) {
+        cleanupError = error;
+      }
+    }
+    if (cancelCapture) {
+      try {
+        await _dictation.cancel();
+      } catch (error) {
+        cleanupError ??= error;
+      }
+    }
     _wakeLockHeld = false;
-    await widget.disableWakeLock?.call();
+    try {
+      await widget.disableWakeLock?.call();
+    } catch (error) {
+      cleanupError ??= error;
+    }
+    return cleanupError;
   }
 
   Future<void> _start() async {
     setState(() => _panelError = null);
-    if (!_desktopReady) {
+    if (!_hidReady) {
       setState(
-        () => _panelError = 'Connect to a compatible LumiaKey Desktop first.',
+        () => _panelError =
+            'Connect this phone to a computer over Bluetooth HID first.',
       );
       return;
     }
@@ -264,10 +311,12 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         );
         return;
       }
-      _sessionId = _newSessionId();
-      _sequence = 0;
+      _textSession = _textOutput.beginSession(profile: _textProfile);
       await _dictation.start();
       if (!_canStartGeneration(generation)) {
+        final session = _textSession;
+        _textSession = null;
+        if (session != null) await _textOutput.cancelSession(session);
         await _dictation.cancel();
         return;
       }
@@ -276,22 +325,32 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         await _dictation.cancel();
         await widget.disableWakeLock?.call();
         if (generation == _startGeneration) {
-          _sessionId = null;
+          final session = _textSession;
+          _textSession = null;
           _sessionHost = null;
+          if (session != null) await _textOutput.cancelSession(session);
         }
         return;
       }
       _wakeLockHeld = true;
       if (mounted) setState(() {});
     } catch (error) {
-      await _dictation.cancel();
+      final session = _textSession;
+      _textSession = null;
+      final cleanupError = await _cleanupSession(
+        session: session,
+        cancelCapture: true,
+      );
       if (generation == _startGeneration) {
-        _sessionId = null;
         _sessionHost = null;
       }
-      _wakeLockHeld = false;
-      await widget.disableWakeLock?.call();
-      if (mounted) setState(() => _panelError = '$error');
+      if (mounted) {
+        setState(
+          () => _panelError = cleanupError == null
+              ? '$error'
+              : '$error (cleanup failed: $cleanupError)',
+        );
+      }
     } finally {
       if (generation == _startGeneration) {
         _starting = false;
@@ -309,11 +368,6 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       _sessionHostValid &&
       generation == _startGeneration;
 
-  String _newSessionId() {
-    final bytes = List<int>.generate(24, (_) => Random.secure().nextInt(256));
-    return base64UrlEncode(bytes).replaceAll('=', '');
-  }
-
   Future<void> _stop() async {
     _stopping = true;
     try {
@@ -321,11 +375,24 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     } catch (error) {
       if (mounted) setState(() => _panelError = '$error');
     } finally {
-      _sessionId = null;
+      final session = _textSession;
+      _textSession = null;
       _sessionHost = null;
+      if (session != null) {
+        try {
+          await _textOutput.cancelSession(session);
+        } catch (error) {
+          if (mounted) setState(() => _panelError = '$error');
+        }
+      }
       _wakeLockHeld = false;
-      await widget.disableWakeLock?.call();
-      _stopping = false;
+      try {
+        await widget.disableWakeLock?.call();
+      } catch (error) {
+        if (mounted) setState(() => _panelError = '$error');
+      } finally {
+        _stopping = false;
+      }
       if (mounted) setState(() {});
     }
   }
@@ -333,8 +400,8 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   Future<void> _selectModel(LocalAsrModel? model) async {
     if (model == null || model == _model) return;
     try {
+      await _cancelOutputSession();
       await _dictation.configure(model: model);
-      _sessionId = null;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_modelPreferenceKey, model.name);
       final ready = await _models.areModelsAvailable(model: model);
@@ -352,11 +419,55 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   Future<void> _selectLanguage(DictationLanguage? language) async {
     if (language == null || language == _language) return;
     try {
+      await _cancelOutputSession();
       await _dictation.configure(language: language);
-      _sessionId = null;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_languagePreferenceKey, language.name);
       if (mounted) setState(() => _language = language);
+    } catch (error) {
+      if (mounted) setState(() => _panelError = '$error');
+    }
+  }
+
+  Future<void> _selectTextProfile(HidTextProfile? profile) async {
+    if (profile == null || profile == _textProfile) return;
+    if (profile == HidTextProfile.windowsHexNumpad) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          key: const ValueKey('windows-unicode-profile-consent'),
+          title: const Text('Use Windows Unicode HexNumpad'),
+          content: const SingleChildScrollView(
+            child: Text(
+              'This profile types printable BMP text, including Chinese, Japanese, Korean, and ASCII, through Bluetooth HID. It does not change Windows settings. Before use, enable HKCU\\Control Panel\\Input Method\\EnableHexNumpad as a REG_SZ value of 1, then sign out and back in or restart Windows. Keep Num Lock on and use a tested-compatible foreground app. Emoji, controls, and non-BMP characters are rejected as a whole phrase.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('windows-unicode-consent-cancel'),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('windows-unicode-consent-confirm'),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Use Windows Unicode'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    try {
+      await _cancelOutputSession();
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_textProfilePreferenceKey, profile.wireName);
+      if (mounted) {
+        setState(() {
+          _textProfile = profile;
+          _panelError = null;
+        });
+      }
     } catch (error) {
       if (mounted) setState(() => _panelError = '$error');
     }
@@ -431,15 +542,32 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     }
   }
 
+  Future<void> _cancelOutputSession() async {
+    final session = _textSession;
+    _textSession = null;
+    if (session != null) await _textOutput.cancelSession(session);
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    widget.companion.activeHost.removeListener(_handleConnectionChanged);
-    widget.companion.syncStatus.removeListener(_handleConnectionChanged);
+    widget.hid.activeHost.removeListener(_handleConnectionChanged);
+    widget.hid.connectionStatus.removeListener(_handleConnectionChanged);
     _dictation.removeListener(_handleDictationChanged);
     _models.cancelDownload();
-    unawaited(_dictation.close().whenComplete(_dictation.dispose));
-    unawaited(widget.disableWakeLock?.call());
+    final session = _textSession;
+    _textSession = null;
+    if (session != null) {
+      unawaited(_textOutput.cancelSession(session).catchError((Object _) {}));
+    }
+    if (_ownsTextOutput) _textOutput.dispose();
+    unawaited(
+      _dictation
+          .close()
+          .whenComplete(_dictation.dispose)
+          .catchError((Object _) {}),
+    );
+    unawaited(widget.disableWakeLock?.call().catchError((Object _) {}));
     super.dispose();
   }
 
@@ -489,13 +617,12 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      (_desktopReady ||
-                              (_sessionInProgress && _sessionHostValid))
-                          ? 'Connected desktop · text only'
-                          : 'Compatible desktop required',
+                      (_hidReady || (_sessionInProgress && _sessionHostValid))
+                          ? 'Connected by Bluetooth · text only'
+                          : 'Bluetooth HID connection required',
                       key: const ValueKey('dictation-connection-status'),
                       style: TextStyle(
-                        color: _desktopReady
+                        color: _hidReady
                             ? Colors.lightGreenAccent
                             : Colors.amberAccent,
                       ),
@@ -507,6 +634,13 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            Text(
+                              _textProfile == HidTextProfile.usAscii
+                                  ? 'Text is typed as printable ASCII key presses over Bluetooth HID. Chinese and other non-ASCII results are rejected as a whole phrase. Keep the target computer on a US keyboard layout with English input active.'
+                                  : 'Windows Unicode HexNumpad types printable BMP text, including Chinese, Japanese, Korean, and ASCII. Enable the Windows HexNumpad setting shown below, keep Num Lock on, and use a tested-compatible foreground app. Unsupported text is rejected as a whole phrase.',
+                              key: const ValueKey('dictation-output-limit'),
+                            ),
+                            const SizedBox(height: 8),
                             DropdownButtonFormField<DictationLanguage>(
                               key: const ValueKey('dictation-language'),
                               initialValue: _language,
@@ -544,6 +678,37 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                                   listening || _dictation.busy || _downloading
                                   ? null
                                   : _selectModel,
+                            ),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<HidTextProfile>(
+                              key: const ValueKey('dictation-text-profile'),
+                              initialValue: _textProfile,
+                              decoration: const InputDecoration(
+                                labelText: 'Text output profile',
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: HidTextProfile.usAscii,
+                                  child: Text('US ASCII (default)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: HidTextProfile.windowsHexNumpad,
+                                  child: Text('Windows Unicode HexNumpad'),
+                                ),
+                              ],
+                              onChanged:
+                                  listening || _dictation.busy || _downloading
+                                  ? null
+                                  : _selectTextProfile,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _textProfile == HidTextProfile.usAscii
+                                  ? 'Printable ASCII only. Use a US keyboard layout with English input active.'
+                                  : 'Printable BMP text, including Chinese. Windows HexNumpad must be enabled; Num Lock must be on.',
+                              key: const ValueKey(
+                                'dictation-text-profile-help',
+                              ),
                             ),
                             const SizedBox(height: 6),
                             Text(

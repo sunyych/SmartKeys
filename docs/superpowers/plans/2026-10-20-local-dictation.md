@@ -4,7 +4,7 @@
 
 **Goal:** Add private on-device microphone dictation on Android and desktop, insert final text at the computer cursor, and distinguish it from existing application dictation.
 
-**Architecture:** Extract the reusable mobile_transcribe recognizer, model manager and PCM segmenter into a small local package. Reuse SmartKeys Companion for text-only delivery. Desktop native adapters inject Unicode and expose a global toggle shortcut.
+**Architecture:** Extract the reusable mobile_transcribe recognizer, model manager and PCM segmenter into a small local package. Android final text uses Bluetooth HID, with US ASCII and explicitly selected Windows Unicode profiles; Companion is optional for other features. Desktop native adapters inject Unicode and expose a global toggle shortcut.
 
 **Tech Stack:** Flutter/Dart, sherpa_onnx 1.13.3-compatible pinned APIs, record PCM streams, Windows C++, macOS Swift.
 

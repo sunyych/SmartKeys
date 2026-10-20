@@ -2,6 +2,148 @@ package com.lumiaiq.smartkey
 
 data class HidReport(val id: Int, val data: ByteArray)
 
+data class HidTextStroke(val usage: Int, val shift: Boolean)
+
+enum class HidTextProfile(val wireName: String) {
+    US_ASCII("usAscii"),
+    WINDOWS_HEX_NUMPAD("windowsHexNumpad"),
+}
+
+data class HidTextKeyStroke(
+    val usage: Int,
+    val shift: Boolean = false,
+    val unicodeHex: Boolean = false,
+    val altStart: Boolean = false,
+    val altEnd: Boolean = false,
+)
+
+data class HidTextBatchRequest(
+    val sessionToken: String,
+    val expectedAddress: String,
+    val profile: HidTextProfile,
+    val strokes: List<HidTextKeyStroke>,
+)
+
+/** Strict boundary parser for the method-channel text batch. */
+object HidTextBatchValidator {
+    const val MAX_STROKES = 256
+    private val addressPattern = Regex("(?i)^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+
+    fun parse(arguments: Any?): HidTextBatchRequest? {
+        val map = arguments as? Map<*, *> ?: return null
+        if (map.keys != setOf("sessionToken", "expectedAddress", "profile", "strokes", "codePoints")) return null
+        val token = map["sessionToken"] as? String
+        val address = map["expectedAddress"] as? String
+        val rawStrokes = map["strokes"] as? List<*>
+        val rawCodePoints = map["codePoints"] as? List<*>
+        val profile = HidTextProfile.entries.firstOrNull { it.wireName == map["profile"] }
+        if (token.isNullOrBlank() || token.length > 128 ||
+            address.isNullOrBlank() || !addressPattern.matches(address) ||
+            rawStrokes == null || rawCodePoints == null || profile == null
+        ) return null
+
+        val strokes = when (profile) {
+            HidTextProfile.US_ASCII -> {
+                if (rawStrokes.isEmpty() || rawStrokes.size > MAX_STROKES || rawCodePoints.isNotEmpty()) return null
+                rawStrokes.map { raw ->
+                    val stroke = raw as? Map<*, *> ?: return null
+                    if (stroke.keys != setOf("usage", "shift")) return null
+                    val usage = integer(stroke["usage"]) ?: return null
+                    val shift = stroke["shift"] as? Boolean ?: return null
+                    if (!isPrintableTextUsage(usage)) return null
+                    HidTextKeyStroke(usage, shift)
+                }
+            }
+            HidTextProfile.WINDOWS_HEX_NUMPAD -> {
+                if (rawStrokes.isNotEmpty() || rawCodePoints.isEmpty() || rawCodePoints.size > MAX_STROKES) return null
+                val codePoints = rawCodePoints.map { integer(it) ?: return null }
+                if (codePoints.any { !isSupportedUnicodeCodePoint(it) }) return null
+                codePoints.flatMap(WindowsHexNumpadEncoder::strokesFor)
+            }
+        }
+        if (strokes.isEmpty() || strokes.size > MAX_STROKES * 10) return null
+        return HidTextBatchRequest(token, address, profile, strokes)
+    }
+
+    private fun integer(value: Any?): Int? = when (value) {
+        is Byte -> value.toInt()
+        is Short -> value.toInt()
+        is Int -> value
+        is Long -> value.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
+        else -> null
+    }
+
+    private fun isPrintableTextUsage(usage: Int): Boolean =
+        usage in 0x04..0x27 || usage in 0x2c..0x38
+
+    private fun isSupportedUnicodeCodePoint(value: Int): Boolean =
+        value in 0x20..0xffff &&
+            value !in 0x7f..0x9f &&
+            value !in 0xd800..0xdfff &&
+            value !in 0xfdd0..0xfdef &&
+            value !in 0x200b..0x200f &&
+            value !in 0x2028..0x202e &&
+            value !in 0x2060..0x206f &&
+            value != 0xfeff && value != 0xfffe && value != 0xffff
+}
+
+/** Generates only the fixed Alt+keypadPlus+four-hex-digit Windows sequence. */
+object WindowsHexNumpadEncoder {
+    fun strokesFor(codePoint: Int): List<HidTextKeyStroke> {
+        require(codePoint in 0..0xffff)
+        val digits = codePoint.toString(16).uppercase().padStart(4, '0')
+        val usages = digits.map(::usageForHexDigit)
+        return buildList {
+            add(HidTextKeyStroke(usage = 0x57, unicodeHex = true, altStart = true))
+            usages.forEachIndexed { index, usage ->
+                add(
+                    HidTextKeyStroke(
+                        usage = usage,
+                        unicodeHex = true,
+                        altEnd = index == usages.lastIndex,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun usageForHexDigit(digit: Char): Int = when (digit) {
+        in '0'..'9' -> if (digit == '0') 0x62 else 0x58 + digit.digitToInt()
+        in 'A'..'F' -> 0x04 + digit.code - 'A'.code
+        else -> error("Invalid hexadecimal digit")
+    }
+}
+
+/** Keeps text output exclusive with navigation actions until completion/cancel. */
+class HidTextBatchGate {
+    private var activeToken: String? = null
+
+    fun begin(token: String): Boolean {
+        if (activeToken != null || token.isBlank()) return false
+        activeToken = token
+        return true
+    }
+
+    fun isActive(token: String? = null): Boolean =
+        activeToken != null && (token == null || activeToken == token)
+
+    fun allowsNavigationInput(): Boolean = activeToken == null
+
+    fun finish(token: String): Boolean {
+        if (activeToken != token) return false
+        activeToken = null
+        return true
+    }
+
+    fun cancel(token: String? = null): Boolean {
+        if (activeToken == null || (token != null && activeToken != token)) return false
+        activeToken = null
+        return true
+    }
+
+    fun cancelForNavigation(): Boolean = cancel()
+}
+
 data class HidActionData(
     val type: String,
     val keyCode: String?,
@@ -27,6 +169,38 @@ class HidReportEncoder {
     private val keyCounts = mutableMapOf<Int, Int>()
     private val modifierCounts = mutableMapOf<Int, Int>()
     private val mouseButtonCounts = mutableMapOf<Int, Int>()
+
+    val hasHeldInput: Boolean
+        get() = keyCounts.isNotEmpty() || modifierCounts.isNotEmpty() || mouseButtonCounts.isNotEmpty()
+
+    fun pressTextStroke(stroke: HidTextStroke): HidReport? {
+        if (!isTextUsage(stroke.usage)) return null
+        keyCounts[stroke.usage] = (keyCounts[stroke.usage] ?: 0) + 1
+        if (stroke.shift) modifierCounts[LEFT_SHIFT_BIT] = (modifierCounts[LEFT_SHIFT_BIT] ?: 0) + 1
+        return keyboardReport()
+    }
+
+    fun releaseTextStroke(stroke: HidTextStroke): HidReport? {
+        if (!isTextUsage(stroke.usage)) return null
+        decrementKey(stroke.usage)
+        if (stroke.shift) decrementModifier(LEFT_SHIFT_BIT)
+        return keyboardReport()
+    }
+
+    fun pressUnicodeHexStroke(stroke: HidTextKeyStroke): HidReport? {
+        if (!stroke.unicodeHex || !isUnicodeHexUsage(stroke.usage)) return null
+        if (stroke.altStart) modifierCounts[LEFT_ALT_BIT] =
+            (modifierCounts[LEFT_ALT_BIT] ?: 0) + 1
+        keyCounts[stroke.usage] = (keyCounts[stroke.usage] ?: 0) + 1
+        return keyboardReport()
+    }
+
+    fun releaseUnicodeHexStroke(stroke: HidTextKeyStroke): HidReport? {
+        if (!stroke.unicodeHex || !isUnicodeHexUsage(stroke.usage)) return null
+        decrementKey(stroke.usage)
+        if (stroke.altEnd) decrementModifier(LEFT_ALT_BIT)
+        return keyboardReport()
+    }
 
     fun press(action: HidActionData): HidReport? = when (action.type) {
         "keyboard" -> {
@@ -97,6 +271,12 @@ class HidReportEncoder {
         val remaining = (mouseButtonCounts[bit] ?: 0) - 1
         if (remaining <= 0) mouseButtonCounts.remove(bit) else mouseButtonCounts[bit] = remaining
     }
+
+    private fun isTextUsage(usage: Int): Boolean =
+        usage in 0x04..0x27 || usage in 0x2c..0x38
+
+    private fun isUnicodeHexUsage(usage: Int): Boolean =
+        usage == 0x57 || usage == 0x62 || usage in 0x59..0x61 || usage in 0x04..0x09
 
     private fun keyboardReport(): HidReport {
         var modifiers = 0
@@ -192,6 +372,9 @@ class HidReportEncoder {
             "RIGHT_META" to 7,
             "RIGHT_GUI" to 7,
         )
+
+        private const val LEFT_SHIFT_BIT = 1
+        private const val LEFT_ALT_BIT = 2
 
         private val KEY_USAGES = mapOf(
             "ENTER" to 0x28,
