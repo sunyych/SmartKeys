@@ -5,7 +5,9 @@ import 'package:window_manager/window_manager.dart';
 
 import 'companion_server.dart';
 import 'desktop_controller.dart';
+import 'desktop_dictation.dart';
 import 'desktop_ui.dart';
+import 'dictation_receiver.dart';
 import 'tray_shell.dart';
 
 export 'companion_server.dart';
@@ -50,8 +52,10 @@ class CompanionApp extends StatefulWidget {
 }
 
 class _CompanionAppState extends State<CompanionApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final DesktopController controller;
   late final CompanionServer server;
+  late final DesktopDictationService dictation;
   late final bool ownsController;
   DesktopTrayShell? trayShell;
 
@@ -62,18 +66,57 @@ class _CompanionAppState extends State<CompanionApp> {
     controller =
         widget.controller ??
         DesktopController(store: SharedPreferencesDesktopConfigStore());
-    server = CompanionServer(controller: controller);
+    final textSink = MethodChannelDictationTextSink();
+    dictation = DesktopDictationService(textSink: textSink);
+    controller.actions.confirmVoiceInputFirstUse = _confirmVoiceInputFirstUse;
+    server = CompanionServer(controller: controller, dictationSink: textSink);
     controller.addListener(_changed);
     server.addListener(_changed);
     unawaited(_initialize());
+  }
+
+  Future<bool> _confirmVoiceInputFirstUse() async {
+    if (dictation.firstUseAcknowledged) return true;
+    final context = _navigatorKey.currentContext;
+    if (context == null) return false;
+    await trayShell?.showSection(6);
+    if (!context.mounted) return false;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.graphic_eq),
+        title: const Text('App Voice Input'),
+        content: const Text(
+          'App Voice Input runs the selected application’s own microphone and privacy behavior. Local Dictation uses this computer’s microphone and selected local model; phone dictation sends final text only. This shortcut will wait for a new tap after you close this explanation.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('I understand'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true) await dictation.acknowledgeFirstUse();
+    await windowManager.hide();
+    return false;
   }
 
   Future<void> _initialize() async {
     await controller.initialize();
     if (widget.startServer) await server.start();
     if (widget.enableDesktopShell) {
-      trayShell = DesktopTrayShell(controller: controller);
+      await dictation.initialize();
+      trayShell = DesktopTrayShell(
+        controller: controller,
+        dictation: dictation,
+      );
       await trayShell!.initialize();
+      dictation.onToggleRequested = () => trayShell?.toggleDictation();
     }
     if (mounted) setState(() {});
   }
@@ -89,12 +132,14 @@ class _CompanionAppState extends State<CompanionApp> {
     controller.removeListener(_changed);
     server.removeListener(_changed);
     server.dispose();
+    dictation.dispose();
     if (ownsController) controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
+    navigatorKey: _navigatorKey,
     title: 'LumiaKeys',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
@@ -104,6 +149,10 @@ class _CompanionAppState extends State<CompanionApp> {
         border: OutlineInputBorder(),
       ),
     ),
-    home: DesktopSettingsHome(controller: controller, server: server),
+    home: DesktopSettingsHome(
+      controller: controller,
+      server: server,
+      dictation: dictation,
+    ),
   );
 }

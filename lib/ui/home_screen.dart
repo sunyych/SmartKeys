@@ -12,6 +12,8 @@ import 'bluetooth_connection_sheet.dart';
 import 'profile_management_screen.dart';
 import 'settings_screen.dart';
 import 'shortcut_community_screen.dart';
+import 'dictation_entry_consent.dart';
+import 'local_dictation_panel.dart';
 import 'wheel_editor_screen.dart';
 import 'widgets/button_face.dart';
 import 'widgets/jog_wheel.dart';
@@ -121,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 140, 6),
+                  padding: const EdgeInsets.fromLTRB(10, 10, 190, 6),
                   child: _HomeTabBar(
                     controller: controller,
                     selectedTab: effectiveTab,
@@ -141,6 +143,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 controller: controller,
                 editing: editing,
                 onToggleEditing: () => setState(() => editing = !editing),
+              ),
+            ),
+            Positioned(
+              top: 7,
+              right: 142,
+              child: Tooltip(
+                message:
+                    'Local quick dictation · microphone stays on this phone',
+                child: Semantics(
+                  button: true,
+                  label: 'Local quick dictation',
+                  hint:
+                      'Recognize speech on this phone and send text to Desktop',
+                  child: IconButton.filledTonal(
+                    key: const ValueKey('local-quick-output'),
+                    tooltip: 'Local quick dictation',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => showLocalDictationPanel(
+                      context,
+                      companion: controller.companion,
+                    ),
+                    icon: const Icon(Icons.mic_external_on),
+                  ),
+                ),
               ),
             ),
           ],
@@ -495,41 +521,67 @@ class _RemoteButtonGrid extends StatelessWidget {
               );
             }
             final button = buttons[index];
-            return Material(
-              color: const Color(0xFF151C26),
-              borderRadius: BorderRadius.circular(14),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                key: ValueKey('remote-button-${button.id}'),
-                onTap: button.enabled
-                    ? () => controller.executeRemoteButton(button)
-                    : null,
-                child: Padding(
-                  padding: const EdgeInsets.all(9),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(remoteIcon(button.icon), size: 25),
-                      const SizedBox(height: 5),
-                      Text(
-                        button.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      if (button.targetType ==
-                          RemoteTargetType.keyboardShortcut)
-                        Text(
-                          formatShortcut(button.shortcut),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white54,
+            final appVoiceInput =
+                button.targetType == RemoteTargetType.voiceInput;
+            return Semantics(
+              button: true,
+              label: appVoiceInput
+                  ? 'Application voice input, starts the selected app voice shortcut'
+                  : button.name,
+              child: Tooltip(
+                message: appVoiceInput
+                    ? 'Application voice input · runs the selected app shortcut'
+                    : button.name,
+                child: Material(
+                  color: const Color(0xFF151C26),
+                  borderRadius: BorderRadius.circular(14),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    key: ValueKey('remote-button-${button.id}'),
+                    onTap: button.enabled
+                        ? () async {
+                            if (button.targetType ==
+                                    RemoteTargetType.voiceInput &&
+                                !await ensureDictationEntryExplained(context)) {
+                              return;
+                            }
+                            if (!context.mounted) return;
+                            await controller.executeRemoteButton(button);
+                          }
+                        : null,
+                    child: Padding(
+                      padding: const EdgeInsets.all(9),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            appVoiceInput
+                                ? Icons.graphic_eq
+                                : remoteIcon(button.icon),
+                            size: 25,
                           ),
-                        ),
-                    ],
+                          const SizedBox(height: 5),
+                          Text(
+                            appVoiceInput ? 'App voice input' : button.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          if (button.targetType ==
+                              RemoteTargetType.keyboardShortcut)
+                            Text(
+                              formatShortcut(button.shortcut),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.white54,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),

@@ -63,6 +63,8 @@ jobs:
     name: Analyze and test
     needs: validate
     runs-on: ubuntu-latest
+    env:
+      SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/build/ui_screenshots
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v6
@@ -73,25 +75,65 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Verify Android app
+      - name: Resolve all package dependencies
         run: |
           flutter pub get
+          (cd desktop_companion && flutter pub get)
+          (cd packages/lumiakeys_protocol && dart pub get)
+          (cd packages/local_dictation && flutter pub get)
+
+      - name: Verify Android app
+        run: |
           flutter analyze
-          flutter test
+          flutter test --coverage
+
+      - name: Verify Android Kotlin unit tests
+        run: |
+          flutter build apk --debug
+          ./android/gradlew -p android :app:testDebugUnitTest
+
+      - name: Verify local dictation engine
+        working-directory: packages/local_dictation
+        run: |
+          flutter analyze
+          flutter test --coverage
 
       - name: Verify shared protocol
         working-directory: packages/lumiakeys_protocol
         run: |
-          dart pub get
           dart analyze
-          dart test
+          dart test --coverage=coverage/raw
+          dart run coverage:format_coverage \
+            --lcov --in=coverage/raw --out=coverage/lcov.info \
+            --packages=.dart_tool/package_config.json --report-on=lib
 
       - name: Verify Desktop app
         working-directory: desktop_companion
         run: |
-          flutter pub get
           flutter analyze
-          flutter test
+          flutter test --coverage
+
+      - name: Generate screenshot gallery
+        shell: pwsh
+        run: ./scripts/generate_screenshot_index.ps1 -ScreenshotRoot "$env:SMARTKEYS_SCREENSHOT_DIR"
+
+      - name: Upload UI screenshot gallery
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-screenshot-gallery
+          path: build/ui_screenshots/
+          if-no-files-found: error
+
+      - name: Upload Dart coverage reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: dart-coverage
+          path: |
+            coverage/lcov.info
+            packages/local_dictation/coverage/lcov.info
+            packages/lumiakeys_protocol/coverage/lcov.info
+            desktop_companion/coverage/lcov.info
+          if-no-files-found: error
 
   android:
     name: Build signed Android APK
@@ -255,9 +297,24 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download release assets
+      - name: Download Android APK
         uses: actions/download-artifact@v8
         with:
+          name: android-apk
+          path: release-assets
+          merge-multiple: true
+
+      - name: Download macOS DMG
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-dmg
+          path: release-assets
+          merge-multiple: true
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-installer
           path: release-assets
           merge-multiple: true
 

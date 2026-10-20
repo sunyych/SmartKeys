@@ -5,6 +5,30 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
+void _validateDictationPayload(String sessionId, int sequence, String text) {
+  if (sessionId.isEmpty ||
+      sessionId.length > 128 ||
+      !RegExp(r'^[A-Za-z0-9._:-]+$').hasMatch(sessionId) ||
+      sequence < 0 ||
+      text.isEmpty ||
+      text.length > 8000 ||
+      text.runes.any(
+        (rune) => rune < 0x20 && rune != 0x09 && rune != 0x0a && rune != 0x0d,
+      )) {
+    throw const CompanionDictationException(
+      'Dictation text or session data is invalid.',
+    );
+  }
+  final body = jsonEncode({
+    'sessionId': sessionId,
+    'sequence': sequence,
+    'text': text,
+  });
+  if (utf8.encode(body).length > 64 * 1024) {
+    throw const CompanionDictationException('Dictation request is too large.');
+  }
+}
+
 @immutable
 class CompanionHost {
   const CompanionHost({
@@ -67,6 +91,11 @@ abstract interface class CompanionService {
   Future<void> start();
   Future<void> refreshManifest();
   Future<void> executeRemote(RemoteActionRequest request);
+  Future<void> sendDictation({
+    required String sessionId,
+    required int sequence,
+    required String text,
+  });
   Future<void> execute(String command);
   void dispose();
 }
@@ -76,12 +105,14 @@ class LanCompanionService implements CompanionService {
     this.discoveryPort = 45832,
     this.hostExpiry = const Duration(seconds: 8),
     this.expiryPollInterval = const Duration(seconds: 3),
+    this.dictationTimeout = const Duration(seconds: 8),
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   final int discoveryPort;
   final Duration hostExpiry;
   final Duration expiryPollInterval;
+  final Duration dictationTimeout;
   final DateTime Function() _now;
   final ValueNotifier<CompanionHost?> _host = ValueNotifier(null);
   final ValueNotifier<DesktopManifest?> _manifest = ValueNotifier(null);
@@ -94,6 +125,9 @@ class LanCompanionService implements CompanionService {
   DateTime? _lastSeen;
   bool _fetchingManifest = false;
   int? _pendingRevision;
+
+  /// Ephemeral listener port, also useful to bind an in-process loopback peer.
+  int? get boundDiscoveryPort => _socket?.port;
 
   @override
   ValueListenable<CompanionHost?> get activeHost => _host;
@@ -242,6 +276,71 @@ class LanCompanionService implements CompanionService {
       _post(jsonEncode(request.toJson()));
 
   @override
+  Future<void> sendDictation({
+    required String sessionId,
+    required int sequence,
+    required String text,
+  }) async {
+    final host = _host.value;
+    if (host == null) {
+      throw const CompanionDictationException(
+        'Connect to a LumiaKeys Desktop that supports local dictation.',
+      );
+    }
+    if (!host.capabilities.contains('local-dictation-v1')) {
+      throw const CompanionDictationException(
+        'Update LumiaKeys Desktop to enable local dictation.',
+      );
+    }
+    _validateDictationPayload(sessionId, sequence, text);
+    final body = jsonEncode({
+      'sessionId': sessionId,
+      'sequence': sequence,
+      'text': text,
+    });
+    HttpClient? client;
+    try {
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+      final request = await client.post(host.address, host.port, '/dictation');
+      request.headers.contentType = ContentType.json;
+      request.headers.set('x-lumiakeys-token', host.token);
+      request.write(body);
+      final response = await request.close().timeout(dictationTimeout);
+      final responseBody = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(dictationTimeout);
+      if (_host.value != host) {
+        throw const CompanionDictationException(
+          'Desktop connection changed before dictation delivery completed.',
+        );
+      }
+      if (response.statusCode != HttpStatus.ok) {
+        throw CompanionDictationException(
+          responseBody.isEmpty
+              ? 'Desktop could not insert the dictated text.'
+              : responseBody,
+        );
+      }
+      final decoded = jsonDecode(responseBody);
+      if (decoded is! Map || decoded['ok'] != true) {
+        throw const CompanionDictationException(
+          'Desktop did not confirm dictation insertion.',
+        );
+      }
+    } on CompanionDictationException {
+      rethrow;
+    } catch (error) {
+      final wrapped = CompanionDictationException(
+        'Dictation delivery failed: $error',
+      );
+      throw wrapped;
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  @override
   Future<void> execute(String command) => _post(command);
 
   Future<void> _post(String body) async {
@@ -303,6 +402,9 @@ class RecordingCompanionService implements CompanionService {
   final ValueNotifier<String?> errors = ValueNotifier(null);
   final List<String> commands = [];
   final List<RemoteActionRequest> remoteActions = [];
+  final List<({String sessionId, int sequence, String text})>
+  dictationRequests = [];
+  String? dictationError;
   int refreshCount = 0;
 
   @override
@@ -321,6 +423,28 @@ class RecordingCompanionService implements CompanionService {
   Future<void> executeRemote(RemoteActionRequest request) async =>
       remoteActions.add(request);
   @override
+  Future<void> sendDictation({
+    required String sessionId,
+    required int sequence,
+    required String text,
+  }) async {
+    _validateDictationPayload(sessionId, sequence, text);
+    final currentHost = host.value;
+    if (currentHost == null ||
+        !currentHost.capabilities.contains('local-dictation-v1')) {
+      throw const CompanionDictationException('Dictation is unavailable.');
+    }
+    if (dictationError != null) {
+      throw CompanionDictationException(dictationError!);
+    }
+    dictationRequests.add((
+      sessionId: sessionId,
+      sequence: sequence,
+      text: text,
+    ));
+  }
+
+  @override
   Future<void> execute(String command) async => commands.add(command);
   @override
   void dispose() {
@@ -329,4 +453,12 @@ class RecordingCompanionService implements CompanionService {
     status.dispose();
     errors.dispose();
   }
+}
+
+class CompanionDictationException implements Exception {
+  const CompanionDictationException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }

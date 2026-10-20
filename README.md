@@ -185,6 +185,57 @@ every run. Synced Android actions contain only Desktop-owned identifiers;
 legacy validated `launch`, `shortcut`, and `voiceInput` requests remain
 compatible. Arbitrary shell requests are rejected.
 
+## Local quick dictation
+
+Android's **Local quick dictation** microphone button is separate from the
+existing **Application voice input** waveform button. Application voice input
+keeps its configured app shortcut (including Codex `Ctrl+Shift+D`); local quick
+dictation captures microphone PCM in bounded memory on the phone, recognizes
+speech with an installed local model, and sends only finalized text to a
+connected Desktop that advertises
+`local-dictation-v1`. The first use of either entry explains the difference and
+asks for acknowledgement. Declining the explanation does not open the
+microphone.
+
+Audio remains in bounded memory on the phone. It is never sent to Desktop or
+written to an audio file, log, or history. The phone stores only the explicitly
+downloaded/imported model files and the selected model/language preferences.
+SenseVoice Small is the default model (about 229 MiB); Cohere Transcribe is an
+optional larger model (about 2.55 GiB). Downloading checks pinned file sizes and
+SHA-256 hashes. Imported models receive the same checks. A model must be
+installed before Start; deletion stops capture and releases the recognizer
+first. Chinese and English recognition can be switched independently of the
+app display language.
+
+The screen stays awake only while dictation is active. Stopping, closing the
+panel, leaving the foreground, losing Desktop, or changing the selected Desktop
+stops capture and releases the wake lock. A rejected phrase is shown in the
+panel while a still-connected session can continue with the next phrase. The
+phone sends one authenticated text request per final phrase; it never retries a
+phrase automatically after an uncertain delivery. Android microphone
+permission and a compatible Desktop connection are required.
+
+### Desktop local dictation
+
+Open **Settings → Local dictation** in the Desktop app. Choose a model and
+language, then explicitly download or import the model before starting; model
+downloads are not automatic. SenseVoice Small is the default model and Cohere
+Transcribe is an optional alternative. You can switch the model or recognition
+language in this settings page. The default global shortcut is
+`Ctrl+Shift+Space`; it starts or stops local dictation from another app, and
+the Desktop tray menu offers the same **Start/Stop Local Dictation** action.
+The shortcut can be changed in settings.
+
+The Desktop captures microphone PCM in memory and runs recognition with the
+selected local model. It does not save microphone audio. Grant the app access to
+the microphone in Windows privacy settings or in the macOS microphone prompt.
+On macOS, text insertion also requires Accessibility and event-posting
+permission; enable these in System Settings when prompted by the app. Text is
+inserted only into a supported, focused external app. The Desktop cannot type
+into its own window, and insertion may be rejected when there is no safe
+foreground target or the target changes while dictation is active. Keep the
+intended text field focused before starting or using the shortcut.
+
 ## Tagged GitHub releases
 
 Pushing a new `vMAJOR.MINOR.PATCH` Tag from a commit contained in `main`
@@ -217,10 +268,11 @@ flutter pub get
 flutter run                 # Android device only
 flutter analyze
 flutter test
-(cd android && ./gradlew :app:testDebugUnitTest)
 flutter build apk --debug
-(cd packages/lumiakeys_protocol && dart test && dart analyze)
-(cd desktop_companion && flutter analyze && flutter test)
+(cd packages/lumiakeys_protocol && dart test --coverage=coverage/raw && dart analyze)
+(cd packages/local_dictation && flutter analyze && flutter test --coverage)
+(cd desktop_companion && flutter analyze && flutter test --coverage)
+./scripts/validate_local_dictation.ps1 -BuildAndroid
 (cd desktop_companion && flutter build macos --debug)
 ```
 
@@ -234,6 +286,21 @@ v1/v2/v3/v4/v5/v6 → v7 migration, automatic Command/Ctrl resolution,
 connection-sheet actions, synced Apps/Codex navigation and managed-ID actions,
 manifest serialization/validation, Desktop API token checks, Desktop editor
 persistence, and native HID report encoding/reference counts.
+
+`scripts/validate_local_dictation.ps1` runs analyze and full tests for the root,
+Desktop, protocol, and local dictation packages, runs Android Kotlin unit tests
+after building the Android debug APK and requires the generated Gradle wrapper;
+it reports measured per-package and aggregate Dart line coverage. Pass
+`-BuildAndroid` to build a debug APK as part of the script. On Windows, keep the
+checkout on NTFS because Flutter's plugin symlinks do not work from exFAT.
+Screenshot widget tests write PNGs and JSON sidecars under
+`SMARTKEYS_SCREENSHOT_DIR`; if unset, validation uses the ignored
+`build/ui_screenshots/` directory and generates an `index.html` gallery after
+the suites. Set the environment variable to keep a gallery elsewhere. These
+are deterministic widget-test captures, not screenshots from a physical phone.
+These automated checks do not replace
+Android microphone permission, actual-device ASR quality/latency, focused-app
+text insertion, or Windows/macOS native permission and injection acceptance.
 
 Final hardware acceptance requires an Android 9+ phone whose Bluetooth stack
 exposes HID Device and a paired computer, because an emulator cannot verify

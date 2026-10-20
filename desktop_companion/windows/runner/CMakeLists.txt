@@ -38,3 +38,16 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# sherpa_onnx_windows loads ONNX Runtime from the executable directory at
+# runtime. Keep the Release bundle self-contained even when Flutter's plugin
+# copy step leaves this large DLL stale or absent.
+set(SHERPA_ONNXRUNTIME_DLL
+  "${CMAKE_SOURCE_DIR}/flutter/ephemeral/.plugin_symlinks/sherpa_onnx_windows/windows/onnxruntime.dll")
+if(EXISTS "${SHERPA_ONNXRUNTIME_DLL}")
+  add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${SHERPA_ONNXRUNTIME_DLL}"
+      "$<TARGET_FILE_DIR:${BINARY_NAME}>/onnxruntime.dll"
+    COMMENT "Bundling sherpa ONNX Runtime")
+endif()

@@ -47,6 +47,7 @@ class DesktopActions {
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;
   int? _windowsBrightnessBeforeDark;
+  Future<bool> Function()? confirmVoiceInputFirstUse;
 
   static final Set<String> allowedKeys = {
     'CTRL',
@@ -174,6 +175,12 @@ class DesktopActions {
   }
 
   Future<void> voiceInput() async {
+    final confirm = confirmVoiceInputFirstUse;
+    if (confirm != null && !await confirm()) {
+      throw StateError(
+        'Review the voice input explanation, then repeat the action.',
+      );
+    }
     await sendShortcut(const ['CTRL', 'SHIFT', 'D']);
   }
 

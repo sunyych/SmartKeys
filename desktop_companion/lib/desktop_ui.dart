@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'companion_server.dart';
 import 'desktop_controller.dart';
+import 'desktop_dictation.dart';
 import 'shortcut_transfer_service.dart';
 import 'tray_shell.dart' show desktopBrandAsset;
 
@@ -13,10 +16,14 @@ class DesktopSettingsHome extends StatelessWidget {
     super.key,
     required this.controller,
     required this.server,
+    required this.dictation,
+    this.displayHost,
   });
 
   final DesktopController controller;
   final CompanionServer server;
+  final DesktopDictationService dictation;
+  final String? displayHost;
 
   static const sections = [
     (Icons.tune, 'General'),
@@ -25,6 +32,7 @@ class DesktopSettingsHome extends StatelessWidget {
     (Icons.apps, 'Apps'),
     (Icons.layers_outlined, 'Profiles'),
     (Icons.info_outline, 'About'),
+    (Icons.mic, 'Local Dictation'),
   ];
 
   @override
@@ -79,12 +87,21 @@ class DesktopSettingsHome extends StatelessWidget {
   }
 
   Widget _selectedPage() => switch (controller.selectedSection) {
-    0 => _GeneralPage(controller: controller, server: server),
-    1 => _BluetoothPage(controller: controller, server: server),
+    0 => _GeneralPage(
+      controller: controller,
+      server: server,
+      displayHost: displayHost,
+    ),
+    1 => _BluetoothPage(
+      controller: controller,
+      server: server,
+      displayHost: displayHost,
+    ),
     2 => _ShortcutLayoutsPage(controller: controller),
     3 => _AppsPage(controller: controller),
     4 => _ProfilesPage(controller: controller),
-    _ => const _AboutPage(),
+    5 => const _AboutPage(),
+    _ => _LocalDictationPage(dictation: dictation),
   };
 }
 
@@ -253,10 +270,15 @@ class _PageBody extends StatelessWidget {
 }
 
 class _GeneralPage extends StatelessWidget {
-  const _GeneralPage({required this.controller, required this.server});
+  const _GeneralPage({
+    required this.controller,
+    required this.server,
+    required this.displayHost,
+  });
 
   final DesktopController controller;
   final CompanionServer server;
+  final String? displayHost;
 
   @override
   Widget build(BuildContext context) {
@@ -264,7 +286,11 @@ class _GeneralPage extends StatelessWidget {
     final profile = controller.manifest.currentProfile;
     return _PageBody(
       children: [
-        _StatusCard(controller: controller, server: server),
+        _StatusCard(
+          controller: controller,
+          server: server,
+          displayHost: displayHost,
+        ),
         const SizedBox(height: 24),
         Text('Synchronization', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
@@ -336,10 +362,15 @@ class _GeneralPage extends StatelessWidget {
 }
 
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.controller, required this.server});
+  const _StatusCard({
+    required this.controller,
+    required this.server,
+    required this.displayHost,
+  });
 
   final DesktopController controller;
   final CompanionServer server;
+  final String? displayHost;
 
   @override
   Widget build(BuildContext context) {
@@ -376,7 +407,7 @@ class _StatusCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '$platform · ${Platform.localHostname} · revision ${controller.manifest.revision}',
+                    '$platform · ${displayHost ?? Platform.localHostname} · revision ${controller.manifest.revision}',
                   ),
                 ],
               ),
@@ -389,15 +420,24 @@ class _StatusCard extends StatelessWidget {
 }
 
 class _BluetoothPage extends StatelessWidget {
-  const _BluetoothPage({required this.controller, required this.server});
+  const _BluetoothPage({
+    required this.controller,
+    required this.server,
+    required this.displayHost,
+  });
 
   final DesktopController controller;
   final CompanionServer server;
+  final String? displayHost;
 
   @override
   Widget build(BuildContext context) => _PageBody(
     children: [
-      _StatusCard(controller: controller, server: server),
+      _StatusCard(
+        controller: controller,
+        server: server,
+        displayHost: displayHost,
+      ),
       const SizedBox(height: 24),
       Card(
         child: Column(
@@ -1061,6 +1101,372 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
       ),
     );
   }
+}
+
+class _LocalDictationPage extends StatefulWidget {
+  const _LocalDictationPage({required this.dictation});
+  final DesktopDictationService dictation;
+
+  @override
+  State<_LocalDictationPage> createState() => _LocalDictationPageState();
+}
+
+class _LocalDictationPageState extends State<_LocalDictationPage> {
+  late Future<bool> _available;
+
+  @override
+  void initState() {
+    super.initState();
+    _available = widget.dictation.modelAvailable();
+  }
+
+  Future<void> _refreshModel() async {
+    setState(() {
+      _available = widget.dictation.modelAvailable();
+    });
+  }
+
+  Future<void> _start() async {
+    final service = widget.dictation;
+    if (!service.firstUseAcknowledged) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.mic),
+          title: const Text('Local Dictation'),
+          content: const Text(
+            'Local Dictation uses this computer’s microphone and the selected installed model. Audio is processed on this computer and is not saved. Phone dictation sends final text to this computer, never audio. App Voice Input is a separate shortcut that follows the selected application’s own microphone and privacy behavior. The microphone will start only after you continue.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('I understand — continue'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true) return;
+      await service.acknowledgeFirstUse();
+    }
+    try {
+      await service.start();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(service.error ?? 'Could not start local dictation.'),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.dictation,
+    builder: (context, _) {
+      final service = widget.dictation;
+      final theme = Theme.of(context);
+      return ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text(
+            'Private microphone dictation',
+            style: theme.textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Recognize speech on this computer and type the final text into the focused external app.',
+          ),
+          const SizedBox(height: 18),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Icon(Icons.graphic_eq, size: 30),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'App Voice Input\nRuns the selected app’s own dictation shortcut.',
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward),
+                  const SizedBox(width: 12),
+                  const Icon(Icons.mic, size: 30, color: Color(0xFF008C95)),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Local Dictation\nUses this computer’s microphone and local model.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Recognition',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      DropdownButton<DictationLanguage>(
+                        key: const ValueKey('dictation-language'),
+                        value: service.language,
+                        onChanged: service.busy || service.listening
+                            ? null
+                            : (value) async {
+                                if (value != null) {
+                                  await service.configure(language: value);
+                                }
+                              },
+                        items: DictationLanguage.values
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(value.label),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      const SizedBox(width: 12),
+                      DropdownButton<LocalAsrModel>(
+                        key: const ValueKey('dictation-model'),
+                        value: service.model,
+                        onChanged: service.busy || service.listening
+                            ? null
+                            : (value) async {
+                                if (value != null) {
+                                  await service.configure(model: value);
+                                  await _refreshModel();
+                                }
+                              },
+                        items: LocalAsrModel.values
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(value.label),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  FutureBuilder<bool>(
+                    future: _available,
+                    builder: (context, snapshot) => Row(
+                      children: [
+                        Icon(
+                          snapshot.data == true
+                              ? Icons.verified
+                              : Icons.download_for_offline_outlined,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            snapshot.data == true
+                                ? 'Model verified and ready for offline use.'
+                                : 'Model is not installed. Install or import it explicitly before starting.',
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: service.busy || service.listening
+                              ? null
+                              : () async {
+                                  try {
+                                    await service.installModel();
+                                    await _refreshModel();
+                                  } catch (_) {}
+                                },
+                          icon: const Icon(Icons.download),
+                          label: const Text('Download'),
+                        ),
+                        TextButton.icon(
+                          onPressed: service.busy || service.listening
+                              ? null
+                              : () async {
+                                  try {
+                                    await service.importModel();
+                                    await _refreshModel();
+                                  } catch (_) {}
+                                },
+                          icon: const Icon(Icons.folder_open),
+                          label: const Text('Import'),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete installed model',
+                          onPressed:
+                              service.busy ||
+                                  service.listening ||
+                                  snapshot.data != true
+                              ? null
+                              : () async {
+                                  await service.deleteModel(service.model);
+                                  await _refreshModel();
+                                },
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (service.progress case final progress?) ...[
+                    const SizedBox(height: 10),
+                    LinearProgressIndicator(
+                      value: progress.fraction > 0
+                          ? progress.fraction.clamp(0, 1)
+                          : null,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Downloading ${progress.fileName} · ${(progress.fraction * 100).round()}%',
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (Platform.isMacOS)
+            Card(
+              child: ListTile(
+                leading: Icon(
+                  service.accessibilityGranted
+                      ? Icons.check_circle_outline
+                      : Icons.accessibility_new,
+                ),
+                title: Text(
+                  service.accessibilityGranted
+                      ? 'Accessibility and event permissions are ready'
+                      : 'macOS input permission required',
+                ),
+                subtitle: const Text(
+                  'macOS needs Accessibility and event posting permission to type into the focused app.',
+                ),
+                trailing: Wrap(
+                  children: [
+                    TextButton(
+                      onPressed: service.requestAccessibility,
+                      child: const Text('Request'),
+                    ),
+                    TextButton(
+                      onPressed: service.openAccessibilitySettings,
+                      child: const Text('Settings'),
+                    ),
+                    IconButton(
+                      onPressed: service.refreshAccessibility,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    service.listening ? Icons.mic : Icons.mic_none,
+                    color: service.listening ? theme.colorScheme.primary : null,
+                  ),
+                  title: Text(
+                    service.listening
+                        ? 'Listening on this computer'
+                        : 'Local microphone is stopped',
+                  ),
+                  subtitle: Text(
+                    service.lastText.isEmpty
+                        ? 'Audio stays in bounded memory and is never saved.'
+                        : service.lastText,
+                  ),
+                  trailing: FilledButton.icon(
+                    key: const ValueKey('dictation-toggle'),
+                    onPressed:
+                        service.busy && !service.starting && !service.listening
+                        ? null
+                        : service.listening || service.starting
+                        ? service.stop
+                        : _start,
+                    icon: Icon(
+                      service.listening || service.starting
+                          ? Icons.stop
+                          : Icons.mic,
+                    ),
+                    label: Text(
+                      service.starting
+                          ? 'Cancel start'
+                          : service.listening
+                          ? 'Stop'
+                          : 'Start local dictation',
+                    ),
+                  ),
+                ),
+                if (service.error != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        service.error!,
+                        style: TextStyle(color: theme.colorScheme.error),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.keyboard),
+                  title: const Text('Global toggle shortcut'),
+                  subtitle: Text(
+                    service.hotkeyError ??
+                        'Ctrl+Shift+Space starts or stops local dictation.',
+                  ),
+                  trailing: DropdownButton<String>(
+                    key: const ValueKey('dictation-hotkey'),
+                    value: service.hotkey,
+                    onChanged: (value) {
+                      if (value != null) unawaited(service.setHotkey(value));
+                    },
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'ctrlShiftSpace',
+                        child: Text('Ctrl + Shift + Space'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'ctrlAltSpace',
+                        child: Text('Ctrl + Alt + Space'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'altShiftSpace',
+                        child: Text('Alt + Shift + Space'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 String _targetTypeLabel(RemoteTargetType type) => switch (type) {

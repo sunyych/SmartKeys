@@ -5,19 +5,22 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'desktop_controller.dart';
+import 'desktop_dictation.dart';
 
 const desktopBrandAsset = 'assets/tray_icon.png';
 
 class DesktopTrayShell with TrayListener, WindowListener {
-  DesktopTrayShell({required this.controller});
+  DesktopTrayShell({required this.controller, required this.dictation});
 
   final DesktopController controller;
+  final DesktopDictationService dictation;
   bool _disposed = false;
 
   Future<void> initialize() async {
     trayManager.addListener(this);
     windowManager.addListener(this);
     controller.addListener(_controllerChanged);
+    dictation.addListener(_controllerChanged);
     await trayManager.setIcon(
       Platform.isWindows ? 'assets/tray_icon.ico' : desktopBrandAsset,
       // The LumiaKeys artwork is a full-color mark. Treating it as a macOS
@@ -49,6 +52,12 @@ class DesktopTrayShell with TrayListener, WindowListener {
       Menu(
         items: [
           MenuItem(key: 'settings', label: 'Open Settings'),
+          MenuItem(
+            key: 'dictation',
+            label: dictation.listening
+                ? 'Stop Local Dictation'
+                : 'Start Local Dictation',
+          ),
           MenuItem(
             key: 'phone',
             label: controller.connectedPhone == null
@@ -83,6 +92,8 @@ class DesktopTrayShell with TrayListener, WindowListener {
     final key = menuItem.key ?? '';
     if (key == 'settings') {
       unawaited(showSection(0));
+    } else if (key == 'dictation') {
+      unawaited(toggleDictation());
     } else if (key == 'about') {
       unawaited(showSection(5));
     } else if (key.startsWith('profile:')) {
@@ -90,6 +101,16 @@ class DesktopTrayShell with TrayListener, WindowListener {
     } else if (key == 'quit') {
       unawaited(_quit());
     }
+  }
+
+  Future<void> toggleDictation() async {
+    if (!dictation.firstUseAcknowledged) {
+      await showSection(6);
+      return;
+    }
+    // Keep the target application focused while stopping or beginning capture.
+    // start() hides the window itself and restores it only when setup fails.
+    await dictation.toggle();
   }
 
   @override
@@ -110,6 +131,7 @@ class DesktopTrayShell with TrayListener, WindowListener {
   void dispose() {
     _disposed = true;
     controller.removeListener(_controllerChanged);
+    dictation.removeListener(_controllerChanged);
     trayManager.removeListener(this);
     windowManager.removeListener(this);
   }

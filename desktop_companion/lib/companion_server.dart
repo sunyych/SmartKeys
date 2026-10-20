@@ -7,12 +7,18 @@ import 'package:flutter/foundation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'desktop_controller.dart';
+import 'dictation_receiver.dart';
 
 class CompanionServer extends ChangeNotifier {
-  CompanionServer({required this.controller, this.discoveryPort = 45832});
+  CompanionServer({
+    required this.controller,
+    this.discoveryPort = 45832,
+    DictationTextSink? dictationSink,
+  }) : dictationSink = dictationSink ?? MethodChannelDictationTextSink();
 
   final DesktopController controller;
   final int discoveryPort;
+  final DictationTextSink dictationSink;
   final String token = List.generate(
     32,
     (_) => Random.secure().nextInt(16).toRadixString(16),
@@ -31,6 +37,21 @@ class CompanionServer extends ChangeNotifier {
       : Platform.isWindows
       ? 'windows'
       : 'linux';
+
+  List<String> get capabilities => const [
+    'manifest',
+    'apps',
+    'codex',
+    'icons',
+    'foreground-app',
+    'app-activation',
+    'local-dictation-v1',
+  ];
+
+  late final DictationReceiver _dictationReceiver = DictationReceiver(
+    token: token,
+    sink: dictationSink,
+  );
 
   Future<void> start() async {
     if (_http != null) return;
@@ -67,14 +88,7 @@ class CompanionServer extends ChangeNotifier {
         'port': http.port,
         'token': token,
         'revision': controller.manifest.revision,
-        'capabilities': [
-          'manifest',
-          'apps',
-          'codex',
-          'icons',
-          'foreground-app',
-          'app-activation',
-        ],
+        'capabilities': capabilities,
       }),
     );
     udp.send(message, InternetAddress('255.255.255.255'), discoveryPort);
@@ -84,6 +98,24 @@ class CompanionServer extends ChangeNotifier {
     request.response.headers.contentType = ContentType.json;
     if (request.headers.value('x-lumiakeys-token') != token) {
       await _reject(request, HttpStatus.forbidden, 'forbidden');
+      return;
+    }
+    if (request.method == 'POST' && request.uri.path == '/dictation') {
+      try {
+        await _dictationReceiver.handle(request);
+        controller.recordConnectedPhone(
+          request.connectionInfo?.remoteAddress.address ?? 'Android phone',
+        );
+        request.response.write(jsonEncode({'ok': true}));
+        notifyListeners();
+      } on DictationRequestException catch (caught) {
+        request.response.statusCode = caught.statusCode;
+        request.response.write(jsonEncode({'error': caught.message}));
+      } catch (caught) {
+        request.response.statusCode = HttpStatus.conflict;
+        request.response.write(jsonEncode({'error': 'insertion_failed'}));
+      }
+      await request.response.close();
       return;
     }
     if (request.method == 'GET' && request.uri.path == '/manifest') {

@@ -132,8 +132,18 @@ void main() {
     expect(find.byKey(const ValueKey('home-tab-apps')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-tab-codex')), findsOneWidget);
     expect(find.byKey(const ValueKey('desktop-profile-default')), findsNothing);
+    await tester.drag(
+      find.byKey(const ValueKey('profile-quick-switch-bar')),
+      const Offset(400, 0),
+    );
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('workspace-app-vscode')), findsOneWidget);
     expect(find.byKey(const ValueKey('workspace-app-codex')), findsNothing);
+    await tester.drag(
+      find.byKey(const ValueKey('profile-quick-switch-bar')),
+      const Offset(-400, 0),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-tab-apps')));
     await tester.pump();
 
