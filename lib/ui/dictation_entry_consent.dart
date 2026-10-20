@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const dictationConsentPreferenceKey = 'dictation.entry_explained.v3';
+const dictationConsentPreferenceKey = 'dictation.entry_explained.v4';
 
 Future<bool> ensureDictationEntryExplained(BuildContext context) async {
   final preferences = await SharedPreferences.getInstance();
@@ -30,11 +30,11 @@ Future<bool> ensureDictationEntryExplained(BuildContext context) async {
             leading: Icon(Icons.mic_external_on),
             title: Text('Local quick dictation'),
             subtitle: Text(
-              'Recognizes speech on this phone and types printable ASCII through the connected Bluetooth keyboard.',
+              'Bluetooth English types ASCII through the connected keyboard without PC software. LumiaKey Desktop supports multilingual dictation and needs the PC companion.',
             ),
           ),
           Text(
-            'Only Local quick dictation guarantees on-device recognition. It does not send audio over the network or save audio. US ASCII output is the default and requires a US keyboard layout with English input active. An optional Windows Unicode HexNumpad profile can type printable BMP text, including Chinese, Japanese, and Korean, after you enable the Windows setting described in the panel; the app never changes that setting. Emoji, controls, and non-BMP text are rejected as a whole phrase.',
+            'Local quick dictation recognizes speech on this phone. Its audio is never sent over the network or saved. Bluetooth English sends printable ASCII key presses and needs a US keyboard layout with English input active. LumiaKey Desktop sends only finalized text over the local network to the PC companion; use it for Chinese and other languages. Application voice input follows the selected computer app’s microphone and privacy settings.',
           ),
         ],
       ),

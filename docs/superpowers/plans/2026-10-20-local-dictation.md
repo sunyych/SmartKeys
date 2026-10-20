@@ -4,7 +4,7 @@
 
 **Goal:** Add private on-device microphone dictation on Android and desktop, insert final text at the computer cursor, and distinguish it from existing application dictation.
 
-**Architecture:** Extract the reusable mobile_transcribe recognizer, model manager and PCM segmenter into a small local package. Android final text uses Bluetooth HID, with US ASCII and explicitly selected Windows Unicode profiles; Companion is optional for other features. Desktop native adapters inject Unicode and expose a global toggle shortcut.
+**Architecture:** Extract the reusable mobile_transcribe recognizer, model manager and PCM segmenter into a small local package. Phone ASR stays local. Default Bluetooth output is English-only; explicit LumiaKey Desktop output sends finalized text over the authenticated LAN receiver for Unicode insertion. Desktop native adapters also support local multilingual dictation and expose a global toggle shortcut.
 
 **Tech Stack:** Flutter/Dart, sherpa_onnx 1.13.3-compatible pinned APIs, record PCM streams, Windows C++, macOS Swift.
 
@@ -19,6 +19,8 @@
 - Existing application dictation keeps its behavior and has a different icon/name from Local Dictation. First-use explanation requires explicit acknowledgement, then persists.
 - Shared checkout: each coder owns only its assigned files; no agent commits or pushes. Root coordinates integration and delivery.
 - All packages receive full test runs with LCOV coverage before commit/push. No claim of 100% coverage without evidence.
+- Android persisted legacy Bluetooth Unicode/HexNumpad selections migrate to the safe English Bluetooth mode without changing Windows registry state.
+- Desktop output requires a compatible LAN receiver and native Unicode insertion capability. Host changes cancel capture; missing capability and partial failures fail closed, with no automatic fallback or retry.
 
 ## Shared API contract
 
@@ -137,3 +139,14 @@ sessionId <= 128 ASCII-safe characters; sequence nonnegative integer.
 - [x] Emit per-image metadata and generate an offline HTML gallery with page names, platform, size, state notes and filters; never commit generated screenshots or HTML.
 - [x] Integrate generation into full validation, inspect all results visually, correct actual layout defects, and return HTML plus an optional self-contained report ZIP to the user.
 - [x] On Windows use a short NTFS staging directory when the checkout is exFAT; verify final staged source hashes equal the original checkout before committing. Preserve original source and copy requested reports/artifacts back to ignored outputs.
+
+## Task 6: English-only Bluetooth and explicit Desktop multilingual output
+
+**Ownership:** Phone coder owns output-mode persistence/migration and capture cancellation. Desktop coder owns only receiver/native insertion capability fixes if integration review finds a concrete defect. Documentation coder owns `README.md`, `docs/BLUETOOTH_DICTATION.md`, this plan/spec, and `docs/LOCAL_DICTATION_VALIDATION.md`. Root reviews and runs integration acceptance. No agent commits or pushes from the shared checkout.
+
+- [x] Keep Bluetooth as the default, English-only phone output using the US keyboard layout. Migrate stale saved Bluetooth Unicode/HexNumpad selections to English Bluetooth safely and leave registry state untouched.
+- [x] Require explicit LumiaKey Desktop selection for Chinese and other multilingual text. Phone performs local ASR; transfer only finalized text over LAN. No audio transfer, silent fallback, or automatic retry. Cancel a capture session when its Desktop host changes.
+- [x] Fail closed when the selected Desktop receiver or native Unicode insertion capability is unavailable; acknowledge only complete insertion. Keep direct Desktop microphone dictation multilingual and local.
+- [x] Add exact accented/CJK UTF-8 regressions at the phone client JSON boundary and Desktop receiver sink boundary, retaining rejection/partial-failure no-retry coverage.
+- [x] Root ran all four Dart suites with line coverage, Android Kotlin unit tests, screenshot suites/gallery, ARM64 APK build and Android install/reinstall. Report live microphone/target typing and native macOS acceptance as unverified.
+- [x] Preserve HexNumpad registry details only as superseded historical evidence; do not present it as a current setup step or supported mode.

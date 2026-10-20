@@ -150,18 +150,21 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 142,
               child: Tooltip(
                 message:
-                    'Local quick dictation · microphone stays on this phone',
+                    'Bluetooth English or LumiaKey Desktop dictation · microphone stays on this phone',
                 child: Semantics(
                   button: true,
                   label: 'Local quick dictation',
                   hint:
-                      'Recognize speech on this phone and type ASCII text over Bluetooth HID',
+                      'Recognize speech on this phone; choose Bluetooth English or multilingual LumiaKey Desktop output',
                   child: IconButton.filledTonal(
                     key: const ValueKey('local-quick-output'),
                     tooltip: 'Local quick dictation',
                     visualDensity: VisualDensity.compact,
-                    onPressed: () =>
-                        showLocalDictationPanel(context, hid: controller.hid),
+                    onPressed: () => showLocalDictationPanel(
+                      context,
+                      hid: controller.hid,
+                      companion: controller.companion,
+                    ),
                     icon: const Icon(Icons.mic_external_on),
                   ),
                 ),

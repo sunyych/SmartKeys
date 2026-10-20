@@ -207,13 +207,17 @@ compatible. Arbitrary shell requests are rejected.
 
 Android's **Local quick dictation** microphone button is separate from the
 existing **Application voice input** waveform button. Application voice input
-keeps its configured app shortcut (including Codex `Ctrl+Shift+D`); local quick
-dictation captures microphone PCM in bounded memory on the phone, recognizes
-speech with an installed local model, and types only finalized text through the
-connected computer's Bluetooth HID keyboard. It does not require Desktop
-Companion, a receiver, or a network connection. The first use of either entry
-explains the difference and asks for acknowledgement. Declining the explanation
-does not open the microphone.
+keeps its configured app shortcut (including Codex `Ctrl+Shift+D`). Local quick
+dictation captures microphone PCM in bounded memory on the phone and recognizes
+speech with an installed local model. Its default **Bluetooth** output mode is
+English-only and types finalized text through the connected computer's
+Bluetooth HID keyboard. For Chinese or other multilingual output, explicitly
+select **LumiaKey Desktop**; this mode requires the Desktop app on the same LAN
+and sends only finalized text to its authenticated receiver for Unicode
+insertion. The phone performs ASR locally in both modes, and audio never leaves
+the phone. Desktop mode does not silently fall back to Bluetooth. The first use
+of either dictation entry explains the difference and asks for acknowledgement.
+Declining the explanation does not open the microphone.
 
 Audio remains in bounded memory on the phone. It is never sent to Desktop or
 written to an audio file, log, or history. The phone stores only the explicitly
@@ -222,23 +226,21 @@ SenseVoice Small is the default model (about 229 MiB); Cohere Transcribe is an
 optional larger model (about 2.7 GiB). Downloading checks pinned file sizes and
 SHA-256 hashes. Imported models receive the same checks. A model must be
 installed before Start; deletion stops capture and releases the recognizer
-first. Chinese and English recognition can be switched independently of the
-app display language.
+first. Recognition language can be selected independently of the app display
+language. Bluetooth output remains English-only; use LumiaKey Desktop for
+Chinese or other multilingual text.
 
-US ASCII output is the default and requires a US keyboard layout with English
-input active. An optional Windows Unicode HexNumpad profile supports printable
-ASCII and BMP Chinese after you manually enable
-`HKCU\Control Panel\Input Method\EnableHexNumpad` as `REG_SZ` value `1`, then
-sign out and back in or restart Windows. Keep Num Lock on and use a tested-
-compatible foreground app. This supports printable BMP text, including Chinese,
-Japanese, and Korean; emoji, controls, and non-BMP text are rejected as a whole
-phrase. The app never changes Windows settings. Output errors are shown and
-phrases are never retried automatically.
+Bluetooth output requires an English input state and a US keyboard layout
+because the phone encoder emits US key codes. Unsupported output fails closed;
+the app does not change Windows settings, switch modes, or retry a phrase
+automatically. HexNumpad setup instructions in older validation records are
+historical and superseded; HexNumpad is not a supported output mode.
 
 The screen stays awake only while dictation is active. Stopping, closing the
 panel, leaving the foreground, disconnecting Bluetooth, or changing the
-selected computer stops capture and releases held keys and the wake lock.
-Android microphone and Bluetooth permissions are required.
+selected computer stops capture and releases held keys and the wake lock. A
+Desktop host change also cancels capture; delivery failures are shown without
+retry or fallback. Android microphone and Bluetooth permissions are required.
 
 ### Desktop local dictation
 

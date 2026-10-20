@@ -102,6 +102,21 @@ void main() {
   );
 
   test(
+    'preserves accented and multilingual text exactly at the sink',
+    () async {
+      const transcript = 'Ça va — café e\u0301; 東京; Ελληνικά; مرحبا';
+      final response = await post(
+        payload(text: transcript),
+        token: server.token,
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      await response.drain<void>();
+      expect(sink.texts, [transcript]);
+    },
+  );
+
+  test(
     'rejects malformed, oversized, control-bearing and oversized text',
     () async {
       final invalid = await post('{', token: server.token);

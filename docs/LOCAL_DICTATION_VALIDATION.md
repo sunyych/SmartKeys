@@ -1,10 +1,71 @@
-# Local dictation validation — 2026-10-20
+# Current and historical local dictation validation — 2026-10-20
 
-The final executable source passed the available Windows-hosted automated
-checks. Phone microphone audio is recognized on the phone; final text is typed
-through Bluetooth HID without a computer receiver. Desktop microphone
-recognition uses the same local engine. Dictation saves no audio recordings and
-never automatically replays failed or uncertain partial output.
+## Current verification — 1.2.1+3
+
+All available 1.2.1+3 automated checks passed. Four Dart packages passed
+analysis and their complete suites with measured coverage; Android Kotlin unit
+tests and the screenshot suites also passed. All 10 changed Dart files passed
+format checks.
+
+| Suite | Passed | Skipped | Measured Dart line coverage |
+| --- | ---: | ---: | ---: |
+| Phone app, including screenshot tests | 106 | 0 | 3695 / 4705 (78.53%) |
+| Desktop Companion, including screenshot tests | 26 | 0 | 1090 / 1765 (61.76%) |
+| Shared protocol | 6 | 0 | 304 / 351 (86.61%) |
+| Local dictation engine, including SenseVoice zh/en fixtures | 20 | 0 | 528 / 657 (80.37%) |
+| Android Kotlin tests (13 HID, 3 installer) | 16 | 0 | Not instrumented |
+
+That is **158 Dart tests plus 16 Kotlin tests (174 total)**. Aggregate owned
+Dart `lib` coverage is **5617 / 7478 lines (75.11%)**. Native C++, Swift and
+Kotlin coverage is not measured by these LCOV figures. The SenseVoice fixture
+sequence covered Chinese and English recognizer replacement. All four package
+analyses passed, as did the 10 changed-file Dart formatting checks. An initial
+layout-overflow and stop-guard fixture issue was corrected; the final run had
+no remaining failures.
+
+The final phone and Desktop tests also cover exact accented/CJK text transport,
+legacy Bluetooth output preference migration, Desktop host/delivery-failure
+cancellation, and no fallback or retry after insertion rejection.
+
+The screenshot suites produced **58 captures** (36 phone, 22 desktop) and the
+offline gallery at `build/ui_screenshots-english/index.html`. The root agent
+visually reviewed the English-only and Desktop-ready panel states. These are
+deterministic Flutter renders, not physical-device screenshots.
+
+The Android split debug build succeeded for ARM64. The installed APK is
+`com.lumiaiq.smartkey`, version **1.2.1**, version code **2003**, app label
+**LumiaKey**, SHA-256
+`2905CB31E79576E63CE1FFC72E867DA5693FE11FDB4DFEF167104A031F00A184`. It
+contains no fake installer assets or generated installer catalog; only the
+tracked README installer asset is present. On a Moto g play (2024), paired ADB
+over TLS/LAN returned `Success` for `install-r`, and `am start` returned
+`Status: ok` with PID 24557. The prior plural-package app remains installed as
+a separate package. Existing SenseVoice model and token hashes were unchanged.
+
+The Windows Release build and installer upgrade to **1.2.1+3** succeeded. All
+23 managed application files matched their SHA-256 inventory, the app launched
+(PID 58900), and the existing model SHA-256 remained unchanged.
+
+No live microphone-to-target typing acceptance was performed. No native macOS
+build or release CI run is claimed. These limits are separate from the passing
+automated checks and successful Android/Windows installation evidence.
+
+## Historical snapshot — 2026-10-20
+
+**Status:** This snapshot records validation performed before the current
+output-policy amendment. Its recorded test/build evidence remains historical
+evidence for that source revision. Its Bluetooth Unicode/HexNumpad guidance
+and phone-without-Desktop multilingual-output claims are superseded. Current
+Bluetooth dictation is English-only; multilingual phone output requires an
+explicit LumiaKey Desktop receiver. Bluetooth output requires a US keyboard
+layout. HexNumpad is not a supported mode or a current prerequisite. Current
+1.2.1+3 results are recorded above.
+
+For that historical executable source, the available Windows-hosted automated
+checks passed. Phone microphone audio was recognized on the phone; final text
+was typed through Bluetooth HID without a computer receiver. Desktop microphone
+recognition used the same local engine. Dictation saved no audio recordings and
+did not automatically replay failed or uncertain partial output.
 
 ## Automated results
 
@@ -68,20 +129,22 @@ fixtures; real Cohere inference was not run.
   pipeline has not run for this change. Development builds without release
   packages explicitly report them as unavailable.
 
-## Approved Windows Unicode setup after validation
+## Historical Windows Unicode setup record (superseded)
 
-After the validation above, the user approved the one-time Windows HexNumpad
+After the validation above, the user approved a one-time Windows HexNumpad
 setup for this PC. `HKCU\Control Panel\Input Method\EnableHexNumpad` was
 created as `REG_SZ` with value `1`, and an independent registry readback
 confirmed the value and type. It was absent before setup. The evidence record
 is `coverage/windows-hexnumpad-setting.json`; it records that neither sign-out
-nor reboot was performed. This is a user-approved system setting, not an
-application change, and the app's default output profile remains US ASCII.
+nor reboot was performed. This is historical machine-state evidence only. The
+current app does not use HexNumpad, and this value is not required for current
+dictation. LumiaKey does not edit or remove it.
 
-Windows still requires sign-out or reboot before HexNumpad behavior can be
-accepted. Typing Unicode through the real LumiaKey Bluetooth HID path into a
-compatible foreground application also remains pending. No end-to-end Windows
-Unicode input claim is made from the registry readback alone.
+For the historical HexNumpad mode, Windows would still have required sign-out
+or reboot before behavior could be accepted. Typing Unicode through the real
+LumiaKey Bluetooth HID path into a compatible foreground application also
+remained pending. No end-to-end Windows Unicode input claim was made from the
+registry readback alone; HexNumpad is no longer a current output mode.
 
 Flutter 3.44.2 / Dart 3.12.2 and installed Windows/Android toolchains were used.
 The exFAT checkout cannot provide Windows plugin symlinks and causes Kotlin
@@ -130,8 +193,16 @@ and `LOCAL_DICTATION_NATIVE_DIR`; all were supplied. Optional
 Installer test commands are in `GITHUB_RELEASES.md` and `WINDOWS_INSTALL.md`.
 
 A Moto g play was detected by ADB, but no new phone app was installed and no
-live microphone or Bluetooth target-input test was performed. Windows Unicode
-mode requires manual HexNumpad setup, Num Lock and a compatible application;
-actual input acceptance and native macOS build/permissions remain separate.
+live microphone or Bluetooth target-input test was performed. Those limits
+describe this historical run. They do not validate the current Desktop text
+route or ARM64 install/reinstall.
 USB export uses a local SAF folder and MTP; it does not expose a USB
 mass-storage drive or Windows drive letter.
+
+## Current output-policy validation status
+
+The package version is `1.2.1+3` in both phone and Desktop manifests. Current
+automated results, screenshot review, Android ARM64 install and Windows
+installer upgrade are recorded at the top of this document. Live microphone
+and target-typing acceptance and native macOS build/permissions remain
+unverified; no claim is made for those checks.

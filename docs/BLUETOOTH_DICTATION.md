@@ -1,35 +1,55 @@
 # Bluetooth dictation and offline installer delivery
 
 LumiaKey recognizes microphone audio with the selected model on the phone. The
-quick-dictation button sends final text as Bluetooth keyboard reports to the
-paired computer; this path does not require Desktop Companion or a network
-receiver. Model downloads require a connection once; recognition uses the local
-model thereafter. No audio recording is saved by dictation.
+default **Bluetooth** output mode is English-only and sends final text as
+keyboard reports to the paired computer. It does not require Desktop Companion
+or a network receiver. Chinese and other multilingual output require the
+explicit **LumiaKey Desktop** mode described below. Model downloads require a
+connection once; recognition uses the local model thereafter. No audio
+recording is saved by dictation, and audio is never sent to Desktop.
 
 The application-voice button remains a separate shortcut for the selected
 computer application's own voice-input feature. Its microphone processing and
 privacy depend on that application. The two buttons use different icons, and
 the first-use explanation distinguishes them.
 
-## Keyboard compatibility
+## Bluetooth output
 
-The default **US ASCII** profile encodes printable ASCII for a US keyboard
-layout. Set the computer to an English input state and focus the text field
-before starting. The complete phrase is validated before output. Unsupported
-characters and overlong phrases produce an error without typing a partial
-prefix. Changing the recognition language does not change the host's keyboard
-encoding.
+Bluetooth output is deliberately English-only. It requires an English input
+state and a US keyboard layout because the phone encoder emits US key codes.
+Recognition language and app display language do not change this output
+contract. The complete phrase is validated before output; unsupported text
+fails closed. The app does not
+change host settings, switch output modes, or retry a failed or uncertain
+phrase.
 
-An explicit **Windows Unicode HexNumpad** profile can type printable BMP text,
-including Chinese, Japanese, Korean, and ASCII. Before selecting it, manually enable
-`HKCU\Control Panel\Input Method\EnableHexNumpad` as a `REG_SZ` value of `1`,
-then sign out and back in or restart Windows. Keep Num Lock on and use a tested-
-compatible foreground app. LumiaKey does not edit the registry. Emoji, control
-characters, other unsupported characters, and non-BMP text are rejected as a
-whole phrase. This profile has not been accepted on every Windows app or real
-computer, so verify it in the intended target before relying on it.
+When upgrading from a build that stored a Bluetooth Unicode/HexNumpad choice,
+the stale preference migrates to the safe English Bluetooth mode. LumiaKey does
+not edit or remove Windows registry values.
 
-Output is serialized, bounded and pinned to the selected Bluetooth host.
+Older validation notes record a manually approved
+`HKCU\Control Panel\Input Method\EnableHexNumpad` value and HexNumpad setup
+steps. Those records are historical evidence and are superseded by the current
+English-only Bluetooth policy. HexNumpad is not a supported output mode; the
+existing registry value is not needed for current LumiaKey dictation.
+
+## LumiaKey Desktop output
+
+Select **LumiaKey Desktop** explicitly for Chinese and other multilingual
+output. The phone still captures audio and runs ASR locally; it sends only
+finalized transcript text to the authenticated Desktop companion over the same
+LAN. Desktop uses its Unicode text-insertion adapter for the focused external
+application. No audio or interim transcript is transferred.
+
+This mode requires a discovered, compatible Desktop host advertising the
+dictation receiver. If that host is absent, becomes stale, changes during
+capture, or rejects insertion, dictation reports the failure and cancels the
+session. It never falls back to Bluetooth and never automatically retries a
+phrase. Native insertion capability errors fail closed; success is acknowledged
+only after the complete text submission is reported by the native sink.
+
+For Bluetooth output, delivery is serialized, bounded and pinned to the selected
+Bluetooth host.
 Disconnecting, switching hosts or backgrounding cancels pending output and
 releases held keys. Failed or partially sent phrases are not automatically
 retried. Bluetooth accepting a report does not prove that the focused
@@ -57,10 +77,13 @@ that no desktop installers are bundled.
 
 ## Validation boundaries
 
-Automated tests cover keyboard encoding, cancellation and host changes, first
-use, installer metadata and export errors. Widget captures cover application
-screens without committing screenshots. Real Bluetooth input into a controlled
-target and native macOS packaging remain separate acceptance checks.
+Automated tests cover Bluetooth output policy, authenticated Desktop text
+delivery, exact UTF-8/Unicode preservation, cancellation and host changes,
+first use, installer metadata and export errors. Widget captures cover
+application screens without committing screenshots. They are deterministic
+Flutter renders, not physical-phone captures. Real Bluetooth input into a
+controlled target, ARM64 install/reinstall, and native macOS packaging remain
+separate acceptance checks; report their evidence independently.
 
 Platform references: [AOSP UsbManager](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/hardware/usb/UsbManager.java),
 [Android shared-document storage](https://developer.android.com/training/data-storage/shared/documents-files),

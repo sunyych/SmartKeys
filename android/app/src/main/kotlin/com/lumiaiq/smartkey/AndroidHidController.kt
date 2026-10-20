@@ -312,11 +312,7 @@ class AndroidHidController(
             return
         }
         val stroke = batch.strokes[batch.index]
-        val pressed = if (stroke.unicodeHex) {
-            encoder.pressUnicodeHexStroke(stroke)
-        } else {
-            encoder.pressTextStroke(HidTextStroke(stroke.usage, stroke.shift))
-        }
+        val pressed = encoder.pressTextStroke(HidTextStroke(stroke.usage, stroke.shift))
         if (pressed == null || !sendReport(pressed)) {
             failTextBatch(batch, "REPORT_FAILED", "Bluetooth rejected a keyboard report. Dictation stopped.")
             handleSendFailure()
@@ -330,11 +326,7 @@ class AndroidHidController(
                 failTextBatch(batch, "HOST_CHANGED", "The Bluetooth host changed. Dictation stopped.")
                 return@postDelayed
             }
-            val released = if (stroke.unicodeHex) {
-                encoder.releaseUnicodeHexStroke(stroke)
-            } else {
-                encoder.releaseTextStroke(HidTextStroke(stroke.usage, stroke.shift))
-            }
+            val released = encoder.releaseTextStroke(HidTextStroke(stroke.usage, stroke.shift))
             if (released == null || !sendReport(released)) {
                 failTextBatch(batch, "REPORT_FAILED", "Bluetooth rejected a keyboard release report. Dictation stopped.")
                 handleSendFailure()

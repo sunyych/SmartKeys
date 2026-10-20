@@ -7,6 +7,7 @@ import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/models/config.dart';
+import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/ui/bluetooth_connection_sheet.dart';
 import 'package:smart_keys/ui/button_editor_screen.dart';
@@ -23,6 +24,13 @@ import 'package:smart_keys/ui/wheel_editor_screen.dart';
 
 import 'screenshot_support.dart';
 import 'test_support.dart';
+
+Future<void> _tapVisible(WidgetTester tester, Finder target) async {
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  await tester.tap(target);
+  await tester.pumpAndSettle();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -412,6 +420,7 @@ void main() {
             body: Center(
               child: LocalDictationPanel(
                 hid: harness.hid,
+                companion: harness.companion,
                 modelManager: manager,
                 capture: capture,
                 recognizerFactory: (_, _) async => _ScreenshotRecognizer(),
@@ -446,7 +455,7 @@ void main() {
       title: 'Local dictation · Bluetooth disconnected',
       orientation: 'portrait',
       notes:
-          'Shows that local dictation needs a connected Bluetooth HID computer before microphone capture.',
+          'Bluetooth English mode shows that a connected Bluetooth keyboard is required before microphone capture.',
       boundaryKey: key,
     );
 
@@ -473,19 +482,69 @@ void main() {
       boundaryKey: key,
     );
 
-    await tester.tap(find.byKey(const ValueKey('dictation-language')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('English').last);
-    await tester.pumpAndSettle();
-    expect(find.text('English'), findsOneWidget);
+    expect(find.text('English (fixed)'), findsOneWidget);
     await shots.capture(
-      id: 'phone-dictation-english-language',
-      title: 'Local dictation · English recognition language',
+      id: 'phone-dictation-bluetooth-english',
+      title: 'Local dictation · Bluetooth English only',
       orientation: 'portrait',
       notes:
-          'Recognition language selector is independent from app display language.',
+          'Bluetooth mode fixes recognition to English and does not expose other languages.',
       boundaryKey: key,
     );
+
+    await _tapVisible(
+      tester,
+      find.byKey(const ValueKey('dictation-output-mode')),
+    );
+    await tester.tap(find.text('LumiaKey Desktop · multilingual').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('dictation-language')), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('start-dictation')))
+          .onPressed,
+      isNull,
+    );
+    await shots.capture(
+      id: 'phone-dictation-desktop-multilingual-disconnected',
+      title: 'Local dictation · multilingual output needs PC companion',
+      orientation: 'portrait',
+      notes:
+          'Desktop mode exposes recognition languages and keeps Start disabled without a capable companion.',
+      boundaryKey: key,
+    );
+    harness.companion.host.value = const CompanionHost(
+      name: 'Dictation PC',
+      platform: 'windows',
+      address: '192.168.1.20',
+      port: 45833,
+      token: 'test-token',
+      protocolVersion: 2,
+      capabilities: {'local-dictation-v1'},
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('dictation-language')), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('start-dictation')))
+          .onPressed,
+      isNotNull,
+    );
+    expect(find.textContaining('sends finalized text'), findsOneWidget);
+    await shots.capture(
+      id: 'phone-dictation-desktop-multilingual-ready',
+      title: 'Local dictation · multilingual companion ready',
+      orientation: 'portrait',
+      notes:
+          'A capable PC companion enables text-only LAN delivery from phone-local ASR while Bluetooth remains disconnected.',
+      boundaryKey: key,
+    );
+    await _tapVisible(
+      tester,
+      find.byKey(const ValueKey('dictation-output-mode')),
+    );
+    await tester.tap(find.text('Bluetooth English').last);
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('dictation-model')));
     await tester.pumpAndSettle();
@@ -512,43 +571,11 @@ void main() {
       title: 'Local dictation · Bluetooth text limits',
       orientation: 'portrait',
       notes:
-          'Connected local dictation explains whole-phrase rejection for non-ASCII output and the US keyboard/English input requirement.',
+          'Bluetooth mode explains fixed English recognition, printable ASCII output, and the US keyboard/English input requirement.',
       boundaryKey: key,
     );
     await tester.ensureVisible(find.byKey(const ValueKey('start-dictation')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('dictation-text-profile')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Windows Unicode HexNumpad').last);
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('windows-unicode-profile-consent')),
-      findsOneWidget,
-    );
-    await shots.capture(
-      id: 'phone-dictation-windows-unicode-consent',
-      title: 'Local dictation · Windows Unicode profile setup',
-      orientation: 'portrait',
-      notes:
-          'Explicit opt-in explains manual Windows HexNumpad setup, Num Lock, app compatibility, and whole-phrase rejection boundaries.',
-      boundaryKey: key,
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('windows-unicode-consent-confirm')),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('dictation-text-profile')),
-    );
-    await tester.pumpAndSettle();
-    await shots.capture(
-      id: 'phone-dictation-windows-unicode-selected',
-      title: 'Local dictation · Windows Unicode profile selected',
-      orientation: 'portrait',
-      notes:
-          'User explicitly accepted the profile guidance; selected output mode and manual setup requirements are visible.',
-      boundaryKey: key,
-    );
     await tester.tap(find.byKey(const ValueKey('start-dictation')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('stop-dictation')), findsOneWidget);

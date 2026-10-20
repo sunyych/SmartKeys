@@ -28,31 +28,6 @@ class HidReportEncoderTest {
     }
 
     @Test
-    fun unicodeHexFramesHoldAndReleaseOnlyLeftAltAndKeypadKeys() {
-        val encoder = HidReportEncoder()
-        val frames = WindowsHexNumpadEncoder.strokesFor(0x4e2d)
-        assertEquals(5, frames.size)
-        frames.forEachIndexed { index, stroke ->
-            val pressed = encoder.pressUnicodeHexStroke(stroke)!!
-            assertEquals(HidReportEncoder.KEYBOARD_REPORT_ID, pressed.id)
-            assertEquals(4, pressed.data[0].toInt())
-            assertEquals(stroke.usage, pressed.data[2].toInt())
-            val released = encoder.releaseUnicodeHexStroke(stroke)!!
-            if (index == frames.lastIndex) {
-                assertArrayEquals(ByteArray(8), released.data)
-            } else {
-                assertEquals(4, released.data[0].toInt())
-            }
-        }
-        assertFalse(encoder.hasHeldInput)
-        assertNull(
-            encoder.pressUnicodeHexStroke(
-                HidTextKeyStroke(usage = 0x28, unicodeHex = true, altStart = true),
-            ),
-        )
-    }
-
-    @Test
     fun textBatchBoundaryRejectsMalformedBoundsAndNonPrintableUsages() {
         fun request(strokes: Any? = listOf(mapOf("usage" to 0x04, "shift" to false))) =
             mapOf(
@@ -100,46 +75,44 @@ class HidReportEncoderTest {
     }
 
     @Test
-    fun windowsUnicodeBatchGeneratesOnlyAltHexNumpadFrames() {
-        val request = HidTextBatchValidator.parse(
-            mapOf(
-                "sessionToken" to "windows-session",
-                "expectedAddress" to "00:11:22:33:44:55",
-                "profile" to "windowsHexNumpad",
-                "strokes" to emptyList<Any>(),
-                "codePoints" to listOf(0x41, 0x4e2d),
-            ),
-        )!!
-        assertEquals(HidTextProfile.WINDOWS_HEX_NUMPAD, request.profile)
-        // U+0041 is 0, 0, keypad-4, keypad-1; U+4E2D is keypad-4, E, keypad-2, D.
-        assertEquals(
-            listOf(0x57, 0x62, 0x62, 0x5c, 0x59, 0x57, 0x5c, 0x08, 0x5a, 0x07),
-            request.strokes.map { it.usage },
+    fun textBatchBoundaryRejectsLegacyUnicodeProfileAndAnyCodePoints() {
+        val base = mapOf(
+            "sessionToken" to "windows-session",
+            "expectedAddress" to "00:11:22:33:44:55",
+            "profile" to "usAscii",
+            "strokes" to listOf(mapOf("usage" to 0x04, "shift" to false)),
+            "codePoints" to emptyList<Int>(),
         )
-        assertTrue(request.strokes.first().altStart)
-        assertTrue(request.strokes[4].altEnd)
-        assertTrue(request.strokes[5].altStart)
-        assertTrue(request.strokes.last().altEnd)
-        assertTrue(request.strokes.all { it.unicodeHex && !it.shift })
+        val validAscii = HidTextBatchValidator.parse(base)
+        assertEquals(listOf(HidTextKeyStroke(0x04, false)), validAscii?.strokes)
 
-        fun accepted(vararg codePoints: Int): Boolean = HidTextBatchValidator.parse(
+        assertNull(
+            HidTextBatchValidator.parse(
+                base.toMutableMap().apply { put("codePoints", listOf(0x4e2d)) },
+            ),
+        )
+        assertNull(
+            HidTextBatchValidator.parse(
+                base.toMutableMap().apply {
+                    put("profile", "windowsHexNumpad")
+                    put("strokes", emptyList<Any>())
+                },
+            ),
+        )
+    }
+
+    @Test
+    fun emptyLegacyWindowsCodePointBatchIsRejected() {
+        val rejected = HidTextBatchValidator.parse(
             mapOf(
                 "sessionToken" to "windows-session",
                 "expectedAddress" to "00:11:22:33:44:55",
                 "profile" to "windowsHexNumpad",
                 "strokes" to emptyList<Any>(),
-                "codePoints" to codePoints.toList(),
+                "codePoints" to emptyList<Int>(),
             ),
-        ) != null
-        fun rejected(codePoint: Int): Boolean = !accepted(codePoint)
-        assertTrue(accepted(0x4f60, 0x597d, 0xff0c, 0x4e16, 0x754c, 0xff01, 0x3042, 0xd55c))
-        assertTrue(rejected(0x0a))
-        assertTrue(rejected(0x80))
-        assertTrue(rejected(0x1f600))
-        assertTrue(rejected(0xd800))
-        assertTrue(rejected(0x2028))
-        assertTrue(rejected(0xfeff))
-        assertTrue(rejected(0xfffe))
+        )
+        assertNull(rejected)
     }
 
     @Test

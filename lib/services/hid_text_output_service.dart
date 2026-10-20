@@ -111,43 +111,6 @@ class UsAsciiHidTextEncoder {
   };
 }
 
-/// Validates Windows Unicode HexNumpad input before a single batch is sent.
-/// The native controller creates the narrowly allowlisted keypad frames.
-class WindowsHexNumpadEncoder {
-  const WindowsHexNumpadEncoder._();
-
-  static List<int> encode(String text, {int maxCharacters = 256}) {
-    final codePoints = <int>[];
-    for (final rune in text.runes) {
-      if (!_isPrintableBmpText(rune)) {
-        throw const HidTextOutputException(
-          'Windows Unicode dictation supports printable BMP text only. Controls, emoji, and non-BMP characters are rejected as a whole phrase.',
-        );
-      }
-      codePoints.add(rune);
-      if (codePoints.length > maxCharacters) {
-        throw HidTextOutputException(
-          'This phrase exceeds the $maxCharacters-character Bluetooth dictation limit.',
-        );
-      }
-    }
-    return List.unmodifiable(codePoints);
-  }
-
-  static bool _isPrintableBmpText(int rune) =>
-      rune >= 0x20 &&
-      rune <= 0xffff &&
-      !(rune >= 0x7f && rune <= 0x9f) &&
-      !(rune >= 0xd800 && rune <= 0xdfff) &&
-      !(rune >= 0xfdd0 && rune <= 0xfdef) &&
-      !(rune >= 0x200b && rune <= 0x200f) &&
-      !(rune >= 0x2028 && rune <= 0x202e) &&
-      !(rune >= 0x2060 && rune <= 0x206f) &&
-      rune != 0xfeff &&
-      rune != 0xfffe &&
-      rune != 0xffff;
-}
-
 /// Serial, bounded Bluetooth HID text output pinned to one active phone host.
 class HidTextOutputService {
   static int _globalSessionSequence = 0;
@@ -177,6 +140,11 @@ class HidTextOutputService {
   HidTextOutputSession beginSession({
     HidTextProfile profile = HidTextProfile.usAscii,
   }) {
+    if (profile != HidTextProfile.usAscii) {
+      throw const HidTextOutputException(
+        'Bluetooth dictation supports printable ASCII only. Use desktop software for other languages.',
+      );
+    }
     if (_cleanupInProgress) {
       throw const HidTextOutputException(
         'Bluetooth input cleanup is still finishing. Try again in a moment.',
@@ -205,20 +173,20 @@ class HidTextOutputService {
   }
 
   Future<void> sendText(HidTextOutputSession session, String text) {
-    final strokes = session.profile == HidTextProfile.usAscii
-        ? UsAsciiHidTextEncoder.encode(text)
-        : const <HidTextStroke>[];
-    final codePoints = session.profile == HidTextProfile.windowsHexNumpad
-        ? WindowsHexNumpadEncoder.encode(text)
-        : const <int>[];
-    if (strokes.isEmpty && codePoints.isEmpty) return Future<void>.value();
+    if (session.profile != HidTextProfile.usAscii) {
+      throw const HidTextOutputException(
+        'Bluetooth dictation supports printable ASCII only. Use desktop software for other languages.',
+      );
+    }
+    final strokes = UsAsciiHidTextEncoder.encode(text);
+    if (strokes.isEmpty) return Future<void>.value();
     _requireValidSession(session);
     if (pendingPhraseCount >= maxQueuedPhrases) {
       throw const HidTextOutputException(
         'Bluetooth text output is busy. Stop and try the phrase again.',
       );
     }
-    final item = _QueuedText(session, strokes, codePoints);
+    final item = _QueuedText(session, strokes);
     _queue.addLast(item);
     unawaited(_drain());
     return item.completer.future;
@@ -308,7 +276,7 @@ class HidTextOutputService {
             expectedAddress: item.session.address,
             profile: item.session.profile,
             strokes: item.strokes,
-            codePoints: item.codePoints,
+            codePoints: const [],
           );
           _requireValidSession(item.session);
           item.completer.complete();
@@ -336,10 +304,9 @@ class HidTextOutputService {
 }
 
 class _QueuedText {
-  _QueuedText(this.session, this.strokes, this.codePoints);
+  _QueuedText(this.session, this.strokes);
 
   final HidTextOutputSession session;
   final List<HidTextStroke> strokes;
-  final List<int> codePoints;
   final Completer<void> completer = Completer<void>();
 }

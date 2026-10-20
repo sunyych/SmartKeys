@@ -90,49 +90,19 @@ void main() {
     expect(UsAsciiHidTextEncoder.encode(''), isEmpty);
   });
 
-  test('validates mixed printable ASCII and BMP Chinese atomically', () {
-    expect(WindowsHexNumpadEncoder.encode('A中，世界！か한'), const [
-      0x41,
-      0x4e2d,
-      0xff0c,
-      0x4e16,
-      0x754c,
-      0xff01,
-      0x304b,
-      0xd55c,
-    ]);
-    expect(
-      () => WindowsHexNumpadEncoder.encode('中文🎤'),
-      throwsA(isA<HidTextOutputException>()),
-    );
-    expect(
-      () => WindowsHexNumpadEncoder.encode('中文\n'),
-      throwsA(isA<HidTextOutputException>()),
-    );
-    expect(
-      () => WindowsHexNumpadEncoder.encode('中' * 257),
-      throwsA(isA<HidTextOutputException>()),
-    );
-    expect(
-      () => WindowsHexNumpadEncoder.encode('中文\u2028'),
-      throwsA(isA<HidTextOutputException>()),
-    );
-  });
-
   test(
-    'Windows Unicode profile sends code points, never arbitrary strokes',
-    () async {
+    'legacy Windows profile is rejected before a session or native output',
+    () {
       final hid = RecordingHidService();
       final output = HidTextOutputService(hid: hid);
-      final session = output.beginSession(
-        profile: HidTextProfile.windowsHexNumpad,
+
+      expect(
+        () => output.beginSession(profile: HidTextProfile.windowsHexNumpad),
+        throwsA(isA<HidTextOutputException>()),
       );
-      await output.sendText(session, 'A中');
-      expect(hid.textBatches, hasLength(1));
-      expect(hid.textBatches.single.profile, HidTextProfile.windowsHexNumpad);
-      expect(hid.textBatches.single.strokes, isEmpty);
-      expect(hid.textBatches.single.codePoints, const [0x41, 0x4e2d]);
-      await output.cancelSession(session);
+      expect(output.pendingPhraseCount, 0);
+      expect(hid.textBatches, isEmpty);
+      expect(hid.cancelledTextBatches, isEmpty);
       output.dispose();
       hid.dispose();
     },
@@ -148,6 +118,7 @@ void main() {
       throwsA(isA<HidTextOutputException>()),
     );
     expect(hid.textBatches, isEmpty);
+    expect(hid.cancelledTextBatches, isEmpty);
     await output.cancelSession(session);
     hid.dispose();
   });

@@ -1,7 +1,9 @@
 # SmartKeys 本地快速听写设计
 
-后续要求已将手机听写传输改为蓝牙 HID，不再依赖电脑接收程序。本文末尾的
-“Bluetooth transport and installer follow-up”说明覆盖早期 LAN 传输设计。
+手机输出策略由本文的“English-only Bluetooth and explicit Desktop
+multilingual output”补充并覆盖此前的 Unicode Bluetooth 设计。手机默认
+Bluetooth 输出仅支持英文；中文和其他多语言文本必须显式选择 LumiaKey
+Desktop 接收模式。早期纯 Bluetooth 和 HexNumpad 条款保留为历史设计记录。
 
 用户已要求完成全部实现、功能测试、全量单元测试和覆盖率测试，全部检查通过后提交并推送。现有应用语音输入与新增本地听写必须使用不同图标，并在首次使用时说明区别。
 
@@ -84,17 +86,38 @@
 2. 扩展手机文字投递协议及 Windows/macOS 原生文字注入。
 3. 集成 Android 快速输出与电脑本机听写、模型管理、全局快捷键。
 4. 审查隐私与停止/切换行为，运行分析、测试、构建及可用硬件验证，提交并推送。
-# Bluetooth transport and installer follow-up
 
-The subsequent user requirement supersedes the Android-to-Companion dictation
-transport described below: phone dictation must work with a standard Bluetooth
-keyboard connection and no computer receiver. Android output validates complete
-phrases, pins one host/session, serializes bounded reports and never retries an
-uncertain partial delivery. US ASCII is the default; Windows HexNumpad is an
-explicit optional profile with system-setup and BMP compatibility guidance.
-Recognition language/model selection remains independent of keyboard encoding.
-The user accepted the one-time Windows HexNumpad system setup for BMP Unicode
-output; the application never changes that setting automatically.
+# English-only Bluetooth and explicit Desktop multilingual output
+
+- Phone ASR always runs locally. Audio and interim recognition never leave the
+  phone. Bluetooth output is the default, supports English only, and requires
+  an English input state with a US keyboard layout; persisted
+  legacy Bluetooth Unicode/HexNumpad choices migrate to this safe mode.
+  Migration does not change Windows registry state.
+- Chinese and other multilingual output require an explicit LumiaKey Desktop
+  output selection. The phone sends only finalized UTF-8 text to the existing
+  authenticated `/dictation` endpoint over LAN. Desktop inserts the exact text
+  through its native Unicode sink.
+- Desktop mode requires the selected compatible receiver. Missing, stale, or
+  changed host state cancels capture/output. Native capability or insertion
+  errors fail closed. A phrase is never silently redirected to Bluetooth or
+  automatically retried after an uncertain or partial failure.
+- PC direct dictation remains multilingual and local to the Desktop machine.
+  Existing application voice-input actions keep their current behavior.
+- Windows HexNumpad setup in the validation snapshot remains historical
+  evidence, is superseded as product guidance, and is not a current
+  prerequisite or supported mode.
+- Integration acceptance requires all four Dart package suites with line
+  coverage, Android Kotlin unit tests, the screenshot suites/gallery, and an
+  ARM64 APK build plus device install/reinstall evidence. Report each result
+  separately; this amendment implies no test or hardware result.
+# Historical Bluetooth transport and installer follow-up
+
+This section records the earlier Bluetooth-only follow-up. Its HexNumpad
+profile and claim that multilingual output needs no receiver are superseded by
+the current policy below. The historical note about the manually approved
+Windows setting describes past machine state only; current LumiaKey does not
+require or use HexNumpad and never changes the registry.
 
 Install the Windows desktop application for the current user with a Start Menu
 entry. Tagged release jobs build Windows/macOS installers before Android,

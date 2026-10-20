@@ -6,10 +6,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/hid_text_output_service.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
 import 'package:smart_keys/ui/local_dictation_panel.dart';
+
+Future<void> _tapVisible(WidgetTester tester, Finder target) async {
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  await tester.tap(target);
+  await tester.pumpAndSettle();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +61,10 @@ void main() {
   testWidgets(
     'acknowledgement persists and panel stays ready in both orientations',
     (tester) async {
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
       SharedPreferences.setMockInitialValues({});
       final capture = _FakeCapture();
       final manager = _FakeModelManager();
@@ -102,7 +114,12 @@ void main() {
         find.byKey(const ValueKey('local-dictation-panel')),
         findsOneWidget,
       );
-      expect(find.byKey(const ValueKey('dictation-language')), findsOneWidget);
+      expect(find.text('English (fixed)'), findsOneWidget);
+      expect(find.byKey(const ValueKey('dictation-language')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('dictation-output-mode')),
+        findsOneWidget,
+      );
       expect(find.byKey(const ValueKey('dictation-model')), findsOneWidget);
       expect(find.byKey(const ValueKey('start-dictation')), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -111,70 +128,436 @@ void main() {
     },
   );
 
-  testWidgets('Windows Unicode profile requires explicit opt-in and persists', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final hid = _readyHid();
-    final capture = _FakeCapture();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: LocalDictationPanel(
-            hid: hid,
-            modelManager: _FakeModelManager(),
-            capture: capture,
-            recognizerFactory: (_, _) async => _FakeRecognizer(),
-            enableWakeLock: () async {},
-            disableWakeLock: () async {},
+  testWidgets(
+    'legacy language and HexNumpad preferences migrate to Bluetooth English',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'dictation.language.v1': 'chinese',
+        'dictation.text_profile.v1': 'windowsHexNumpad',
+      });
+      final hid = _readyHid();
+      var configuredLanguage = DictationLanguage.chinese;
+      final capture = _FakeCapture();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, language) async {
+                configuredLanguage = language;
+                return _FakeRecognizer();
+              },
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final profileField = find.byKey(const ValueKey('dictation-text-profile'));
-    await tester.tap(profileField);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Windows Unicode HexNumpad').last);
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('windows-unicode-profile-consent')),
-      findsOneWidget,
-    );
-    expect(find.textContaining('EnableHexNumpad'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('windows-unicode-consent-cancel')),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      (await SharedPreferences.getInstance()).getString(
-        'dictation.text_profile.v1',
-      ),
-      isNull,
-    );
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('dictation-text-profile')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('dictation-language')), findsNothing);
+      expect(find.text('English (fixed)'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(configuredLanguage, DictationLanguage.english);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('dictation.language.v1'), 'english');
+      expect(prefs.getString('dictation.text_profile.v1'), 'usAscii');
+      expect(prefs.getString('dictation.output_mode.v1'), 'bluetoothEnglish');
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      hid.dispose();
+    },
+  );
 
-    await tester.tap(profileField);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Windows Unicode HexNumpad').last);
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('windows-unicode-consent-confirm')),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      (await SharedPreferences.getInstance()).getString(
-        'dictation.text_profile.v1',
-      ),
-      'windowsHexNumpad',
-    );
-    expect(
-      find.textContaining('Windows Unicode HexNumpad types printable BMP text'),
-      findsOneWidget,
-    );
-    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
-    await tester.pumpAndSettle();
-    hid.dispose();
-  });
+  testWidgets(
+    'desktop multilingual output sends finalized Chinese text without HID',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final hid = RecordingHidService();
+      final companion = RecordingCompanionService()
+        ..host.value = _dictationHost();
+      final capture = _FakeCapture();
+      var configuredLanguage = DictationLanguage.english;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              companion: companion,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, language) async {
+                configuredLanguage = language;
+                return _FakeRecognizer(text: '你好世界');
+              },
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-output-mode')),
+      );
+      await tester.tap(find.text('LumiaKey Desktop · multilingual').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('dictation-language')), findsOneWidget);
+      expect(find.textContaining('sends finalized text'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('start-dictation')).evaluate().single.widget,
+        isA<FilledButton>().having(
+          (button) => button.onPressed,
+          'onPressed',
+          isNotNull,
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(configuredLanguage, DictationLanguage.chinese);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('stop-dictation')))
+            .onPressed,
+        isNotNull,
+        reason: 'Stop remains available while desktop dictation is listening',
+      );
+      final modeField = tester
+          .widget<DropdownButtonFormField<DictationOutputMode>>(
+            find.byKey(const ValueKey('dictation-output-mode')),
+          );
+      expect(
+        modeField.onChanged,
+        isNull,
+        reason: 'output mode cannot change while busy',
+      );
+      capture.audio.add(
+        List<int>.generate(3200, (index) => index.isEven ? 16 : 39),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+      for (
+        var frame = 0;
+        frame < 20 && companion.dictationRequests.isEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(companion.dictationRequests, hasLength(1));
+      expect(companion.dictationRequests.single.text, '你好世界');
+      expect(companion.dictationRequests.single.sequence, 0);
+      expect(hid.textBatches, isEmpty);
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(capture.startCount, 2);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      for (var frame = 0; frame < 20 && capture.stopCount < 2; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(
+        capture.stopCount,
+        2,
+        reason: 'backgrounding cancels desktop capture',
+      );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      hid.dispose();
+      companion.dispose();
+    },
+  );
+
+  testWidgets(
+    'desktop mode disables start without companion capability and cancels on host change',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final hid = RecordingHidService();
+      final companion = RecordingCompanionService()
+        ..host.value = const CompanionHost(
+          name: 'PC',
+          platform: 'windows',
+          address: '192.168.1.20',
+          port: 45833,
+          token: 'test-token',
+        );
+      final capture = _FakeCapture();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              companion: companion,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, _) async => _FakeRecognizer(text: '你好'),
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-output-mode')),
+      );
+      await tester.tap(find.text('LumiaKey Desktop · multilingual').last);
+      await tester.pumpAndSettle();
+      final unavailableButton = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('start-dictation')),
+      );
+      expect(unavailableButton.onPressed, isNull);
+      expect(capture.startCount, 0);
+
+      companion.host.value = _dictationHost();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(
+        capture.startCount,
+        1,
+        reason: 'desktop mode does not require Bluetooth',
+      );
+      companion.host.value = null;
+      companion.host.value =
+          _dictationHost(); // ABA still invalidates the pinned session.
+      for (var frame = 0; frame < 20 && capture.stopCount == 0; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(capture.stopCount, 1);
+      expect(companion.dictationRequests, isEmpty);
+      expect(hid.textBatches, isEmpty);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      hid.dispose();
+      companion.dispose();
+    },
+  );
+
+  testWidgets(
+    'desktop delivery failure stops capture and never replays or falls back',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final hid = RecordingHidService();
+      final companion = _PartialRejectingCompanion()
+        ..host.value = _dictationHost();
+      final capture = _FakeCapture();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              companion: companion,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, _) async => _FakeRecognizer(text: '你好'),
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-output-mode')),
+      );
+      await tester.tap(find.text('LumiaKey Desktop · multilingual').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      capture.audio.add(
+        List<int>.generate(
+          35200,
+          (index) => index < 3200 ? (index.isEven ? 16 : 39) : 0,
+        ),
+      );
+      for (var frame = 0; frame < 30 && companion.attempts == 0; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(companion.attempts, 1);
+      expect(companion.dictationRequests, hasLength(1));
+      expect(capture.stopCount, 1);
+      expect(
+        find.textContaining('Desktop text delivery failed; dictation stopped'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('start-dictation')), findsOneWidget);
+      expect(hid.textBatches, isEmpty);
+      for (var frame = 0; frame < 10; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(
+        companion.attempts,
+        1,
+        reason: 'failed final text is never replayed',
+      );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      hid.dispose();
+      companion.dispose();
+    },
+  );
+
+  testWidgets(
+    'recognizer reconfiguration locks Start until output and language changes finish',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final hid = _readyHid();
+      final companion = RecordingCompanionService()
+        ..host.value = _dictationHost();
+      final capture = _FakeCapture();
+      final languages = <DictationLanguage>[];
+      final recognizers = <_DelayedDisposeRecognizer>[];
+      var releasedWakeLocks = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              companion: companion,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, language) async {
+                languages.add(language);
+                final recognizer = _DelayedDisposeRecognizer();
+                recognizers.add(recognizer);
+                return recognizer;
+              },
+              enableWakeLock: () async {},
+              disableWakeLock: () async {
+                releasedWakeLocks++;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+      await tester.pumpAndSettle();
+      for (var frame = 0; frame < 30 && releasedWakeLocks < 1; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(languages.single, DictationLanguage.english);
+      expect(capture.stopCount, 1, reason: 'Stop releases microphone capture');
+      expect(
+        releasedWakeLocks,
+        1,
+        reason: 'Stop finishes wake-lock cleanup before configuration',
+      );
+      expect(
+        tester
+            .widget<DropdownButtonFormField<DictationOutputMode>>(
+              find.byKey(const ValueKey('dictation-output-mode')),
+            )
+            .onChanged,
+        isNotNull,
+        reason: 'output selection is enabled after Stop cleanup completes',
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('start-dictation')))
+            .onPressed,
+        isNotNull,
+        reason: 'Start is enabled after Stop cleanup completes',
+      );
+
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-output-mode')),
+      );
+      await tester.tap(find.text('LumiaKey Desktop · multilingual').last);
+      await tester.pump();
+      await recognizers.first.disposeStarted.future;
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('start-dictation')))
+            .onPressed,
+        isNull,
+      );
+      expect(
+        capture.startCount,
+        1,
+        reason: 'configuration must block another capture',
+      );
+      expect(hid.textBatches, isEmpty);
+      recognizers.first.allowDispose.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('LumiaKey Desktop · multilingual'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+      await tester.pumpAndSettle();
+      for (var frame = 0; frame < 30 && releasedWakeLocks < 2; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(languages.last, DictationLanguage.chinese);
+      expect(capture.stopCount, 2, reason: 'second Stop releases capture');
+      expect(releasedWakeLocks, 2, reason: 'second Stop releases wake lock');
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-language')),
+      );
+      await tester.tap(find.text('English').last);
+      await tester.pump();
+      await recognizers.last.disposeStarted.future;
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('start-dictation')))
+            .onPressed,
+        isNull,
+      );
+      expect(capture.startCount, 2);
+      recognizers.last.allowDispose.complete();
+      await tester.pumpAndSettle();
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-output-mode')),
+      );
+      await tester.tap(find.text('Bluetooth English').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(languages.last, DictationLanguage.english);
+      expect(capture.startCount, 3);
+      recognizers.last.allowDispose.complete();
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      hid.dispose();
+      companion.dispose();
+    },
+  );
 
   testWidgets('start holds wake lock and disconnect/background stop capture', (
     tester,
@@ -665,6 +1048,16 @@ RecordingHidService _readyHid() {
   return service;
 }
 
+CompanionHost _dictationHost() => const CompanionHost(
+  name: 'PC',
+  platform: 'windows',
+  address: '192.168.1.20',
+  port: 45833,
+  token: 'test-token',
+  protocolVersion: 2,
+  capabilities: {'manifest', 'local-dictation-v1'},
+);
+
 class _FakeModelManager extends ModelManager {
   _FakeModelManager({this.ready = true});
   bool ready;
@@ -757,6 +1150,43 @@ class _FakeCapture implements DictationCapture {
 }
 
 class _FakeRecognizer implements DictationRecognizer {
+  _FakeRecognizer({this.text = 'recognized phrase'});
+
+  final String text;
+
+  @override
+  Future<String> transcribe(
+    Float32List samples, {
+    DictationLanguage? language,
+  }) async => text;
+
+  @override
+  Future<void> dispose({bool flush = true}) async {}
+}
+
+class _PartialRejectingCompanion extends RecordingCompanionService {
+  int attempts = 0;
+
+  @override
+  Future<void> sendDictation({
+    required String sessionId,
+    required int sequence,
+    required String text,
+  }) async {
+    attempts++;
+    await super.sendDictation(
+      sessionId: sessionId,
+      sequence: sequence,
+      text: text,
+    );
+    throw StateError('PC rejected text after partial insertion');
+  }
+}
+
+class _DelayedDisposeRecognizer implements DictationRecognizer {
+  final disposeStarted = Completer<void>();
+  final allowDispose = Completer<void>();
+
   @override
   Future<String> transcribe(
     Float32List samples, {
@@ -764,5 +1194,8 @@ class _FakeRecognizer implements DictationRecognizer {
   }) async => 'recognized phrase';
 
   @override
-  Future<void> dispose({bool flush = true}) async {}
+  Future<void> dispose({bool flush = true}) {
+    if (!disposeStarted.isCompleted) disposeStarted.complete();
+    return allowDispose.future;
+  }
 }

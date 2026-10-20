@@ -7,22 +7,35 @@ import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../services/companion_service.dart';
 import '../services/hid_service.dart';
 import '../services/hid_text_output_service.dart';
 import 'dictation_entry_consent.dart';
 
 const _modelPreferenceKey = 'dictation.model.v1';
 const _languagePreferenceKey = 'dictation.language.v1';
-const _textProfilePreferenceKey = 'dictation.text_profile.v1';
+const _legacyTextProfilePreferenceKey = 'dictation.text_profile.v1';
+const _desktopLanguagePreferenceKey = 'dictation.desktop_language.v1';
+const _outputModePreferenceKey = 'dictation.output_mode.v1';
+
+enum DictationOutputMode { bluetoothEnglish, desktopMultilingual }
+
+const _desktopDictationCapability = 'local-dictation-v1';
+int _nextDictationSession = 0;
 
 Future<void> showLocalDictationPanel(
   BuildContext context, {
   required HidService hid,
+  CompanionService? companion,
 }) async {
   if (!await ensureDictationEntryExplained(context) || !context.mounted) return;
   await showDialog<void>(
     context: context,
-    builder: (_) => LocalDictationPanel(hid: hid, autoStartWhenReady: true),
+    builder: (_) => LocalDictationPanel(
+      hid: hid,
+      companion: companion,
+      autoStartWhenReady: true,
+    ),
   );
 }
 
@@ -30,6 +43,7 @@ class LocalDictationPanel extends StatefulWidget {
   const LocalDictationPanel({
     super.key,
     required this.hid,
+    this.companion,
     this.autoStartWhenReady = false,
     this.modelManager,
     this.capture,
@@ -40,6 +54,7 @@ class LocalDictationPanel extends StatefulWidget {
   });
 
   final HidService hid;
+  final CompanionService? companion;
   final bool autoStartWhenReady;
   final ModelManager? modelManager;
   final DictationCapture? capture;
@@ -64,8 +79,9 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   late final HidTextOutputService _textOutput;
   late final bool _ownsTextOutput;
   LocalAsrModel _model = LocalAsrModel.senseVoice;
-  DictationLanguage _language = DictationLanguage.chinese;
-  HidTextProfile _textProfile = HidTextProfile.usAscii;
+  DictationOutputMode _outputMode = DictationOutputMode.bluetoothEnglish;
+  DictationLanguage _language = DictationLanguage.english;
+  DictationLanguage _desktopLanguage = DictationLanguage.chinese;
   bool _initialized = false;
   bool _modelReady = false;
   bool _permissionGranted = false;
@@ -73,11 +89,19 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   bool _appResumed = true;
   bool _starting = false;
   bool _stopping = false;
+  bool _cancelling = false;
+  bool _configuring = false;
   bool _wakeLockHeld = false;
   int _startGeneration = 0;
   ModelDownloadProgress? _progress;
   HidTextOutputSession? _textSession;
   HidHost? _sessionHost;
+  CompanionHost? _sessionCompanionHost;
+  int _sessionCompanionEpoch = 0;
+  int _companionHostEpoch = 0;
+  CompanionHost? _lastCompanionHost;
+  String? _desktopSessionId;
+  int _desktopSequence = 0;
   String? _panelError;
 
   bool get _hidReady {
@@ -87,6 +111,19 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         host.address.isNotEmpty;
   }
 
+  CompanionHost? get _currentCompanionHost =>
+      widget.companion?.activeHost.value;
+
+  bool get _desktopReady {
+    final host = _currentCompanionHost;
+    return host != null &&
+        host.capabilities.contains(_desktopDictationCapability);
+  }
+
+  bool get _outputReady => _outputMode == DictationOutputMode.bluetoothEnglish
+      ? _hidReady
+      : _desktopReady;
+
   bool get _sessionHostValid {
     final host = _currentHost;
     return widget.hid.connectionStatus.value == HidConnectionStatus.connected &&
@@ -94,8 +131,33 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         _sameHostIdentity(_sessionHost, host);
   }
 
+  bool get _sessionCompanionValid {
+    final host = _currentCompanionHost;
+    final pinned = _sessionCompanionHost;
+    return widget.companion != null &&
+        host != null &&
+        pinned != null &&
+        _sessionCompanionEpoch == _companionHostEpoch &&
+        _sameCompanionHostIdentity(pinned, host) &&
+        host.capabilities.contains(_desktopDictationCapability);
+  }
+
+  bool get _sessionOutputValid =>
+      _outputMode == DictationOutputMode.bluetoothEnglish
+      ? _sessionHostValid
+      : _sessionCompanionValid;
+
+  bool get _hasOutputSession =>
+      _textSession != null || _desktopSessionId != null;
+
   bool get _sessionInProgress =>
-      _starting || _stopping || _dictation.listening || _dictation.busy;
+      _starting ||
+      _stopping ||
+      _cancelling ||
+      _dictation.listening ||
+      _dictation.busy;
+
+  bool get _controlsBusy => _sessionInProgress || _configuring || _cancelling;
 
   @override
   void initState() {
@@ -114,8 +176,10 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
               LocalAsrWorker.start(model: model, language: language),
       onText: _deliverText,
     );
+    _lastCompanionHost = _currentCompanionHost;
     widget.hid.activeHost.addListener(_handleConnectionChanged);
     widget.hid.connectionStatus.addListener(_handleConnectionChanged);
+    widget.companion?.activeHost.addListener(_handleCompanionHostChanged);
     _dictation.addListener(_handleDictationChanged);
     unawaited(_initialize());
   }
@@ -125,32 +189,46 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       final preferences = await SharedPreferences.getInstance();
       final modelName = preferences.getString(_modelPreferenceKey);
       final languageName = preferences.getString(_languagePreferenceKey);
-      final profileName = preferences.getString(_textProfilePreferenceKey);
+      final desktopLanguageName = preferences.getString(
+        _desktopLanguagePreferenceKey,
+      );
+      final outputModeName = preferences.getString(_outputModePreferenceKey);
       final model = LocalAsrModel.values.firstWhere(
         (value) => value.name == modelName,
         orElse: () => LocalAsrModel.senseVoice,
       );
-      final language = DictationLanguage.values.firstWhere(
-        (value) => value.name == languageName,
+      final desktopLanguage = DictationLanguage.values.firstWhere(
+        (value) => value.name == (desktopLanguageName ?? languageName),
         orElse: () => DictationLanguage.chinese,
       );
-      final profile = HidTextProfile.values.firstWhere(
-        (value) => value.wireName == profileName,
-        orElse: () => HidTextProfile.usAscii,
+      final outputMode = DictationOutputMode.values.firstWhere(
+        (value) => value.name == outputModeName,
+        orElse: () => DictationOutputMode.bluetoothEnglish,
       );
+      final language = outputMode == DictationOutputMode.bluetoothEnglish
+          ? DictationLanguage.english
+          : desktopLanguage;
       await _dictation.configure(model: model, language: language);
+      await preferences.setString(_languagePreferenceKey, 'english');
+      await preferences.setString(_legacyTextProfilePreferenceKey, 'usAscii');
+      await preferences.setString(
+        _desktopLanguagePreferenceKey,
+        desktopLanguage.name,
+      );
+      await preferences.setString(_outputModePreferenceKey, outputMode.name);
       final permission = await _capture.hasPermission();
       final ready = await _models.areModelsAvailable(model: model);
       if (!mounted) return;
       setState(() {
         _model = model;
+        _outputMode = outputMode;
         _language = language;
-        _textProfile = profile;
+        _desktopLanguage = desktopLanguage;
         _permissionGranted = permission;
         _modelReady = ready;
         _initialized = true;
       });
-      if (widget.autoStartWhenReady && ready && _hidReady && _appResumed) {
+      if (widget.autoStartWhenReady && ready && _outputReady && _appResumed) {
         unawaited(_start());
       }
     } catch (error) {
@@ -163,20 +241,111 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   Future<void> _deliverText(String text) async {
-    final session = _textSession;
-    if (session == null || !_sessionHostValid) {
+    if (_outputMode == DictationOutputMode.bluetoothEnglish) {
+      final session = _textSession;
+      if (session == null || !_sessionHostValid) {
+        throw StateError(
+          'Dictation session has ended or its Bluetooth host changed.',
+        );
+      }
+      await _textOutput.sendText(session, text);
+      return;
+    }
+    final companion = widget.companion;
+    final sessionId = _desktopSessionId;
+    if (companion == null || sessionId == null || !_sessionCompanionValid) {
       throw StateError(
-        'Dictation session has ended or its Bluetooth host changed.',
+        'Desktop dictation session has ended or its PC changed.',
       );
     }
-    await _textOutput.sendText(session, text);
+    final sequence = _desktopSequence++;
+    try {
+      await companion.sendDictation(
+        sessionId: sessionId,
+        sequence: sequence,
+        text: text,
+      );
+    } catch (error) {
+      _invalidateDesktopSessionAfterDeliveryFailure(sessionId, error);
+      rethrow;
+    }
+  }
+
+  void _invalidateDesktopSessionAfterDeliveryFailure(
+    String sessionId,
+    Object error,
+  ) {
+    if (_desktopSessionId != sessionId) return;
+    _desktopSessionId = null;
+    ++_startGeneration;
+    _starting = false;
+    _cancelling = true;
+    _panelError = 'Desktop text delivery failed; dictation stopped: $error';
+    if (mounted) setState(() {});
+    unawaited(_stopAfterDesktopDeliveryFailure());
+  }
+
+  Future<void> _stopAfterDesktopDeliveryFailure() async {
+    Object? stopError;
+    try {
+      await _dictation.cancel();
+    } catch (error) {
+      stopError = error;
+    }
+    _sessionCompanionHost = null;
+    _wakeLockHeld = false;
+    try {
+      await widget.disableWakeLock?.call();
+    } catch (error) {
+      stopError ??= error;
+    }
+    if (mounted) {
+      setState(() {
+        _sessionCompanionHost = null;
+        _cancelling = false;
+        if (stopError != null) {
+          _panelError = '$_panelError (stop failed: $stopError)';
+        }
+      });
+    } else {
+      _sessionCompanionHost = null;
+      _cancelling = false;
+    }
   }
 
   void _handleConnectionChanged() {
-    if (_sessionHost != null && _sessionInProgress && !_sessionHostValid) {
+    if (_outputMode == DictationOutputMode.bluetoothEnglish &&
+        _sessionHost != null &&
+        _sessionInProgress &&
+        !_sessionHostValid) {
       unawaited(_cancelForLostConnection());
     }
     if (mounted) setState(() {});
+  }
+
+  void _handleCompanionHostChanged() {
+    final host = _currentCompanionHost;
+    if (!_sameCompanionHostIdentity(_lastCompanionHost, host)) {
+      _companionHostEpoch++;
+      _lastCompanionHost = host;
+    }
+    if (_outputMode == DictationOutputMode.desktopMultilingual &&
+        _sessionCompanionHost != null &&
+        _sessionInProgress &&
+        !_sessionCompanionValid) {
+      unawaited(_cancelForLostDesktopConnection());
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _cancelForLostDesktopConnection() async {
+    await _cancelCurrentSession();
+    if (mounted) {
+      setState(
+        () => _panelError =
+            'PC companion changed or disconnected. Dictation stopped.',
+      );
+    }
   }
 
   HidHost? get _currentHost => widget.hid.activeHost.value;
@@ -184,9 +353,21 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   bool _sameHostIdentity(HidHost? first, HidHost? second) =>
       first != null && second != null && first.address == second.address;
 
+  bool _sameCompanionHostIdentity(
+    CompanionHost? first,
+    CompanionHost? second,
+  ) =>
+      first != null &&
+      second != null &&
+      first.address == second.address &&
+      first.port == second.port &&
+      first.token == second.token &&
+      first.capabilities.length == second.capabilities.length &&
+      first.capabilities.every(second.capabilities.contains);
+
   void _handleDictationChanged() {
     if (mounted) setState(() {});
-    if (_textSession != null &&
+    if (_hasOutputSession &&
         !_starting &&
         !_stopping &&
         !_dictation.listening &&
@@ -198,7 +379,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
 
   Future<void> _releaseAfterUnexpectedStop() async {
     final session = _textSession;
-    if (session == null ||
+    if (!_hasOutputSession ||
         _starting ||
         _stopping ||
         _dictation.listening ||
@@ -206,15 +387,21 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       return;
     }
     _textSession = null;
+    _desktopSessionId = null;
     _sessionHost = null;
-    final cleanupError = await _cleanupSession(
-      session: session,
-      cancelCapture: false,
-    );
-    if (mounted) {
-      setState(() {
-        if (cleanupError != null) _panelError = '$cleanupError';
-      });
+    _sessionCompanionHost = null;
+    _cancelling = true;
+    try {
+      final cleanupError = await _cleanupSession(
+        session: session,
+        cancelCapture: false,
+      );
+      if (mounted && cleanupError != null) {
+        setState(() => _panelError = '$cleanupError');
+      }
+    } finally {
+      _cancelling = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -240,17 +427,26 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   Future<void> _cancelCurrentSession() async {
+    if (_cancelling) return;
     ++_startGeneration;
     _starting = false;
+    _cancelling = true;
     final session = _textSession;
     _textSession = null;
+    _desktopSessionId = null;
     _sessionHost = null;
-    final cleanupError = await _cleanupSession(
-      session: session,
-      cancelCapture: true,
-    );
-    if (cleanupError != null && mounted) {
-      setState(() => _panelError = '$cleanupError');
+    _sessionCompanionHost = null;
+    try {
+      final cleanupError = await _cleanupSession(
+        session: session,
+        cancelCapture: true,
+      );
+      if (cleanupError != null && mounted) {
+        setState(() => _panelError = '$cleanupError');
+      }
+    } finally {
+      _cancelling = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -283,17 +479,26 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   Future<void> _start() async {
+    if (_controlsBusy || _downloading) return;
     setState(() => _panelError = null);
-    if (!_hidReady) {
+    if (!_outputReady) {
       setState(
-        () => _panelError =
-            'Connect this phone to a computer over Bluetooth HID first.',
+        () => _panelError = _outputMode == DictationOutputMode.bluetoothEnglish
+            ? 'Connect this phone to a computer over Bluetooth HID first.'
+            : 'Connect to a PC companion with local dictation support first.',
       );
       return;
     }
     final generation = ++_startGeneration;
     _starting = true;
-    _sessionHost = _currentHost;
+    if (_outputMode == DictationOutputMode.bluetoothEnglish) {
+      _sessionHost = _currentHost;
+      _sessionCompanionHost = null;
+    } else {
+      _sessionCompanionHost = _currentCompanionHost;
+      _sessionCompanionEpoch = _companionHostEpoch;
+      _sessionHost = null;
+    }
     try {
       final permitted = await _capture.hasPermission();
       if (!_canStartGeneration(generation)) return;
@@ -311,11 +516,27 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         );
         return;
       }
-      _textSession = _textOutput.beginSession(profile: _textProfile);
+      if (!_sessionOutputValid) {
+        throw StateError(
+          'The selected output host changed before dictation started.',
+        );
+      }
+      if (_outputMode == DictationOutputMode.bluetoothEnglish) {
+        _textSession = _textOutput.beginSession();
+      } else {
+        final host = _sessionCompanionHost!;
+        if (!host.capabilities.contains(_desktopDictationCapability)) {
+          throw StateError('This PC does not support multilingual dictation.');
+        }
+        _desktopSessionId =
+            'phone-dictation-${DateTime.now().microsecondsSinceEpoch}-${_nextDictationSession++}';
+        _desktopSequence = 0;
+      }
       await _dictation.start();
       if (!_canStartGeneration(generation)) {
         final session = _textSession;
         _textSession = null;
+        _desktopSessionId = null;
         if (session != null) await _textOutput.cancelSession(session);
         await _dictation.cancel();
         return;
@@ -327,7 +548,9 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         if (generation == _startGeneration) {
           final session = _textSession;
           _textSession = null;
+          _desktopSessionId = null;
           _sessionHost = null;
+          _sessionCompanionHost = null;
           if (session != null) await _textOutput.cancelSession(session);
         }
         return;
@@ -337,12 +560,14 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     } catch (error) {
       final session = _textSession;
       _textSession = null;
+      _desktopSessionId = null;
       final cleanupError = await _cleanupSession(
         session: session,
         cancelCapture: true,
       );
       if (generation == _startGeneration) {
         _sessionHost = null;
+        _sessionCompanionHost = null;
       }
       if (mounted) {
         setState(
@@ -356,6 +581,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         _starting = false;
         if (!_dictation.listening && !_dictation.busy) {
           _sessionHost = null;
+          _sessionCompanionHost = null;
         }
       }
       if (mounted) setState(() {});
@@ -365,7 +591,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   bool _canStartGeneration(int generation) =>
       mounted &&
       _appResumed &&
-      _sessionHostValid &&
+      _sessionOutputValid &&
       generation == _startGeneration;
 
   Future<void> _stop() async {
@@ -377,7 +603,9 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     } finally {
       final session = _textSession;
       _textSession = null;
+      _desktopSessionId = null;
       _sessionHost = null;
+      _sessionCompanionHost = null;
       if (session != null) {
         try {
           await _textOutput.cancelSession(session);
@@ -398,7 +626,10 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   Future<void> _selectModel(LocalAsrModel? model) async {
-    if (model == null || model == _model) return;
+    if (model == null || model == _model || _controlsBusy || _downloading) {
+      return;
+    }
+    setState(() => _configuring = true);
     try {
       await _cancelOutputSession();
       await _dictation.configure(model: model);
@@ -413,67 +644,73 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       });
     } catch (error) {
       if (mounted) setState(() => _panelError = '$error');
+    } finally {
+      if (mounted) setState(() => _configuring = false);
     }
   }
 
   Future<void> _selectLanguage(DictationLanguage? language) async {
-    if (language == null || language == _language) return;
+    if (language == null ||
+        language == _language ||
+        _outputMode != DictationOutputMode.desktopMultilingual ||
+        _controlsBusy ||
+        _downloading) {
+      return;
+    }
+    setState(() => _configuring = true);
     try {
       await _cancelOutputSession();
       await _dictation.configure(language: language);
+      if (mounted) {
+        setState(() {
+          _language = language;
+          _desktopLanguage = language;
+        });
+      }
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_languagePreferenceKey, language.name);
-      if (mounted) setState(() => _language = language);
+      await prefs.setString(_desktopLanguagePreferenceKey, language.name);
+      await prefs.setString(_languagePreferenceKey, 'english');
     } catch (error) {
       if (mounted) setState(() => _panelError = '$error');
+    } finally {
+      if (mounted) setState(() => _configuring = false);
     }
   }
 
-  Future<void> _selectTextProfile(HidTextProfile? profile) async {
-    if (profile == null || profile == _textProfile) return;
-    if (profile == HidTextProfile.windowsHexNumpad) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          key: const ValueKey('windows-unicode-profile-consent'),
-          title: const Text('Use Windows Unicode HexNumpad'),
-          content: const SingleChildScrollView(
-            child: Text(
-              'This profile types printable BMP text, including Chinese, Japanese, Korean, and ASCII, through Bluetooth HID. It does not change Windows settings. Before use, enable HKCU\\Control Panel\\Input Method\\EnableHexNumpad as a REG_SZ value of 1, then sign out and back in or restart Windows. Keep Num Lock on and use a tested-compatible foreground app. Emoji, controls, and non-BMP characters are rejected as a whole phrase.',
-            ),
-          ),
-          actions: [
-            TextButton(
-              key: const ValueKey('windows-unicode-consent-cancel'),
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: const ValueKey('windows-unicode-consent-confirm'),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Use Windows Unicode'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true) return;
+  Future<void> _selectOutputMode(DictationOutputMode? mode) async {
+    if (mode == null || mode == _outputMode || _controlsBusy || _downloading) {
+      return;
     }
+    setState(() => _configuring = true);
+    final language = mode == DictationOutputMode.bluetoothEnglish
+        ? DictationLanguage.english
+        : _desktopLanguage;
     try {
       await _cancelOutputSession();
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setString(_textProfilePreferenceKey, profile.wireName);
+      await _dictation.configure(language: language);
       if (mounted) {
         setState(() {
-          _textProfile = profile;
+          _outputMode = mode;
+          _language = language;
           _panelError = null;
         });
       }
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_outputModePreferenceKey, mode.name);
+      await preferences.setString(_languagePreferenceKey, 'english');
+      await preferences.setString(
+        _desktopLanguagePreferenceKey,
+        _desktopLanguage.name,
+      );
     } catch (error) {
       if (mounted) setState(() => _panelError = '$error');
+    } finally {
+      if (mounted) setState(() => _configuring = false);
     }
   }
 
   Future<void> _downloadModel() async {
+    if (_controlsBusy || _downloading) return;
     setState(() {
       _downloading = true;
       _progress = null;
@@ -498,20 +735,29 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   Future<void> _importModel() async {
+    if (_controlsBusy || _downloading) return;
+    setState(() {
+      _downloading = true;
+      _panelError = null;
+    });
     try {
       final path = await FilePicker.platform.getDirectoryPath(
         dialogTitle: 'Choose the folder containing the model files',
       );
       if (path == null) return;
+      if (_controlsBusy) return;
       await _dictation.releaseRecognizer();
       await _models.importModel(_model, Directory(path));
       if (mounted) setState(() => _modelReady = true);
     } catch (error) {
       if (mounted) setState(() => _panelError = 'Model import failed: $error');
+    } finally {
+      if (mounted) setState(() => _downloading = false);
     }
   }
 
   Future<void> _deleteModel() async {
+    if (_controlsBusy || _downloading || !_modelReady) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -530,6 +776,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       ),
     );
     if (confirmed != true) return;
+    if (_controlsBusy || _downloading) return;
     try {
       if (_dictation.listening) await _stop();
       await _dictation.cancel();
@@ -545,6 +792,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   Future<void> _cancelOutputSession() async {
     final session = _textSession;
     _textSession = null;
+    _desktopSessionId = null;
     if (session != null) await _textOutput.cancelSession(session);
   }
 
@@ -553,10 +801,12 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     WidgetsBinding.instance.removeObserver(this);
     widget.hid.activeHost.removeListener(_handleConnectionChanged);
     widget.hid.connectionStatus.removeListener(_handleConnectionChanged);
+    widget.companion?.activeHost.removeListener(_handleCompanionHostChanged);
     _dictation.removeListener(_handleDictationChanged);
     _models.cancelDownload();
     final session = _textSession;
     _textSession = null;
+    _desktopSessionId = null;
     if (session != null) {
       unawaited(_textOutput.cancelSession(session).catchError((Object _) {}));
     }
@@ -617,12 +867,19 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      (_hidReady || (_sessionInProgress && _sessionHostValid))
-                          ? 'Connected by Bluetooth · text only'
-                          : 'Bluetooth HID connection required',
+                      _outputMode == DictationOutputMode.bluetoothEnglish
+                          ? (_hidReady ||
+                                    (_sessionInProgress && _sessionHostValid)
+                                ? 'Bluetooth keyboard connected · English only'
+                                : 'Bluetooth HID connection required')
+                          : (_desktopReady ||
+                                    (_sessionInProgress &&
+                                        _sessionCompanionValid)
+                                ? 'LumiaKey Desktop connected · text only'
+                                : 'LumiaKey Desktop companion required'),
                       key: const ValueKey('dictation-connection-status'),
                       style: TextStyle(
-                        color: _hidReady
+                        color: _outputReady
                             ? Colors.lightGreenAccent
                             : Colors.amberAccent,
                       ),
@@ -635,34 +892,83 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              _textProfile == HidTextProfile.usAscii
-                                  ? 'Text is typed as printable ASCII key presses over Bluetooth HID. Chinese and other non-ASCII results are rejected as a whole phrase. Keep the target computer on a US keyboard layout with English input active.'
-                                  : 'Windows Unicode HexNumpad types printable BMP text, including Chinese, Japanese, Korean, and ASCII. Enable the Windows HexNumpad setting shown below, keep Num Lock on, and use a tested-compatible foreground app. Unsupported text is rejected as a whole phrase.',
+                              _outputMode ==
+                                      DictationOutputMode.bluetoothEnglish
+                                  ? 'Bluetooth English recognizes English and types printable ASCII key presses. Use a US keyboard layout with English input active. Chinese and other languages use LumiaKey Desktop.'
+                                  : 'LumiaKey Desktop recognizes speech on this phone and sends finalized text over the local network to the PC companion. Chinese and other supported languages are available; no audio is sent.',
                               key: const ValueKey('dictation-output-limit'),
                             ),
                             const SizedBox(height: 8),
-                            DropdownButtonFormField<DictationLanguage>(
-                              key: const ValueKey('dictation-language'),
-                              initialValue: _language,
+                            DropdownButtonFormField<DictationOutputMode>(
+                              key: const ValueKey('dictation-output-mode'),
+                              initialValue: _outputMode,
+                              isExpanded: true,
                               decoration: const InputDecoration(
-                                labelText: 'Recognition language',
+                                labelText: 'Output mode',
                               ),
-                              items: DictationLanguage.values
-                                  .map(
-                                    (language) => DropdownMenuItem(
-                                      value: language,
-                                      child: Text(language.label),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: listening || _dictation.busy
+                              items: const [
+                                DropdownMenuItem(
+                                  value: DictationOutputMode.bluetoothEnglish,
+                                  child: Text(
+                                    'Bluetooth English',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value:
+                                      DictationOutputMode.desktopMultilingual,
+                                  child: Text(
+                                    'LumiaKey Desktop · multilingual',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                              onChanged: _controlsBusy || _downloading
                                   ? null
-                                  : _selectLanguage,
+                                  : _selectOutputMode,
                             ),
+                            if (_outputMode ==
+                                DictationOutputMode.bluetoothEnglish) ...[
+                              const SizedBox(height: 8),
+                              const InputDecorator(
+                                decoration: InputDecoration(
+                                  labelText: 'Recognition language',
+                                ),
+                                child: Text('English (fixed)'),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 8),
+                              DropdownButtonFormField<DictationLanguage>(
+                                key: const ValueKey('dictation-language'),
+                                initialValue: _language,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Recognition language',
+                                ),
+                                items: DictationLanguage.values
+                                    .map(
+                                      (language) => DropdownMenuItem(
+                                        value: language,
+                                        child: Text(
+                                          language.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: _controlsBusy || _downloading
+                                    ? null
+                                    : _selectLanguage,
+                              ),
+                            ],
                             const SizedBox(height: 8),
                             DropdownButtonFormField<LocalAsrModel>(
                               key: const ValueKey('dictation-model'),
                               initialValue: _model,
+                              isExpanded: true,
                               decoration: const InputDecoration(
                                 labelText: 'Local model',
                               ),
@@ -670,46 +976,19 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                                   .map(
                                     (model) => DropdownMenuItem(
                                       value: model,
-                                      child: Text(model.label),
+                                      child: Text(
+                                        model.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   )
                                   .toList(),
-                              onChanged:
-                                  listening || _dictation.busy || _downloading
+                              onChanged: _controlsBusy || _downloading
                                   ? null
                                   : _selectModel,
                             ),
                             const SizedBox(height: 8),
-                            DropdownButtonFormField<HidTextProfile>(
-                              key: const ValueKey('dictation-text-profile'),
-                              initialValue: _textProfile,
-                              decoration: const InputDecoration(
-                                labelText: 'Text output profile',
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: HidTextProfile.usAscii,
-                                  child: Text('US ASCII (default)'),
-                                ),
-                                DropdownMenuItem(
-                                  value: HidTextProfile.windowsHexNumpad,
-                                  child: Text('Windows Unicode HexNumpad'),
-                                ),
-                              ],
-                              onChanged:
-                                  listening || _dictation.busy || _downloading
-                                  ? null
-                                  : _selectTextProfile,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _textProfile == HidTextProfile.usAscii
-                                  ? 'Printable ASCII only. Use a US keyboard layout with English input active.'
-                                  : 'Printable BMP text, including Chinese. Windows HexNumpad must be enabled; Num Lock must be on.',
-                              key: const ValueKey(
-                                'dictation-text-profile-help',
-                              ),
-                            ),
                             const SizedBox(height: 6),
                             Text(
                               '${_modelReady ? 'Installed' : 'Not installed'} · ${(modelBytes / (1024 * 1024)).ceil()} MB',
@@ -731,10 +1010,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                                   key: const ValueKey(
                                     'download-dictation-model',
                                   ),
-                                  onPressed:
-                                      _downloading ||
-                                          listening ||
-                                          _dictation.busy
+                                  onPressed: _downloading || _controlsBusy
                                       ? null
                                       : _downloadModel,
                                   icon: const Icon(Icons.download),
@@ -746,10 +1022,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                                 ),
                                 TextButton.icon(
                                   key: const ValueKey('import-dictation-model'),
-                                  onPressed:
-                                      _downloading ||
-                                          listening ||
-                                          _dictation.busy
+                                  onPressed: _downloading || _controlsBusy
                                       ? null
                                       : _importModel,
                                   icon: const Icon(Icons.folder_open),
@@ -760,8 +1033,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                                   onPressed:
                                       _modelReady &&
                                           !_downloading &&
-                                          !listening &&
-                                          !_dictation.busy
+                                          !_controlsBusy
                                       ? _deleteModel
                                       : null,
                                   icon: const Icon(Icons.delete_outline),
@@ -818,10 +1090,16 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                       key: ValueKey(
                         listening ? 'stop-dictation' : 'start-dictation',
                       ),
-                      onPressed: _dictation.busy || _downloading || _starting
+                      onPressed: listening
+                          ? (_dictation.busy ||
+                                    _downloading ||
+                                    _configuring ||
+                                    _stopping ||
+                                    _cancelling)
+                                ? null
+                                : _stop
+                          : (_controlsBusy || _downloading || !_outputReady)
                           ? null
-                          : listening
-                          ? _stop
                           : _start,
                       icon: Icon(
                         listening

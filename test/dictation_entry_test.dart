@@ -10,36 +10,37 @@ import 'test_support.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('legacy first-use acknowledgement does not skip HID limits', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({
-      'dictation.entry_explained.v1': true,
-      'dictation.entry_explained.v2': true,
-    });
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () => ensureDictationEntryExplained(context),
-              child: const Text('Voice input'),
+  testWidgets(
+    'legacy first-use acknowledgement does not skip output guidance',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'dictation.entry_explained.v1': true,
+        'dictation.entry_explained.v2': true,
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => ensureDictationEntryExplained(context),
+                child: const Text('Voice input'),
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('Voice input'));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('dictation-entry-explanation')),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining('US ASCII output is the default'),
-      findsOneWidget,
-    );
-  });
+      );
+      await tester.tap(find.text('Voice input'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('dictation-entry-explanation')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('LumiaKey Desktop sends only finalized text'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('homepage quick output and app voice input both gate first use', (
     tester,

@@ -27,8 +27,9 @@ void main() {
   });
 
   test(
-    'sends authenticated final text once and checks insertion response',
+    'sends authenticated multilingual final text unchanged and once',
     () async {
+      const transcript = 'Crème brûlée — 你好, 東京';
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final requestReceived =
           Completer<({String path, String? token, String body})>();
@@ -54,7 +55,7 @@ void main() {
       await service.sendDictation(
         sessionId: 'phone-session-1',
         sequence: 7,
-        text: '你好, SmartKeys',
+        text: transcript,
       );
       final request = await requestReceived.future;
       expect(request.path, '/dictation');
@@ -62,7 +63,7 @@ void main() {
       expect(jsonDecode(request.body), {
         'sessionId': 'phone-session-1',
         'sequence': 7,
-        'text': '你好, SmartKeys',
+        'text': transcript,
       });
       expect(requests, 1);
       await _dispose(service, server);
