@@ -72,8 +72,8 @@ Generated artifacts, excluded from Git:
 - `build/ui_screenshots.zip` — portable gallery, images and metadata.
 - `coverage/summary.json`, `coverage/local-dictation-merged.lcov`, per-package
   LCOV reports, Android JUnit XML, and full validation/build logs.
-- `build/artifacts/LumiaKeys-Android-debug.apk` and
-  `build/artifacts/LumiaKeys-Windows-portable.zip`.
+- `build/artifacts/LumiaKey-Android-debug.apk` and
+  `build/artifacts/LumiaKey-Windows-portable.zip`.
 
 ## Reproduction and remaining acceptance
 
@@ -92,3 +92,22 @@ build/permissions still need device acceptance. Cohere model management and
 selection use deterministic fixtures here; a real Cohere inference run was not
 performed. Tagged release CI retains native macOS packaging and uploads test
 reports separately from release installers.
+
+## Application identity follow-up
+
+The public app name is now **LumiaKey**. Android application ID/namespace,
+macOS bundle ID and Linux application ID are **`com.lumiaiq.smartkey`**.
+Android Kotlin main/test package declarations and source directories were moved
+together. macOS product/scheme/test-host references and release artifact paths
+were updated for `LumiaKey.app`. Windows product resources, window/tray titles
+and installer display name use LumiaKey; its existing installer upgrade GUID
+and executable filename remain compatible.
+
+The complete validation was rerun after the identity change: 138 tests passed,
+four package analyses passed, coverage remained 73.79%, 46 screenshot renders
+were regenerated, and Android debug / Windows Release builds passed. APK
+badging confirmed package `com.lumiaiq.smartkey`, label `LumiaKey` and launcher
+`com.lumiaiq.smartkey.MainActivity`. Windows executable ProductName and
+FileDescription both read `LumiaKey`. macOS plist/scheme XML was parsed, but no
+native macOS build was performed. Generated identity evidence is in
+`coverage/application-identity.json`.

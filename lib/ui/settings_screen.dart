@@ -41,7 +41,7 @@ class SettingsScreen extends StatelessWidget {
             title: Text(host == null ? 'Looking for desktop…' : host.name),
             subtitle: Text(
               host == null
-                  ? 'Open LumiaKeys Desktop on the same local network'
+                  ? 'Open LumiaKey Desktop on the same local network'
                   : host.supportsManifest
                   ? '${host.platform} · Desktop layout revision ${controller.desktopManifest?.revision ?? 'syncing'}'
                   : '${host.platform} · legacy actions only',
@@ -314,7 +314,7 @@ class _ShortcutUsageSection extends StatelessWidget {
             title: Text('Private, on-device data'),
             subtitle: Text(
               'Shortcut usage never leaves this phone. It is never sent to '
-              'LumiaKeys Desktop, the cloud, or Profile exports.',
+              'LumiaKey Desktop, the cloud, or Profile exports.',
             ),
           ),
           if (mostUsed == null)

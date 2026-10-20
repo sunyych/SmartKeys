@@ -607,7 +607,7 @@ class _SyncedAppsPage extends StatelessWidget {
     final apps = controller.syncedApplications;
     if (apps.isEmpty) {
       return const _DesktopRequired(
-        message: 'Enable Apps Sync in LumiaKeys Desktop to show applications.',
+        message: 'Enable Apps Sync in LumiaKey Desktop to show applications.',
       );
     }
     final columns = MediaQuery.orientationOf(context) == Orientation.landscape
@@ -1212,8 +1212,8 @@ class _CompactControlMenu extends StatelessWidget {
         key: 'desktop',
         label: 'Desktop',
         tooltip: surface.desktopSynced
-            ? 'LumiaKeys Desktop connected'
-            : 'LumiaKeys Desktop syncing',
+            ? 'LumiaKey Desktop connected'
+            : 'LumiaKey Desktop syncing',
         icon: Icons.desktop_windows_outlined,
         color: surface.desktopSynced
             ? Colors.lightGreenAccent

@@ -240,7 +240,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     setState(() => _panelError = null);
     if (!_desktopReady) {
       setState(
-        () => _panelError = 'Connect to a compatible LumiaKeys Desktop first.',
+        () => _panelError = 'Connect to a compatible LumiaKey Desktop first.',
       );
       return;
     }

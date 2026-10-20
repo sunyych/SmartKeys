@@ -11,7 +11,7 @@ class ProfileTransferService {
   Future<bool> exportProfile(ProfileConfig profile) async {
     final bytes = Uint8List.fromList(utf8.encode(encodeProfile(profile)));
     final target = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export LumiaKeys Profile',
+      dialogTitle: 'Export LumiaKey Profile',
       fileName: '${_safeName(profile.name)}.smartkeys.json',
       bytes: bytes,
     );
@@ -61,9 +61,7 @@ class ProfileTransferService {
     if (decoded is! Map<String, dynamic> ||
         decoded['name'] is! String ||
         (decoded['buttons'] is! List && decoded['wheel'] is! Map)) {
-      throw const FormatException(
-        'This is not a valid LumiaKeys profile JSON.',
-      );
+      throw const FormatException('This is not a valid LumiaKey profile JSON.');
     }
     final profile = ProfileConfig.fromJson(decoded);
     final importedActions = [

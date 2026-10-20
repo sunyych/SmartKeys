@@ -57,7 +57,7 @@ jobs:
 
           version="${tag#v}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building LumiaKeys $version from main commit $GITHUB_SHA"
+          echo "Building LumiaKey $version from main commit $GITHUB_SHA"
 
   verify:
     name: Analyze and test
@@ -188,7 +188,7 @@ jobs:
             --build-number="$BUILD_NUMBER"
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "dist/LumiaKeys-Android-v${RELEASE_VERSION}.apk"
+            "dist/LumiaKey-Android-v${RELEASE_VERSION}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
@@ -222,14 +222,14 @@ jobs:
             --build-name="$RELEASE_VERSION" \
             --build-number="$BUILD_NUMBER"
           mkdir -p dist/dmg
-          cp -R "build/macos/Build/Products/Release/LumiaKeys Desktop.app" dist/dmg/
+          cp -R "build/macos/Build/Products/Release/LumiaKey.app" dist/dmg/
           ln -s /Applications dist/dmg/Applications
           hdiutil create \
-            -volname "LumiaKeys Desktop $RELEASE_VERSION" \
+            -volname "LumiaKey $RELEASE_VERSION" \
             -srcfolder dist/dmg \
             -ov \
             -format UDZO \
-            "dist/LumiaKeys-Desktop-macOS-v${RELEASE_VERSION}.dmg"
+            "dist/LumiaKey-macOS-v${RELEASE_VERSION}.dmg"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v7
@@ -329,5 +329,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" release-assets/* \
             --verify-tag \
-            --title "LumiaKeys v${RELEASE_VERSION}" \
+            --title "LumiaKey v${RELEASE_VERSION}" \
             --generate-notes

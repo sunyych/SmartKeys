@@ -1,4 +1,4 @@
-package com.lumiaiq.smartkeys
+package com.lumiaiq.smartkey
 
 import android.content.BroadcastReceiver
 import android.content.Context

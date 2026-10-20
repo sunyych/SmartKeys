@@ -1,6 +1,6 @@
-# LumiaKeys Desktop 1.2
+# LumiaKey Desktop 1.2
 
-LumiaKeys Desktop is the control center for LumiaKeys Android. It persists the
+LumiaKey Desktop is the control center for LumiaKey Android. It persists the
 authoritative shortcut manifest, publishes it to the connected phone, and
 executes managed shortcut, application, and URL actions.
 

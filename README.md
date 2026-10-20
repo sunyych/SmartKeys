@@ -1,13 +1,13 @@
-# LumiaKeys
+# LumiaKey
 
-LumiaKeys is a desktop-driven shortcut platform with an Android Bluetooth HID
+LumiaKey is a desktop-driven shortcut platform with an Android Bluetooth HID
 control surface. The Android phone app requires Android 9 (API 28) or later.
-This monorepo also contains the independent LumiaKeys Desktop app in
+This monorepo also contains the independent LumiaKey Desktop app in
 `desktop_companion/` for Windows and macOS.
 
 ## Implemented V1.2
 
-- LumiaKeys Desktop is the authoritative source for Desktop-executed Codex and
+- LumiaKey Desktop is the authoritative source for Desktop-executed Codex and
   application layouts, installed/running application state, semantic icon IDs,
   and managed shortcut mappings. Android remains the source for its General,
   Web, Zoom / Teams, and Custom Bluetooth HID Profiles.
@@ -85,7 +85,7 @@ manifest, controller, or UI layers.
 - Rotation clears held-button state, cancels active wheel/mouse input, and
   invokes `releaseAllKeys()` without recreating the Profile or connection
   controller.
-- LumiaKeys starts in Landscape by default. Portrait and Auto remain available
+- LumiaKey starts in Landscape by default. Portrait and Auto remain available
   only through Screen Orientation in Settings, and the choice persists.
 - Configuration schema v7 owns an ordered list of independent Profiles, each
   with 15 buttons, navigation actions, icon, optional target application,
@@ -97,7 +97,7 @@ manifest, controller, or UI layers.
   the final touchpad result is in
   `docs/screenshots/final_touchpad_fullscreen.png`:
   mute/volume/undo/redo, media/open/Dark, then cut/copy/paste/close/delete.
-- Dark is a toggle. Its dark state holds the LumiaKeys phone window at 10%,
+- Dark is a toggle. Its dark state holds the LumiaKey phone window at 10%,
   dims the host display and keyboard illumination, and the next tap restores
   the phone's charging/system brightness plus brightens the host again.
 - General uses a full touchpad on the right. Drag with one finger to move the
@@ -134,7 +134,7 @@ manifest, controller, or UI layers.
   `assets/app_icon/app_icon_source.png`. Android 8+ uses a deep-blue adaptive
   background with the transparent safe-zone foreground in
   `assets/app_icon/adaptive_foreground_source.png`.
-- LumiaKeys Desktop uses that same LK source artwork for the macOS AppIcon,
+- LumiaKey Desktop uses that same LK source artwork for the macOS AppIcon,
   macOS Menu Bar icon, and multi-resolution Windows `.ico`; the Companion does
   not use Flutter's default logo.
 
@@ -168,7 +168,7 @@ for arbitrary peripherals; connection choices come from Android's already
 paired devices. Ordinary keyboard and mouse actions need no desktop software;
 app launching, voice input, and reliable OS detection use the Companion.
 
-## LumiaKeys Desktop
+## LumiaKey Desktop
 
 The desktop app is a separate product under `desktop_companion/`; it is not
 compiled into the phone app. It starts in Menu Bar/System Tray mode. Select
@@ -249,15 +249,15 @@ documented in [`docs/GITHUB_RELEASES.md`](docs/GITHUB_RELEASES.md).
 
 ## Pair and connect
 
-1. Open LumiaKeys and tap the Bluetooth status chip, or open Settings →
+1. Open LumiaKey and tap the Bluetooth status chip, or open Settings →
    **Computer connection**.
 2. Grant Nearby devices access if Android asks.
 3. Tap **Make phone discoverable**.
 4. On Windows, open **Add Bluetooth device**; on macOS, open Bluetooth
    Settings. Pair the phone from the computer.
-5. Return to LumiaKeys, tap **Refresh**, and connect the paired computer.
+5. Return to LumiaKey, tap **Refresh**, and connect the paired computer.
 
-Pairing is managed by Android/Windows. LumiaKeys retains no separate pairing
+Pairing is managed by Android/Windows. LumiaKey retains no separate pairing
 secret and exposes explicit permission, Bluetooth-off, registration, connection,
 and native error states in the connection sheet.
 

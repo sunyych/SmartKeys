@@ -223,7 +223,7 @@ class _BrandLogo extends StatelessWidget {
           width: 42,
           height: 42,
           filterQuality: FilterQuality.high,
-          semanticLabel: 'LumiaKeys logo',
+          semanticLabel: 'LumiaKey logo',
         ),
         if (extended) ...[
           const SizedBox(width: 10),
@@ -232,7 +232,7 @@ class _BrandLogo extends StatelessWidget {
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(
-                'LumiaKeys',
+                'LumiaKey',
                 maxLines: 1,
                 style: Theme.of(
                   context,
@@ -401,7 +401,7 @@ class _StatusCard extends StatelessWidget {
                 children: [
                   Text(
                     server.running
-                        ? 'LumiaKeys Desktop is ready'
+                        ? 'LumiaKey Desktop is ready'
                         : 'Sync service unavailable',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
@@ -464,7 +464,7 @@ class _BluetoothPage extends StatelessWidget {
               leading: const Icon(Icons.phone_android),
               title: const Text('Current Connected Phone'),
               subtitle: Text(
-                controller.connectedPhone ?? 'Waiting for LumiaKeys Android',
+                controller.connectedPhone ?? 'Waiting for LumiaKey Android',
               ),
             ),
           ],
@@ -883,18 +883,18 @@ class _AboutPage extends StatelessWidget {
                 width: 80,
                 height: 80,
                 filterQuality: FilterQuality.high,
-                semanticLabel: 'LumiaKeys logo',
+                semanticLabel: 'LumiaKey logo',
               ),
               SizedBox(height: 16),
               Text(
-                'LumiaKeys Desktop',
+                'LumiaKey',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
               ),
               SizedBox(height: 6),
               Text('Version 1.2'),
               SizedBox(height: 18),
               Text(
-                'The desktop-driven shortcut platform for LumiaKeys Android. Layouts, app definitions, profiles, icons, and execution logic live on this computer.',
+                'The desktop-driven shortcut platform for LumiaKey Android. Layouts, app definitions, profiles, icons, and execution logic live on this computer.',
                 textAlign: TextAlign.center,
               ),
             ],
@@ -1045,7 +1045,7 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
             else
               const ListTile(
                 leading: Icon(Icons.schedule),
-                title: Text('Reserved for a future LumiaKeys release'),
+                title: Text('Reserved for a future LumiaKey release'),
               ),
             const SizedBox(height: 12),
             TextField(

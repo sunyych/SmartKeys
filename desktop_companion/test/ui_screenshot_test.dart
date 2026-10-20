@@ -269,7 +269,7 @@ void main() {
       (2, 'Shortcut Layout', 'Import JSON'),
       (3, 'Apps', 'Managed Applications'),
       (4, 'Profiles', 'Profiles'),
-      (5, 'About', 'LumiaKeys Desktop'),
+      (5, 'About', 'LumiaKey'),
       (6, 'Local Dictation', 'Private microphone dictation'),
     ];
 

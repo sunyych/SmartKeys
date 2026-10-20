@@ -1,4 +1,4 @@
-package com.lumiaiq.smartkeys
+package com.lumiaiq.smartkey
 
 data class HidReport(val id: Int, val data: ByteArray)
 

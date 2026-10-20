@@ -23,12 +23,12 @@ class DesktopTrayShell with TrayListener, WindowListener {
     dictation.addListener(_controllerChanged);
     await trayManager.setIcon(
       Platform.isWindows ? 'assets/tray_icon.ico' : desktopBrandAsset,
-      // The LumiaKeys artwork is a full-color mark. Treating it as a macOS
+      // The LumiaKey artwork is a full-color mark. Treating it as a macOS
       // template image collapses its opaque circular background into a mask.
       isTemplate: false,
       iconSize: 20,
     );
-    await trayManager.setToolTip('LumiaKeys');
+    await trayManager.setToolTip('LumiaKey');
     await windowManager.setPreventClose(true);
     await _refreshMenu();
   }

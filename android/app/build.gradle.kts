@@ -34,7 +34,7 @@ check(releaseSigningValues.none { it != null } || hasReleaseSigning) {
 }
 
 android {
-    namespace = "com.lumiaiq.smartkeys"
+    namespace = "com.lumiaiq.smartkey"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -45,7 +45,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.lumiaiq.smartkeys"
+        applicationId = "com.lumiaiq.smartkey"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // BluetoothHidDevice is a public Android API starting at API 28.

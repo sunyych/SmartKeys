@@ -76,7 +76,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
     return SmartKeysScope(
       controller: controller,
       child: MaterialApp(
-        title: 'LumiaKeys',
+        title: 'LumiaKey',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
@@ -115,7 +115,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
                         const Icon(Icons.error_outline, size: 48),
                         const SizedBox(height: 16),
                         const Text(
-                          'LumiaKeys could not load its configuration.',
+                          'LumiaKey could not load its configuration.',
                         ),
                         const SizedBox(height: 8),
                         Text(

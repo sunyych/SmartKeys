@@ -27,6 +27,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp)).title,
+      'LumiaKey',
+    );
     expect(find.byKey(const ValueKey('portrait-layout')), findsOneWidget);
     expect(find.byKey(const ValueKey('button-grid-3x5')), findsOneWidget);
     expect(find.byKey(const ValueKey('control-button-0')), findsOneWidget);

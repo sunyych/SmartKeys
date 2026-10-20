@@ -1,4 +1,4 @@
-package com.lumiaiq.smartkeys
+package com.lumiaiq.smartkey
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

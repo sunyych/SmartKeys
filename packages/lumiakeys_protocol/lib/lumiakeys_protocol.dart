@@ -372,7 +372,7 @@ class DesktopManifest {
   factory DesktopManifest.fromJson(Map<String, Object?> json) {
     final schemaVersion = json['schemaVersion'];
     if (schemaVersion != 1) {
-      throw const FormatException('Unsupported LumiaKeys manifest schema');
+      throw const FormatException('Unsupported LumiaKey manifest schema');
     }
     final manifest = DesktopManifest(
       schemaVersion: schemaVersion! as int,

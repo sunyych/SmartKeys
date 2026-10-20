@@ -25,7 +25,7 @@ class DesktopShortcutTransferService {
         decoded['version'] != version ||
         decoded['layouts'] is! List) {
       throw const FormatException(
-        'This is not a LumiaKeys Desktop shortcut JSON file.',
+        'This is not a LumiaKey Desktop shortcut JSON file.',
       );
     }
     final layouts = (decoded['layouts']! as List)
@@ -68,8 +68,8 @@ class DesktopShortcutTransferService {
   Future<bool> exportJson(DesktopManifest manifest) async {
     final bytes = Uint8List.fromList(utf8.encode(encode(manifest)));
     final target = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export LumiaKeys Desktop Shortcuts',
-      fileName: 'lumiakeys-desktop-shortcuts.json',
+      dialogTitle: 'Export LumiaKey Desktop Shortcuts',
+      fileName: 'lumiakey-desktop-shortcuts.json',
       bytes: bytes,
     );
     if (target == null) return false;

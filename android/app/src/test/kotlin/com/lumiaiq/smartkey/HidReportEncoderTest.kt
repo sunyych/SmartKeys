@@ -1,4 +1,4 @@
-package com.lumiaiq.smartkeys
+package com.lumiaiq.smartkey
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

@@ -284,12 +284,12 @@ class LanCompanionService implements CompanionService {
     final host = _host.value;
     if (host == null) {
       throw const CompanionDictationException(
-        'Connect to a LumiaKeys Desktop that supports local dictation.',
+        'Connect to a LumiaKey Desktop that supports local dictation.',
       );
     }
     if (!host.capabilities.contains('local-dictation-v1')) {
       throw const CompanionDictationException(
-        'Update LumiaKeys Desktop to enable local dictation.',
+        'Update LumiaKey Desktop to enable local dictation.',
       );
     }
     _validateDictationPayload(sessionId, sequence, text);
@@ -346,7 +346,7 @@ class LanCompanionService implements CompanionService {
   Future<void> _post(String body) async {
     final host = _host.value;
     if (host == null) {
-      _setError('No LumiaKeys Desktop found on this network.');
+      _setError('No LumiaKey Desktop found on this network.');
       return;
     }
     try {

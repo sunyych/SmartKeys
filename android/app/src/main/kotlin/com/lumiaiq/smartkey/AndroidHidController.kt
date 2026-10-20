@@ -1,4 +1,4 @@
-package com.lumiaiq.smartkeys
+package com.lumiaiq.smartkey
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -338,9 +338,9 @@ class AndroidHidController(
         val proxy = hidDevice ?: return
         if (appRegistered) return
         val sdp = BluetoothHidDeviceAppSdpSettings(
-            "LumiaKeys",
-            "LumiaKeys keyboard, consumer control, and mouse navigation",
-            "LumiaKeys",
+            "LumiaKey",
+            "LumiaKey keyboard, consumer control, and mouse navigation",
+            "LumiaKey",
             BluetoothHidDevice.SUBCLASS1_COMBO,
             HidReportEncoder.REPORT_DESCRIPTOR,
         )

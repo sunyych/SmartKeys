@@ -1,6 +1,6 @@
 # GitHub Release pipeline
 
-LumiaKeys publishes installable assets only when a new semantic-version Tag is
+LumiaKey publishes installable assets only when a new semantic-version Tag is
 pushed. Ordinary commits and branch pushes do not create a GitHub Release.
 
 ## Release contract
@@ -17,9 +17,9 @@ pushed. Ordinary commits and branch pushes do not create a GitHub Release.
 
 The Release contains:
 
-- `LumiaKeys-Android-vX.Y.Z.apk`
-- `LumiaKeys-Desktop-macOS-vX.Y.Z.dmg`
-- `LumiaKeys-Desktop-Windows-vX.Y.Z-Setup.exe`
+- `LumiaKey-Android-vX.Y.Z.apk`
+- `LumiaKey-macOS-vX.Y.Z.dmg`
+- `LumiaKey-Windows-vX.Y.Z-Setup.exe`
 - `SHA256SUMS.txt`
 
 ## Required Android signing secrets
@@ -43,7 +43,7 @@ release builds continue to use the existing debug-signing fallback unless
 `android/key.properties` or the equivalent environment variables are present.
 Never commit the keystore or `android/key.properties`; both are ignored.
 
-## Publish LumiaKeys 1.2
+## Publish LumiaKey 1.2
 
 First merge the complete V1.2 source and this workflow into `main`. Then tag
 that exact `main` commit and push the Tag:
@@ -51,7 +51,7 @@ that exact `main` commit and push the Tag:
 ```sh
 git switch main
 git pull --ff-only
-git tag -a v1.2.0 -m "LumiaKeys 1.2.0"
+git tag -a v1.2.0 -m "LumiaKey 1.2.0"
 git push origin v1.2.0
 ```
 

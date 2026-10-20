@@ -1,5 +1,5 @@
 name: lumiakeys_protocol
-description: Shared versioned protocol models for LumiaKeys Desktop and Android.
+description: Shared versioned protocol models for LumiaKey Desktop and Android.
 version: 1.2.0
 publish_to: none
 

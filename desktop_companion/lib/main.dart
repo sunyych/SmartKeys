@@ -25,7 +25,7 @@ Future<void> main() async {
       minimumSize: Size(760, 560),
       center: true,
       skipTaskbar: true,
-      title: 'LumiaKeys',
+      title: 'LumiaKey',
     ),
     () async {
       await windowManager.setPreventClose(true);
@@ -140,7 +140,7 @@ class _CompanionAppState extends State<CompanionApp> {
   @override
   Widget build(BuildContext context) => MaterialApp(
     navigatorKey: _navigatorKey,
-    title: 'LumiaKeys',
+    title: 'LumiaKey',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF19B7C9)),

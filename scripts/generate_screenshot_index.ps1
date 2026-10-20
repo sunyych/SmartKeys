@@ -73,13 +73,13 @@ $html = @"
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SmartKeys UI screenshot gallery</title>
+<title>LumiaKey UI screenshot gallery</title>
 <style>
 :root{color-scheme:dark;font:15px/1.5 system-ui,Segoe UI,sans-serif;background:#090d12;color:#e7eef7}*{box-sizing:border-box}body{margin:0}header{position:sticky;top:0;z-index:2;padding:20px clamp(16px,4vw,48px);background:#10151dee;border-bottom:1px solid #263341;backdrop-filter:blur(12px)}h1{margin:0 0 4px;font-size:clamp(22px,3vw,32px)}header p{margin:0;color:#aebdca}.filters{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}input,select{min-height:42px;padding:8px 12px;border:1px solid #354454;border-radius:9px;background:#0b1118;color:inherit}.filters input{flex:1;min-width:220px}#count{color:#aebdca;margin:12px 0 0}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:16px;padding:20px clamp(16px,4vw,48px) 48px}.card{overflow:hidden;border:1px solid #263341;border-radius:14px;background:#111923}.preview{display:block;width:100%;padding:0;border:0;background:#080b10;cursor:zoom-in}.preview img{display:block;width:100%;height:auto;max-height:620px;object-fit:contain}.details{padding:14px}.details h2{font-size:17px;margin:0 0 9px}.badges{display:flex;gap:6px;flex-wrap:wrap}.badges span{font-size:12px;padding:3px 8px;border-radius:999px;background:#1c2a37;color:#b8d9e8}.details p{color:#c0ccd7;min-height:2.5em}.details a{color:#67e8f9}dialog{max-width:min(96vw,1400px);max-height:95vh;padding:0;border:1px solid #405266;border-radius:12px;background:#090d12;color:inherit}dialog::backdrop{background:#000d}dialog img{display:block;max-width:92vw;max-height:88vh;object-fit:contain}dialog button{position:sticky;top:8px;float:right;margin:8px;padding:8px 12px;border:0;border-radius:8px;background:#243443;color:white;cursor:pointer}.empty{display:none;color:#aebdca;padding:20px}
 </style>
 </head>
 <body>
-<header><h1>SmartKeys UI screenshot gallery</h1><p>Flutter widget renders · deterministic test fixtures · no physical-device screenshot claim</p><div class="filters"><input id="search" type="search" placeholder="Search screens, notes, platform…" aria-label="Search screenshots"><select id="platform"><option value="">All platforms</option></select><select id="orientation"><option value="">All orientations</option></select></div><div id="count" aria-live="polite"></div></header>
+<header><h1>LumiaKey UI screenshot gallery</h1><p>Flutter widget renders · deterministic test fixtures · no physical-device screenshot claim</p><div class="filters"><input id="search" type="search" placeholder="Search screens, notes, platform…" aria-label="Search screenshots"><select id="platform"><option value="">All platforms</option></select><select id="orientation"><option value="">All orientations</option></select></div><div id="count" aria-live="polite"></div></header>
 <main id="gallery">
 $($cards -join "`n")
 </main><p class="empty" id="empty">No screenshots match these filters.</p>

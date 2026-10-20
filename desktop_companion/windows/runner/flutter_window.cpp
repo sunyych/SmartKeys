@@ -155,7 +155,7 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
-  // LumiaKeys starts as a tray application. Dart shows the settings window
+  // LumiaKey starts as a tray application. Dart shows the settings window
   // only after the user selects Open Settings from the tray menu.
   flutter_controller_->ForceRedraw();
 

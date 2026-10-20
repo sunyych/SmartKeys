@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>LumiaKeys discovers and receives actions from your phone on the local network.</string>
+	<string>LumiaKey discovers and receives actions from your phone on the local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>LumiaKeys uses the microphone for on-device local dictation. Audio stays on this Mac.</string>
+	<string>LumiaKey uses the microphone for on-device local dictation. Audio stays on this Mac.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>

@@ -86,7 +86,7 @@ class SharedPreferencesShortcutUsageRepository extends ShortcutUsageRepository {
         );
       notifyListeners();
     } on FormatException {
-      // A corrupt private counter must never prevent LumiaKeys from starting.
+      // A corrupt private counter must never prevent LumiaKey from starting.
     }
   }
 

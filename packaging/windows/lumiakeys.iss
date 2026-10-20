@@ -10,7 +10,7 @@
   #define OutputDir "..\..\dist"
 #endif
 
-#define AppName "LumiaKeys Desktop"
+#define AppName "LumiaKey"
 #define AppPublisher "LumiaIQ"
 #define AppExeName "lumiakeys_companion.exe"
 
@@ -26,7 +26,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
-OutputBaseFilename=LumiaKeys-Desktop-Windows-v{#AppVersion}-Setup
+OutputBaseFilename=LumiaKey-Windows-v{#AppVersion}-Setup
 SetupIconFile=..\..\desktop_companion\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 Compression=lzma2
