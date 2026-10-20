@@ -48,11 +48,12 @@ user-selected local shared-storage folder. Export checks the package and refuses
 to replace an existing filename. The computer can copy the exported file using
 Android USB file transfer (MTP).
 
-MTP exposes phone files; it does not provide a USB mass-storage disk or a Windows
-drive letter. Creating that kind of virtual disk requires Android system/device
-support unavailable to an ordinary application. A true drive implementation is
-pending a supported deployment choice. Development APKs without a release
-catalog explicitly show that no desktop installers are bundled.
+The accepted phone-transfer design is a user-selected local shared-storage
+folder followed by USB file transfer (MTP). MTP exposes ordinary phone files;
+it does not provide a USB mass-storage disk or a Windows drive letter. A true
+virtual disk is outside this implementation's scope and is not a pending
+deployment choice. Development APKs without a release catalog explicitly show
+that no desktop installers are bundled.
 
 ## Validation boundaries
 

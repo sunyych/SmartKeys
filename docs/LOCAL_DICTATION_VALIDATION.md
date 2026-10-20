@@ -68,6 +68,21 @@ fixtures; real Cohere inference was not run.
   pipeline has not run for this change. Development builds without release
   packages explicitly report them as unavailable.
 
+## Approved Windows Unicode setup after validation
+
+After the validation above, the user approved the one-time Windows HexNumpad
+setup for this PC. `HKCU\Control Panel\Input Method\EnableHexNumpad` was
+created as `REG_SZ` with value `1`, and an independent registry readback
+confirmed the value and type. It was absent before setup. The evidence record
+is `coverage/windows-hexnumpad-setting.json`; it records that neither sign-out
+nor reboot was performed. This is a user-approved system setting, not an
+application change, and the app's default output profile remains US ASCII.
+
+Windows still requires sign-out or reboot before HexNumpad behavior can be
+accepted. Typing Unicode through the real LumiaKey Bluetooth HID path into a
+compatible foreground application also remains pending. No end-to-end Windows
+Unicode input claim is made from the registry readback alone.
+
 Flutter 3.44.2 / Dart 3.12.2 and installed Windows/Android toolchains were used.
 The exFAT checkout cannot provide Windows plugin symlinks and causes Kotlin
 cache failures, so builds/tests ran in a short NTFS source copy. Executable,

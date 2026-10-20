@@ -93,15 +93,18 @@ phrases, pins one host/session, serializes bounded reports and never retries an
 uncertain partial delivery. US ASCII is the default; Windows HexNumpad is an
 explicit optional profile with system-setup and BMP compatibility guidance.
 Recognition language/model selection remains independent of keyboard encoding.
-No Windows setting is changed automatically.
+The user accepted the one-time Windows HexNumpad system setup for BMP Unicode
+output; the application never changes that setting automatically.
 
 Install the Windows desktop application for the current user with a Start Menu
 entry. Tagged release jobs build Windows/macOS installers before Android,
 embed exactly those same-run packages with version/commit/size/hash metadata,
 and verify their presence and hashes inside the resulting APK. Android can
 verify and export packages to an explicitly selected local SAF folder for USB
-file transfer. Ordinary Android APIs cannot expose a true USB mass-storage
-drive; that deployment choice remains separate from the implemented MTP export.
+file transfer. The accepted Android delivery path is a user-selected local
+shared-storage folder followed by MTP. It does not expose a USB mass-storage
+drive or Windows drive letter; a true-drive implementation is outside the
+accepted scope, with no pending deployment choice.
 
 Validation includes full package suites and coverage, native HID encoding,
 transactional install/uninstall and bundle failure tests, and generated UI
