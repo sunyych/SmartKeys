@@ -29,9 +29,11 @@ Desktop 接收模式。早期纯 Bluetooth 和 HexNumpad 条款保留为历史�
 
 ### Android
 
-- 主页提供独立的“快速输出”麦克风按钮，不占用已有的 15 个快捷键位置。
-- 点击打开紧凑听写面板，首次使用先选择并下载或导入模型；模型已就绪且电脑可用时可直接开始。
-- 面板提供开始/停止、识别语言、模型、加载/下载状态、当前文字及投递状态。
+- 主页提供独立的“快速输出”麦克风按钮，不占用已有的 15 个快捷键位置。轻点使用上次选择的输出模式快速开始；首次使用或所选模型缺失时转到设置，不启动采集。
+- 长按麦克风始终打开输出模式、模型和识别语言设置，即使模型已就绪、轻点本会立即开始，也不会自动启动听写。
+- 听写时回到主页快捷键控制区，主页快捷键在采集中仍可用。角落显示 44 × 40 的 Stop 与实时音量组合控件；Stop 返回主页。
+- 按 Back 或进入设置离开听写时立即取消采集；之后返回应用不会自动重启听写。
+- 设置页提供输出模式、识别语言、模型与加载/下载状态；听写期间由角落 Stop 控件停止，并显示当前文字与投递状态。
 - 语言首批支持中文、英文；界面语言和识别语言分别处理。模型列表展示两个真正可运行的本地模型：SenseVoice（默认）和 Cohere（较大）。
 - 切换语言或模型时停止采集、清空尚未处理的音频、释放旧识别器，再加载并启动新配置；禁止旧会话结果进入新会话。
 - 只在听写期间保持屏幕唤醒；停止、退出或应用进入后台时释放麦克风和唤醒锁。
@@ -111,6 +113,39 @@ Desktop 接收模式。早期纯 Bluetooth 和 HexNumpad 条款保留为历史�
   coverage, Android Kotlin unit tests, the screenshot suites/gallery, and an
   ARM64 APK build plus device install/reinstall evidence. Report each result
   separately; this amendment implies no test or hardware result.
+
+# Shortcut-friendly listening and live audio level
+
+- Starting phone dictation returns to the shortcut controls while microphone
+  capture continues. Shortcuts remain available during listening; the same
+  compact nonmodal 44 × 40 corner control combines Stop with the live
+  microphone-level indicator in Bluetooth and Desktop output modes. Stop
+  returns to the home screen; Back or opening settings cancels capture, with
+  no automatic restart on return.
+- Tapping the home microphone quick-starts with the last selected output. First
+  use or a missing selected model opens setup instead. Long-press always opens
+  output, model, and language settings, even when quick-start is warm and ready.
+- `LocalDictationController.audioLevel` is a read-only
+  `ValueListenable<double>` in the inclusive 0–1 range. It reports normalized
+  PCM16 little-endian RMS from the controller's existing capture callback,
+  throttled to at most 25 updates per second. It adds no stream subscription or
+  microphone read and never stores or sends audio.
+- Meter calculation preserves an odd byte across arbitrary stream chunk
+  boundaries without changing the ASR segmenter's input. Stop, cancel, capture
+  error, start failure and close/dispose reset the value to zero. Closing the
+  controller prevents further meter notifications.
+- The phone UI owns overlay behavior and controls; the HID layer owns shortcut
+  preemption. A manually triggered shortcut preemption drops the interrupted
+  phrase and keeps capture active. A Desktop native `input_busy` result is
+  accepted only for a strict pre-insertion rejection with an exact known
+  modifier reason; it drops that phrase and keeps capture active. Neither case
+  replays text. Unknown or partial insertion failures cancel capture. Local ASR
+  behavior, model selection and recognition language are unchanged. The
+  1.2.2+4 Dart/Kotlin suites, coverage, installer checks, screenshots, Android
+  build/install and Windows Release upgrade passed; details are in
+  `docs/LOCAL_DICTATION_VALIDATION.md`. Live microphone-to-target typing,
+  native macOS build, release CI, and native coverage remain unverified. Root
+  still owns repository commit/push.
 # Historical Bluetooth transport and installer follow-up
 
 This section records the earlier Bluetooth-only follow-up. Its HexNumpad

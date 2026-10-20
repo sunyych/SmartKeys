@@ -17,11 +17,15 @@ class _NoopDiscovery implements ApplicationDiscovery {
 class _Sink implements DictationTextSink {
   final texts = <String>[];
   bool fail = false;
+  bool busy = false;
   Completer<void>? gate;
 
   @override
   Future<void> insertText(String text) async {
     if (gate != null) await gate!.future;
+    if (busy) {
+      throw const DictationInputBusyException('modifier_key_held');
+    }
     if (fail) throw StateError('rejected');
     texts.add(text);
   }
@@ -113,6 +117,34 @@ void main() {
       expect(response.statusCode, HttpStatus.ok);
       await response.drain<void>();
       expect(sink.texts, [transcript]);
+    },
+  );
+
+  test(
+    'input busy is reported once and never replays the tombstoned phrase',
+    () async {
+      sink.busy = true;
+      final busy = await post(payload(sequence: 8), token: server.token);
+      expect(busy.statusCode, HttpStatus.conflict);
+      expect(jsonDecode(await busy.transform(utf8.decoder).join()), {
+        'error': 'input_busy',
+      });
+
+      final duplicate = await post(payload(sequence: 8), token: server.token);
+      expect(duplicate.statusCode, HttpStatus.conflict);
+      expect(jsonDecode(await duplicate.transform(utf8.decoder).join()), {
+        'error': 'previous_insertion_failed',
+      });
+      expect(sink.texts, isEmpty);
+
+      sink.busy = false;
+      final next = await post(
+        payload(sequence: 9, text: '下一个短语'),
+        token: server.token,
+      );
+      expect(next.statusCode, HttpStatus.ok);
+      await next.drain<void>();
+      expect(sink.texts, ['下一个短语']);
     },
   );
 

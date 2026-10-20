@@ -96,6 +96,67 @@ void main() {
     await _dispose(service, server);
   });
 
+  test(
+    'input busy is typed only for the exact 409 response and is not retried',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var requests = 0;
+      server.listen((request) async {
+        requests++;
+        await request.drain<void>();
+        request.response.statusCode = switch (requests) {
+          1 || 3 || 5 => HttpStatus.conflict,
+          2 => HttpStatus.ok,
+          _ => HttpStatus.internalServerError,
+        };
+        request.response.write(switch (requests) {
+          1 => '{"error":"input_busy"}',
+          2 => '{"ok":true}',
+          3 => '{"error":"input_busy","extra":true}',
+          4 => '{"error":"input_busy"}',
+          _ => 'not json',
+        });
+        await request.response.close();
+      });
+      final service = await _discover(server.port);
+
+      await expectLater(
+        service.sendDictation(
+          sessionId: 's1',
+          sequence: 1,
+          text: 'busy phrase',
+        ),
+        throwsA(isA<CompanionInputBusyException>()),
+      );
+      expect(requests, 1);
+      await service.sendDictation(
+        sessionId: 's1',
+        sequence: 2,
+        text: 'next phrase',
+      );
+      expect(requests, 2);
+
+      for (final sequence in [3, 4, 5]) {
+        await expectLater(
+          service.sendDictation(
+            sessionId: 's1',
+            sequence: sequence,
+            text: 'generic failure $sequence',
+          ),
+          throwsA(
+            isA<CompanionDictationException>().having(
+              (error) => error.runtimeType,
+              'runtimeType',
+              CompanionDictationException,
+            ),
+          ),
+        );
+      }
+      expect(requests, 5);
+      await _dispose(service, server);
+    },
+  );
+
   test('phrase rejection leaves the discovered connection usable', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     var requests = 0;
@@ -133,8 +194,8 @@ void main() {
         await request.drain<void>();
         await Future<void>.delayed(const Duration(milliseconds: 100));
         request.response
-          ..statusCode = HttpStatus.ok
-          ..write('{"ok":true}');
+          ..statusCode = HttpStatus.conflict
+          ..write('{"error":"input_busy"}');
         await request.response.close();
       });
       final service = await _discover(
@@ -148,7 +209,13 @@ void main() {
           sequence: 1,
           text: 'one phrase',
         ),
-        throwsA(isA<CompanionDictationException>()),
+        throwsA(
+          isA<CompanionDictationException>().having(
+            (error) => error.runtimeType,
+            'runtimeType',
+            CompanionDictationException,
+          ),
+        ),
       );
       expect(service.activeHost.value, isNull);
       expect(requests, 1);

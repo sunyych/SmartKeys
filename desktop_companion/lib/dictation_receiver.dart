@@ -24,6 +24,15 @@ class DictationRequestException implements Exception {
   String toString() => message;
 }
 
+class DictationInputBusyException implements Exception {
+  const DictationInputBusyException(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'Text insertion is temporarily blocked: $reason';
+}
+
 /// Validates, deduplicates and serializes phone text delivery.
 class DictationReceiver {
   DictationReceiver({
@@ -235,9 +244,14 @@ class MethodChannelDictationTextSink implements DictationTextSink {
     );
     final status = result?['status'];
     if (status != 'delivered' && status != 'submitted') {
-      throw StateError(
-        'Text insertion failed: ${result?['reason'] ?? 'unknown'}',
-      );
+      final reason = result?['reason'];
+      if (status == 'rejected' &&
+          (reason == 'modifier_key_held' ||
+              reason == 'foreground_changed_or_modifier_held' ||
+              reason == 'held_modifier')) {
+        throw DictationInputBusyException(reason! as String);
+      }
+      throw StateError('Text insertion failed: ${reason ?? 'unknown'}');
     }
   }
 }

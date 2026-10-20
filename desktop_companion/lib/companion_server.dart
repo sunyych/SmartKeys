@@ -108,6 +108,9 @@ class CompanionServer extends ChangeNotifier {
         );
         request.response.write(jsonEncode({'ok': true}));
         notifyListeners();
+      } on DictationInputBusyException {
+        request.response.statusCode = HttpStatus.conflict;
+        request.response.write(jsonEncode({'error': 'input_busy'}));
       } on DictationRequestException catch (caught) {
         request.response.statusCode = caught.statusCode;
         request.response.write(jsonEncode({'error': caught.message}));

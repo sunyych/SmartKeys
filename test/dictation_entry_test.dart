@@ -15,7 +15,7 @@ void main() {
     (tester) async {
       SharedPreferences.setMockInitialValues({
         'dictation.entry_explained.v1': true,
-        'dictation.entry_explained.v2': true,
+        'dictation.entry_explained.v4': true,
       });
       await tester.pumpWidget(
         MaterialApp(

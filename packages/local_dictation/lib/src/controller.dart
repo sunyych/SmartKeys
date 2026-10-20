@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -42,6 +43,9 @@ class LocalDictationController extends ChangeNotifier {
   final DictationTextOutput onText;
   final int maxQueuedSegments, maxQueuedSamples;
   final Duration decodeTimeout;
+  static const int _audioLevelIntervalMicros = 40000;
+  final ValueNotifier<double> _audioLevel = ValueNotifier<double>(0);
+  final Stopwatch _audioLevelClock = Stopwatch()..start();
   LocalAsrModel model;
   DictationLanguage language;
   final PcmSpeechSegmenter _segmenter = PcmSpeechSegmenter();
@@ -49,7 +53,10 @@ class LocalDictationController extends ChangeNotifier {
   StreamSubscription<List<int>>? _audioSub;
   Future<void> _tail = Future<void>.value();
   int _queuedSegments = 0, _queuedSamples = 0, _generation = 0;
+  int? _audioLevelOddByte;
+  int _lastAudioLevelUpdateMicros = -_audioLevelIntervalMicros;
   bool _listening = false, _busy = false, _disposed = false, _closing = false;
+  bool _audioMeterAccepting = false;
   Future<void>? _closeFuture, _stopFuture;
   Future<void>? _startFuture;
   String? _error;
@@ -60,6 +67,7 @@ class LocalDictationController extends ChangeNotifier {
   String? get error => _error;
   String get lastText => _lastText;
   int get queuedSamples => _queuedSamples;
+  ValueListenable<double> get audioLevel => _audioLevel;
 
   Future<void> configure({
     LocalAsrModel? model,
@@ -110,6 +118,7 @@ class LocalDictationController extends ChangeNotifier {
       throw StateError('Dictation controller is closed.');
     }
     if (_listening || _busy) return Future<void>.value();
+    _resetAudioLevel();
     _busy = true;
     _error = null;
     _lastText = '';
@@ -147,12 +156,14 @@ class LocalDictationController extends ChangeNotifier {
       _audioSub = stream.listen(
         _onAudio,
         onError: (Object e, StackTrace _) {
+          _resetAudioLevel();
           _error = 'Microphone capture failed: $e';
           _notify();
           unawaited(cancel());
         },
         onDone: () {
           if (_listening && !_closing) {
+            _resetAudioLevel();
             _error = 'Microphone stream ended.';
             _notify();
             unawaited(stop());
@@ -160,7 +171,9 @@ class LocalDictationController extends ChangeNotifier {
         },
       );
       _listening = true;
+      _audioMeterAccepting = true;
     } catch (e) {
+      _resetAudioLevel();
       if (startGeneration == _generation && !_closing) _error = e.toString();
       rethrow;
     } finally {
@@ -170,6 +183,7 @@ class LocalDictationController extends ChangeNotifier {
   }
 
   Future<void> stop() {
+    _resetAudioLevel();
     if (_stopFuture != null) return _stopFuture!;
     if (_startFuture != null) {
       ++_generation;
@@ -187,6 +201,7 @@ class LocalDictationController extends ChangeNotifier {
   }
 
   Future<void> _stop({required bool flush}) async {
+    _resetAudioLevel();
     _busy = true;
     _notify();
     Object? captureError;
@@ -224,6 +239,7 @@ class LocalDictationController extends ChangeNotifier {
   /// Cancels the current generation, releasing resources and dropping all
   /// unprocessed utterances. Any decode already in native code cannot deliver.
   Future<void> cancel() async {
+    _resetAudioLevel();
     ++_generation;
     final starting = _startFuture;
     if (starting != null) await starting.catchError((_) {});
@@ -244,10 +260,12 @@ class LocalDictationController extends ChangeNotifier {
   void _onAudio(List<int> bytes) {
     if (!_listening || _closing || _disposed) return;
     try {
+      _updateAudioLevel(bytes);
       for (final segment in _segmenter.addPcm16(bytes)) {
         _enqueue(segment, _generation);
       }
     } catch (e) {
+      _resetAudioLevel();
       _error = 'Invalid microphone PCM data: $e';
       _notify();
       unawaited(cancel());
@@ -317,6 +335,7 @@ class LocalDictationController extends ChangeNotifier {
   Future<void> close() {
     if (_closeFuture != null) return _closeFuture!;
     _closing = true;
+    _resetAudioLevel(emitDuringClosing: true);
     _disposed = true;
     ++_generation;
     return _closeFuture = _close();
@@ -344,6 +363,7 @@ class LocalDictationController extends ChangeNotifier {
       _recognizer = null;
       _listening = false;
       _busy = false;
+      _audioLevel.dispose();
     }
   }
 
@@ -355,5 +375,58 @@ class LocalDictationController extends ChangeNotifier {
 
   void _notify() {
     if (!_disposed) notifyListeners();
+  }
+
+  void _resetAudioLevel({bool emitDuringClosing = false}) {
+    _audioMeterAccepting = false;
+    _audioLevelOddByte = null;
+    _lastAudioLevelUpdateMicros = _audioLevelClock.elapsedMicroseconds;
+    if ((!_closing || emitDuringClosing) &&
+        !_disposed &&
+        _audioLevel.value != 0) {
+      _audioLevel.value = 0;
+    }
+  }
+
+  void _updateAudioLevel(List<int> bytes) {
+    if (!_audioMeterAccepting || bytes.isEmpty) return;
+    var sumSquares = 0.0;
+    var sampleCount = 0;
+    var index = 0;
+
+    final oddByte = _audioLevelOddByte;
+    _audioLevelOddByte = null;
+    if (oddByte != null && bytes.isNotEmpty) {
+      final sample = _normalizedPcm16(oddByte, bytes[0]);
+      sumSquares += sample * sample;
+      sampleCount++;
+      index = 1;
+    }
+    while (index + 1 < bytes.length) {
+      final sample = _normalizedPcm16(bytes[index], bytes[index + 1]);
+      sumSquares += sample * sample;
+      sampleCount++;
+      index += 2;
+    }
+    if (index < bytes.length) _audioLevelOddByte = bytes[index] & 0xff;
+    if (sampleCount == 0) return;
+
+    final now = _audioLevelClock.elapsedMicroseconds;
+    if (now - _lastAudioLevelUpdateMicros < _audioLevelIntervalMicros ||
+        _closing ||
+        _disposed) {
+      return;
+    }
+    _lastAudioLevelUpdateMicros = now;
+    _audioLevel.value = math
+        .sqrt(sumSquares / sampleCount)
+        .clamp(0.0, 1.0)
+        .toDouble();
+  }
+
+  static double _normalizedPcm16(int lowByte, int highByte) {
+    final unsigned = (lowByte & 0xff) | ((highByte & 0xff) << 8);
+    final signed = unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;
+    return signed / 32768.0;
   }
 }

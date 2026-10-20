@@ -392,6 +392,107 @@ void main() {
     );
   });
 
+  testWidgets(
+    'live dictation chip keeps home keyboard visible in both orientations',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final shots = ScreenshotSupport(tester);
+      final harness = await TestHarness.create();
+      final capture = _ScreenshotCapture();
+      final manager = _ScreenshotModelManager()
+        ..readyModels.add(LocalAsrModel.senseVoice);
+      final boundaryKey = GlobalKey();
+      addTearDown(() async {
+        await shots.unmount();
+        await capture.dispose();
+        shots.resetViewport();
+        await harness.dispose();
+      });
+      harness.hid.status.value = HidConnectionStatus.connected;
+      await shots.setViewport(const Size(412, 915));
+      await tester.pumpWidget(
+        _app(
+          harness,
+          boundaryKey,
+          Stack(
+            fit: StackFit.expand,
+            children: [
+              const HomeScreen(),
+              Positioned.fill(
+                child: LocalDictationPanel(
+                  hid: harness.hid,
+                  modelManager: manager,
+                  capture: capture,
+                  recognizerFactory: (_, _) async => _ScreenshotRecognizer(),
+                  enableWakeLock: () async {},
+                  disableWakeLock: () async {},
+                  autoCollapseWhileListening: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('dictation-entry-barrier')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('button-grid-3x5')), findsOneWidget);
+      await shots.capture(
+        id: 'phone-dictation-live-chip-portrait',
+        title: 'Local dictation · compact live chip in portrait',
+        orientation: 'portrait',
+        notes:
+            'The stop and microphone-level chip occupies the quick-dictation corner while the home keyboard remains available.',
+        boundaryKey: boundaryKey,
+      );
+
+      await shots.setViewport(const Size(915, 412));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('button-grid-5x3')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await shots.capture(
+        id: 'phone-dictation-live-chip-landscape',
+        title: 'Local dictation · compact live chip in landscape',
+        orientation: 'landscape',
+        notes:
+            'The listening chip stays in the existing corner without covering the landscape keyboard grid.',
+        boundaryKey: boundaryKey,
+      );
+      await tester.tap(find.byKey(const ValueKey('stop-dictation-compact')));
+      await tester.pumpAndSettle();
+      for (
+        var frame = 0;
+        frame < 30 &&
+            find
+                .byKey(const ValueKey('stop-dictation-compact'))
+                .evaluate()
+                .isNotEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('local dictation panel covers model, language, listening and error states', (
     tester,
   ) async {

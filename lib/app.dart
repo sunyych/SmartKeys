@@ -13,6 +13,7 @@ import 'services/companion_service.dart';
 import 'services/orientation_service.dart';
 import 'services/power_brightness_service.dart';
 import 'ui/home_screen.dart';
+import 'ui/local_dictation_route_observer.dart';
 
 class SmartKeysApp extends StatefulWidget {
   const SmartKeysApp({super.key, this.controller});
@@ -77,6 +78,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
       controller: controller,
       child: MaterialApp(
         title: 'LumiaKey',
+        navigatorObservers: [localDictationRouteObserver],
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,

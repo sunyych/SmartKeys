@@ -316,6 +316,12 @@ class LanCompanionService implements CompanionService {
         );
       }
       if (response.statusCode != HttpStatus.ok) {
+        if (response.statusCode == HttpStatus.conflict &&
+            _isInputBusyResponse(responseBody)) {
+          throw const CompanionInputBusyException(
+            'A manual keyboard shortcut is active. The dictated phrase was dropped.',
+          );
+        }
         throw CompanionDictationException(
           responseBody.isEmpty
               ? 'Desktop could not insert the dictated text.'
@@ -461,4 +467,19 @@ class CompanionDictationException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class CompanionInputBusyException extends CompanionDictationException {
+  const CompanionInputBusyException(super.message);
+}
+
+bool _isInputBusyResponse(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    return decoded is Map &&
+        decoded.length == 1 &&
+        decoded['error'] == 'input_busy';
+  } on FormatException {
+    return false;
+  }
 }

@@ -13,6 +13,19 @@ computer application's own voice-input feature. Its microphone processing and
 privacy depend on that application. The two buttons use different icons, and
 the first-use explanation distinguishes them.
 
+Tap the dictation microphone to quick-start with the last selected output. On
+first use, or if the selected model is missing, LumiaKey opens setup instead of
+starting capture. Long-press the microphone to always open output, model, and
+recognition-language settings, even when the model is ready and quick-start
+would begin immediately.
+
+While listening, LumiaKey returns to the phone's shortcut controls and keeps
+them usable. A compact **44 × 40** corner control combines Stop with a live
+microphone-level indicator in both Bluetooth and Desktop modes. The level comes
+from the existing in-memory PCM stream; no recording is created or sent. Stop
+returns to the home screen. Back or opening settings cancels capture, and
+returning to the app does not restart dictation automatically.
+
 ## Bluetooth output
 
 Bluetooth output is deliberately English-only. It requires an English input
@@ -42,11 +55,15 @@ LAN. Desktop uses its Unicode text-insertion adapter for the focused external
 application. No audio or interim transcript is transferred.
 
 This mode requires a discovered, compatible Desktop host advertising the
-dictation receiver. If that host is absent, becomes stale, changes during
-capture, or rejects insertion, dictation reports the failure and cancels the
-session. It never falls back to Bluetooth and never automatically retries a
-phrase. Native insertion capability errors fail closed; success is acknowledged
-only after the complete text submission is reported by the native sink.
+dictation receiver. If that host is absent, becomes stale or changes during
+capture, dictation cancels the session. A confirmed `input_busy` result means
+the native injector rejected the phrase before inserting any characters; the
+phone drops that phrase and keeps listening so a later phrase can be captured.
+A manually triggered shortcut preemption also drops the interrupted phrase and
+keeps listening. Neither case replays the phrase. Unknown or partial native
+insertion failures cancel the session, with no automatic retry or Bluetooth
+fallback. Success is acknowledged only after the complete text submission is
+reported by the native sink.
 
 For Bluetooth output, delivery is serialized, bounded and pinned to the selected
 Bluetooth host.

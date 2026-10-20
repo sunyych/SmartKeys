@@ -1,6 +1,56 @@
-# Current and historical local dictation validation — 2026-10-20
+# Local dictation validation records — 2026-10-20
 
-## Current verification — 1.2.1+3
+## Current validation — 1.2.2+4
+
+The 1.2.2+4 implementation and release checks passed. Task 7 adds a home-owned
+corner Stop-and-level control while preserving shortcut use during listening.
+Tapping the microphone quick-starts with the last output choice; first use or a
+missing model opens setup. Long-press always opens output/model/language
+settings. Stop returns home; Back or settings cancels capture without automatic
+restart. Bluetooth remains English-only with a US keyboard layout. Desktop
+multilingual delivery still sends final text only. A proven pre-insertion
+`input_busy` result or manual shortcut preemption drops only that phrase and
+keeps listening; unknown or partial insertion failures cancel, with no replay.
+
+All suites passed with zero skips: **190 tests total** (174 Dart plus 16
+Kotlin). The four Dart package analyses passed, as did all 18 changed-Dart-file
+format checks and all four PowerShell installer suites. The one initial
+exFAT-hosted Kotlin-cache failure was rerun successfully from NTFS; the initial
+transient Windows directory-lock issue was also resolved by retry. No failures
+remain.
+
+| Suite | Passed | Skipped | Measured Dart line coverage |
+| --- | ---: | ---: | ---: |
+| Phone app, including screenshot tests | 115 | 0 | 3866 / 4883 (79.17%) |
+| Desktop Companion, including screenshot tests | 28 | 0 | 1113 / 1776 (62.67%) |
+| Shared protocol | 6 | 0 | 304 / 351 (86.61%) |
+| Local dictation engine, including SenseVoice fixtures | 25 | 0 | 582 / 706 (82.44%) |
+| Android Kotlin tests (13 HID, 3 installer) | 16 | 0 | Not instrumented |
+
+Aggregate owned Dart `lib` coverage is **5865 / 7716 lines (76.01%)**. Native
+coverage is not measured. The engine suite includes the real SenseVoice zh/en
+fixture sequence. Screenshot suites produced **60 captures** (38 phone, 22
+desktop); the root agent reviewed the horizontal and vertical live-chip states.
+The gallery is `build/ui_screenshots-indicator/index.html`, and its archive is
+`build/artifacts/LumiaKey-1.2.2-screenshots.zip`. These are deterministic
+Flutter renders, not physical-device screenshots.
+
+The Android split debug build succeeded. On a Moto g play (2024), installation
+of `com.lumiaiq.smartkey` version **1.2.2**, version code **2004**, returned
+`Success`; `am start` returned `Status: ok` with PID **29778**. The installed
+base APK SHA-256 matched
+`C63ABA939D875E9F5ABE595BCBDA3ADE5E61F68DC5ADD33891315D5D38AAD704`. Existing
+SenseVoice model and token hashes remained unchanged.
+
+The Windows Release build and installer upgrade to **1.2.2+4** succeeded. All
+23 managed files matched their SHA-256 inventory; the app launched with PID
+**58140**, and the existing model hash remained unchanged.
+
+No live microphone-to-target typing acceptance, native macOS build, or release
+CI run is claimed. Native coverage was not measured. The verified 1.2.1+3
+results below remain historical baseline evidence for that prior version.
+
+## Verified baseline — 1.2.1+3
 
 All available 1.2.1+3 automated checks passed. Four Dart packages passed
 analysis and their complete suites with measured coverage; Android Kotlin unit
@@ -199,10 +249,10 @@ route or ARM64 install/reinstall.
 USB export uses a local SAF folder and MTP; it does not expose a USB
 mass-storage drive or Windows drive letter.
 
-## Current output-policy validation status
+## 1.2.1+3 output-policy validation status
 
-The package version is `1.2.1+3` in both phone and Desktop manifests. Current
-automated results, screenshot review, Android ARM64 install and Windows
-installer upgrade are recorded at the top of this document. Live microphone
-and target-typing acceptance and native macOS build/permissions remain
-unverified; no claim is made for those checks.
+The phone and Desktop manifests used version `1.2.1+3` for the verified
+baseline above. Its automated results, screenshot review, Android ARM64 install
+and Windows installer upgrade are recorded at the top of this document. Live
+microphone and target-typing acceptance and native macOS build/permissions
+remain unverified; no claim is made for those checks.

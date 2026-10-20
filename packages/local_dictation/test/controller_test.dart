@@ -13,6 +13,7 @@ class FakeCapture implements DictationCapture {
   final StreamController<List<int>> controller =
       StreamController<List<int>>.broadcast(sync: true);
   bool permission = true;
+  Completer<void>? stopGate;
   int startCalls = 0, stopCalls = 0, disposeCalls = 0;
   @override
   Future<bool> hasPermission() async => permission;
@@ -25,6 +26,7 @@ class FakeCapture implements DictationCapture {
   @override
   Future<void> stop() async {
     stopCalls++;
+    await stopGate?.future;
   }
 
   @override
@@ -105,6 +107,176 @@ void main() {
   });
   tearDown(() async {
     if (await temp.exists()) await temp.delete(recursive: true);
+  });
+
+  test(
+    'audio level is throttled normalized RMS across odd PCM chunks',
+    () async {
+      final capture = FakeCapture();
+      final controller = LocalDictationController(
+        modelManager: manager,
+        capture: capture,
+        recognizerFactory: (_, _) async => FakeRecognizer((_, _) async => ''),
+        onText: (_) async {},
+      );
+      await controller.start();
+
+      final quiet = pcm(4, 1600);
+      capture.add([quiet[0]]);
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      expect(controller.audioLevel.value, 0);
+
+      capture.add(quiet.sublist(1, 3));
+      expect(controller.audioLevel.value, closeTo(1600 / 32768, 0.000001));
+      capture.add(const <int>[]);
+      capture.add(quiet.sublist(3));
+      capture.add(pcm(4, 24000));
+      expect(controller.audioLevel.value, closeTo(1600 / 32768, 0.000001));
+
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      capture.add(pcm(4, -24000));
+      expect(controller.audioLevel.value, closeTo(24000 / 32768, 0.000001));
+
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      capture.add(pcm(4, 0));
+      expect(controller.audioLevel.value, 0);
+      await controller.close();
+    },
+  );
+
+  test('audio level resets on stop, cancel, capture error and close', () async {
+    final capture = FakeCapture();
+    final controller = LocalDictationController(
+      modelManager: manager,
+      capture: capture,
+      recognizerFactory: (_, _) async => FakeRecognizer((_, _) async => ''),
+      onText: (_) async {},
+    );
+
+    await controller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 45));
+    capture.add(pcm(4, 22000));
+    expect(controller.audioLevel.value, greaterThan(0));
+    await controller.stop();
+    expect(controller.audioLevel.value, 0);
+
+    await controller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 45));
+    capture.add(pcm(4, 22000));
+    expect(controller.audioLevel.value, greaterThan(0));
+    await controller.cancel();
+    expect(controller.audioLevel.value, 0);
+
+    await controller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 45));
+    capture.add(pcm(4, 22000));
+    expect(controller.audioLevel.value, greaterThan(0));
+    final updates = <double>[];
+    controller.audioLevel.addListener(() {
+      updates.add(controller.audioLevel.value);
+    });
+    capture.controller.addError(StateError('device disconnected'));
+    for (var i = 0; i < 20 && controller.listening; i++) {
+      await settle();
+    }
+    expect(controller.listening, isFalse);
+    expect(controller.error, contains('device disconnected'));
+    expect(controller.audioLevel.value, 0);
+
+    await controller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 45));
+    capture.add(pcm(4, 22000));
+    expect(controller.audioLevel.value, greaterThan(0));
+    await controller.close();
+    expect(controller.audioLevel.value, 0);
+    final updatesAfterClose = updates.length;
+    expect(() => controller.start(), throwsStateError);
+    expect(updates, hasLength(updatesAfterClose));
+  });
+
+  test(
+    'late PCM cannot restore the meter while stop or cancel is pending',
+    () async {
+      final capture = FakeCapture();
+      final controller = LocalDictationController(
+        modelManager: manager,
+        capture: capture,
+        recognizerFactory: (_, _) async => FakeRecognizer((_, _) async => ''),
+        onText: (_) async {},
+      );
+
+      await controller.start();
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      capture.add(pcm(4, 22000));
+      expect(controller.audioLevel.value, greaterThan(0));
+
+      final stopGate = Completer<void>();
+      capture.stopGate = stopGate;
+      final stopping = controller.stop();
+      expect(controller.audioLevel.value, 0);
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      capture.add(pcm(4, 24000));
+      expect(controller.audioLevel.value, 0);
+      stopGate.complete();
+      await stopping;
+
+      capture.stopGate = null;
+      await controller.start();
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      capture.add(pcm(4, 22000));
+      expect(controller.audioLevel.value, greaterThan(0));
+
+      final cancelGate = Completer<void>();
+      capture.stopGate = cancelGate;
+      final cancelling = controller.cancel();
+      expect(controller.audioLevel.value, 0);
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      capture.add(pcm(4, 24000));
+      expect(controller.audioLevel.value, 0);
+      cancelGate.complete();
+      await cancelling;
+      await controller.close();
+    },
+  );
+
+  test('start failure leaves audio level at zero', () async {
+    final capture = FakeCapture()..permission = false;
+    final controller = LocalDictationController(
+      modelManager: manager,
+      capture: capture,
+      recognizerFactory: (_, _) async => FakeRecognizer((_, _) async => ''),
+      onText: (_) async {},
+    );
+
+    await expectLater(controller.start(), throwsStateError);
+    expect(controller.audioLevel.value, 0);
+    expect(capture.startCalls, 0);
+    await controller.close();
+  });
+
+  test('dispose resets the meter and prevents later notifications', () async {
+    final capture = FakeCapture();
+    final controller = LocalDictationController(
+      modelManager: manager,
+      capture: capture,
+      recognizerFactory: (_, _) async => FakeRecognizer((_, _) async => ''),
+      onText: (_) async {},
+    );
+    final updates = <double>[];
+    controller.audioLevel.addListener(() {
+      updates.add(controller.audioLevel.value);
+    });
+
+    await controller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 45));
+    capture.add(pcm(4, 22000));
+    expect(controller.audioLevel.value, greaterThan(0));
+    controller.dispose();
+    expect(controller.audioLevel.value, 0);
+    await controller.close();
+    final updatesAfterDispose = updates.length;
+    await Future<void>.delayed(const Duration(milliseconds: 45));
+    expect(updates, hasLength(updatesAfterDispose));
   });
 
   test(

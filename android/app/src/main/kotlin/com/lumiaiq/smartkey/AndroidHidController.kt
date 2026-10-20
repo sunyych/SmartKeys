@@ -71,18 +71,31 @@ class AndroidHidController(
             "connect" -> connect(call.argument<String>("address"), result)
             "disconnect" -> disconnect(result)
             "sendPress" -> {
-                if (textBatchGate.isActive()) releaseAllInput()
+                if (textBatchGate.isActive()) {
+                    releaseAllInput(
+                        "NAVIGATION_INTERRUPTED",
+                        "Bluetooth text output was interrupted by a manual shortcut.",
+                    )
+                }
                 sendSingle(encoder.press(HidActionData.from(call.arguments)), result)
             }
             "sendRelease" -> {
-                if (textBatchGate.isActive()) releaseAllInput()
+                if (textBatchGate.isActive()) {
+                    releaseAllInput(
+                        "NAVIGATION_INTERRUPTED",
+                        "Bluetooth text output was interrupted by a manual shortcut.",
+                    )
+                }
                 sendSingle(encoder.release(HidActionData.from(call.arguments)), result)
             }
             "sendStep" -> sendStep(HidActionData.from(call.arguments), result)
             "sendTextBatch" -> sendTextBatch(call.arguments, result)
             "cancelTextBatch" -> cancelTextBatch(call.argument<String>("sessionToken"), result)
             "releaseAllKeys" -> {
-                releaseAllInput()
+                releaseAllInput(
+                    "NAVIGATION_INTERRUPTED",
+                    "Bluetooth text output was interrupted by a navigation or context change.",
+                )
                 result.success(null)
             }
             else -> result.notImplemented()
@@ -251,7 +264,12 @@ class AndroidHidController(
     }
 
     private fun sendStep(action: HidActionData, result: MethodChannel.Result) {
-        if (textBatchGate.isActive()) releaseAllInput()
+        if (textBatchGate.isActive()) {
+            releaseAllInput(
+                "NAVIGATION_INTERRUPTED",
+                "Bluetooth text output was interrupted by a manual shortcut.",
+            )
+        }
         if (action.type !in setOf("keyboard", "consumerControl", "mouseWheel", "mouseMove", "mouseButton")) {
             result.error("INVALID_ACTION", "The configured navigation action is not supported.", null)
             return
@@ -418,7 +436,10 @@ class AndroidHidController(
         }, REPORT_RELEASE_DELAY_MS)
     }
 
-    private fun releaseAllInput() {
+    private fun releaseAllInput(
+        textBatchErrorCode: String = "CANCELLED",
+        textBatchErrorMessage: String = "Bluetooth input was cancelled.",
+    ) {
         stepQueue.clear()
         stepGeneration++
         stepInFlight = false
@@ -426,7 +447,7 @@ class AndroidHidController(
             textBatch = null
             textBatchGate.cancelForNavigation()
             textBatchGeneration++
-            active.result.error("CANCELLED", "Bluetooth input was cancelled.", null)
+            active.result.error(textBatchErrorCode, textBatchErrorMessage, null)
         }
         sendReports(encoder.releaseAll())
     }

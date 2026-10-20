@@ -123,12 +123,15 @@ class HidReportEncoderTest {
         assertFalse(gate.begin("dictation-2"))
         assertFalse(gate.cancel("another-session"))
 
-        // sendPress/sendRelease/sendStep call releaseAllInput before emitting
-        // their report; this gate is the controller's native exclusivity state.
+        // sendPress/sendRelease/sendStep and AppController's releaseAllKeys
+        // preempt the current phrase with a recoverable interruption; the
+        // phone can begin the next phrase in the same session afterward.
         assertTrue(gate.cancelForNavigation())
         assertTrue(gate.allowsNavigationInput())
         assertFalse(gate.isActive())
-        assertFalse(gate.finish("dictation-1"))
+        assertTrue(gate.begin("dictation-1"))
+        assertFalse(gate.allowsNavigationInput())
+        assertTrue(gate.finish("dictation-1"))
     }
 
     @Test

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -11,6 +12,7 @@ import '../services/companion_service.dart';
 import '../services/hid_service.dart';
 import '../services/hid_text_output_service.dart';
 import 'dictation_entry_consent.dart';
+import 'local_dictation_route_observer.dart';
 
 const _modelPreferenceKey = 'dictation.model.v1';
 const _languagePreferenceKey = 'dictation.language.v1';
@@ -23,19 +25,161 @@ enum DictationOutputMode { bluetoothEnglish, desktopMultilingual }
 const _desktopDictationCapability = 'local-dictation-v1';
 int _nextDictationSession = 0;
 
-Future<void> showLocalDictationPanel(
-  BuildContext context, {
-  required HidService hid,
-  CompanionService? companion,
-}) async {
-  if (!await ensureDictationEntryExplained(context) || !context.mounted) return;
-  await showDialog<void>(
-    context: context,
-    builder: (_) => LocalDictationPanel(
-      hid: hid,
-      companion: companion,
-      autoStartWhenReady: true,
-    ),
+class LocalDictationEntryButton extends StatefulWidget {
+  const LocalDictationEntryButton({
+    super.key,
+    required this.hid,
+    this.companion,
+    this.modelManager,
+    this.capture,
+    this.recognizerFactory,
+    this.enableWakeLock = WakelockPlus.enable,
+    this.disableWakeLock = WakelockPlus.disable,
+  });
+
+  final HidService hid;
+  final CompanionService? companion;
+  final ModelManager? modelManager;
+  final DictationCapture? capture;
+  final Future<DictationRecognizer> Function(
+    LocalAsrModelFiles,
+    DictationLanguage,
+  )?
+  recognizerFactory;
+  final Future<void> Function()? enableWakeLock;
+  final Future<void> Function()? disableWakeLock;
+
+  @override
+  State<LocalDictationEntryButton> createState() =>
+      _LocalDictationEntryButtonState();
+}
+
+class _LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
+    with RouteAware {
+  LocalHistoryEntry? _historyEntry;
+  PageRoute<dynamic>? _route;
+  bool _opening = false;
+  bool _entryVisible = false;
+  bool _autoStartCurrentEntry = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (identical(route, _route)) return;
+    if (_route != null) localDictationRouteObserver.unsubscribe(this);
+    _route = route is PageRoute<dynamic> ? route : null;
+    if (_route case final route?) {
+      localDictationRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    _removeEntry();
+  }
+
+  Future<void> _open({required bool autoStart}) async {
+    if (_opening || _entryVisible) return;
+    _opening = true;
+    try {
+      if (!await ensureDictationEntryExplained(context) ||
+          !mounted ||
+          (_route != null && !_route!.isCurrent)) {
+        return;
+      }
+      final route = _route;
+      if (route != null) {
+        late final LocalHistoryEntry historyEntry;
+        historyEntry = LocalHistoryEntry(
+          onRemove: () => _handleHistoryRemoval(historyEntry),
+        );
+        _historyEntry = historyEntry;
+        route.addLocalHistoryEntry(historyEntry);
+      }
+      setState(() {
+        _entryVisible = true;
+        _autoStartCurrentEntry = autoStart;
+      });
+    } finally {
+      _opening = false;
+    }
+  }
+
+  void _dismissEntry() {
+    if (!_entryVisible && _historyEntry == null) return;
+    _entryVisible = false;
+    final historyEntry = _historyEntry;
+    _historyEntry = null;
+    historyEntry?.remove();
+    if (mounted) setState(() {});
+  }
+
+  void _handleHistoryRemoval(LocalHistoryEntry? historyEntry) {
+    if (!identical(_historyEntry, historyEntry)) return;
+    _historyEntry = null;
+    _entryVisible = false;
+    if (mounted) setState(() {});
+  }
+
+  void _removeEntry() {
+    _dismissEntry();
+  }
+
+  @override
+  void dispose() {
+    localDictationRouteObserver.unsubscribe(this);
+    _route = null;
+    final historyEntry = _historyEntry;
+    _historyEntry = null;
+    _entryVisible = false;
+    historyEntry?.remove();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      Positioned(
+        top: 7,
+        right: 142,
+        child: Tooltip(
+          triggerMode: TooltipTriggerMode.manual,
+          message:
+              'Tap to quick-start with the selected output · hold for output and language options',
+          child: Semantics(
+            button: true,
+            label: 'Local quick dictation',
+            hint:
+                'Tap to quick-start with the selected output; hold to choose Bluetooth English or multilingual LumiaKey Desktop output. Speech stays on this phone.',
+            child: IconButton.filledTonal(
+              key: const ValueKey('local-quick-output'),
+              tooltip: null,
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _open(autoStart: true),
+              onLongPress: () => _open(autoStart: false),
+              icon: const Icon(Icons.mic_external_on),
+            ),
+          ),
+        ),
+      ),
+      if (_entryVisible)
+        Positioned.fill(
+          child: LocalDictationPanel(
+            hid: widget.hid,
+            companion: widget.companion,
+            autoStartWhenReady: _autoStartCurrentEntry,
+            autoCollapseWhileListening: true,
+            modelManager: widget.modelManager,
+            capture: widget.capture,
+            recognizerFactory: widget.recognizerFactory,
+            enableWakeLock: widget.enableWakeLock,
+            disableWakeLock: widget.disableWakeLock,
+            onDismiss: _dismissEntry,
+          ),
+        ),
+    ],
   );
 }
 
@@ -45,6 +189,8 @@ class LocalDictationPanel extends StatefulWidget {
     required this.hid,
     this.companion,
     this.autoStartWhenReady = false,
+    this.autoCollapseWhileListening = false,
+    this.onDismiss,
     this.modelManager,
     this.capture,
     this.textOutput,
@@ -56,6 +202,8 @@ class LocalDictationPanel extends StatefulWidget {
   final HidService hid;
   final CompanionService? companion;
   final bool autoStartWhenReady;
+  final bool autoCollapseWhileListening;
+  final VoidCallback? onDismiss;
   final ModelManager? modelManager;
   final DictationCapture? capture;
   final HidTextOutputService? textOutput;
@@ -248,7 +396,27 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
           'Dictation session has ended or its Bluetooth host changed.',
         );
       }
-      await _textOutput.sendText(session, text);
+      try {
+        await _textOutput.sendText(session, text);
+      } on PlatformException catch (error) {
+        final recoverableInterruption =
+            error.code == 'NAVIGATION_INTERRUPTED' ||
+            error.code == 'INPUT_BUSY';
+        if (recoverableInterruption &&
+            identical(_textSession, session) &&
+            _sessionHostValid) {
+          if (mounted) {
+            setState(
+              () => _panelError =
+                  'Bluetooth text was interrupted by manual input. This phrase was skipped; dictation continues.',
+            );
+          }
+          return;
+        }
+        _invalidateBluetoothSessionAfterDeliveryFailure(session, error);
+      } catch (error) {
+        _invalidateBluetoothSessionAfterDeliveryFailure(session, error);
+      }
       return;
     }
     final companion = widget.companion;
@@ -265,9 +433,70 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         sequence: sequence,
         text: text,
       );
+    } on CompanionInputBusyException catch (error) {
+      if (_desktopSessionId == sessionId && _sessionCompanionValid) {
+        if (mounted) {
+          setState(
+            () => _panelError =
+                'Manual keyboard shortcut is active. This phrase was skipped; dictation continues.',
+          );
+        }
+        return;
+      }
+      _invalidateDesktopSessionAfterDeliveryFailure(sessionId, error);
+      rethrow;
     } catch (error) {
       _invalidateDesktopSessionAfterDeliveryFailure(sessionId, error);
       rethrow;
+    }
+  }
+
+  void _invalidateBluetoothSessionAfterDeliveryFailure(
+    HidTextOutputSession session,
+    Object error,
+  ) {
+    if (!identical(_textSession, session)) return;
+    _textSession = null;
+    ++_startGeneration;
+    _starting = false;
+    _cancelling = true;
+    _panelError = 'Bluetooth text delivery failed; dictation stopped: $error';
+    if (mounted) setState(() {});
+    unawaited(_stopAfterBluetoothDeliveryFailure(session));
+  }
+
+  Future<void> _stopAfterBluetoothDeliveryFailure(
+    HidTextOutputSession session,
+  ) async {
+    Object? stopError;
+    try {
+      await _dictation.cancel();
+    } catch (error) {
+      stopError = error;
+    }
+    _sessionHost = null;
+    _wakeLockHeld = false;
+    try {
+      await _textOutput.cancelSession(session);
+    } catch (error) {
+      stopError ??= error;
+    }
+    try {
+      await widget.disableWakeLock?.call();
+    } catch (error) {
+      stopError ??= error;
+    }
+    if (mounted) {
+      setState(() {
+        _sessionHost = null;
+        _cancelling = false;
+        if (stopError != null) {
+          _panelError = '$_panelError (stop failed: $stopError)';
+        }
+      });
+    } else {
+      _sessionHost = null;
+      _cancelling = false;
     }
   }
 
@@ -594,11 +823,13 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       _sessionOutputValid &&
       generation == _startGeneration;
 
-  Future<void> _stop() async {
+  Future<bool> _stop() async {
+    var succeeded = true;
     _stopping = true;
     try {
       await _dictation.stop();
     } catch (error) {
+      succeeded = false;
       if (mounted) setState(() => _panelError = '$error');
     } finally {
       final session = _textSession;
@@ -610,6 +841,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         try {
           await _textOutput.cancelSession(session);
         } catch (error) {
+          succeeded = false;
           if (mounted) setState(() => _panelError = '$error');
         }
       }
@@ -617,11 +849,36 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       try {
         await widget.disableWakeLock?.call();
       } catch (error) {
+        succeeded = false;
         if (mounted) setState(() => _panelError = '$error');
       } finally {
         _stopping = false;
       }
       if (mounted) setState(() {});
+    }
+    return succeeded;
+  }
+
+  Future<void> _stopAndDismiss() async {
+    if (!_canStopLiveSession) return;
+    final succeeded = await _stop();
+    if (mounted && succeeded) widget.onDismiss?.call();
+  }
+
+  bool get _canStopLiveSession =>
+      !_starting &&
+      !_stopping &&
+      !_cancelling &&
+      !_configuring &&
+      !_downloading &&
+      !_dictation.busy;
+
+  void _dismissPanel(BuildContext context) {
+    final onDismiss = widget.onDismiss;
+    if (onDismiss != null) {
+      onDismiss();
+    } else {
+      Navigator.pop(context);
     }
   }
 
@@ -829,7 +1086,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       0,
       (sum, file) => sum + file.sizeBytes,
     );
-    return Dialog(
+    final panel = Dialog(
       key: const ValueKey('local-dictation-panel'),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520, maxHeight: 660),
@@ -860,7 +1117,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                         IconButton(
                           key: const ValueKey('close-dictation-panel'),
                           tooltip: 'Close dictation panel',
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: () => _dismissPanel(context),
                           icon: const Icon(Icons.close),
                         ),
                       ],
@@ -908,6 +1165,9 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                               ),
                               items: const [
                                 DropdownMenuItem(
+                                  key: ValueKey(
+                                    'dictation-output-bluetoothEnglish',
+                                  ),
                                   value: DictationOutputMode.bluetoothEnglish,
                                   child: Text(
                                     'Bluetooth English',
@@ -916,6 +1176,9 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                                   ),
                                 ),
                                 DropdownMenuItem(
+                                  key: ValueKey(
+                                    'dictation-output-desktopMultilingual',
+                                  ),
                                   value:
                                       DictationOutputMode.desktopMultilingual,
                                   child: Text(
@@ -950,6 +1213,9 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                                 items: DictationLanguage.values
                                     .map(
                                       (language) => DropdownMenuItem(
+                                        key: ValueKey(
+                                          'dictation-language-${language.name}',
+                                        ),
                                         value: language,
                                         child: Text(
                                           language.label,
@@ -1119,5 +1385,77 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         ),
       ),
     );
+    if (!widget.autoCollapseWhileListening) return panel;
+    if (listening || _stopping) {
+      return Stack(
+        key: const ValueKey('dictation-live-overlay'),
+        children: [
+          Positioned(top: 7, right: 142, child: _buildLiveLevelStopChip()),
+        ],
+      );
+    }
+    return Stack(
+      key: const ValueKey('dictation-setup-overlay'),
+      children: [
+        const ModalBarrier(
+          key: ValueKey('dictation-entry-barrier'),
+          dismissible: false,
+          color: Colors.black54,
+        ),
+        Center(child: panel),
+      ],
+    );
   }
+
+  Widget _buildLiveLevelStopChip() => ValueListenableBuilder<double>(
+    valueListenable: _dictation.audioLevel,
+    builder: (context, level, _) {
+      final percent = (level.clamp(0.0, 1.0) * 100).round();
+      final warning = _panelError;
+      return Tooltip(
+        key: const ValueKey('dictation-live-tooltip'),
+        message: warning == null
+            ? 'Stop dictation · microphone level $percent%'
+            : '$warning · microphone level $percent%',
+        child: Semantics(
+          key: const ValueKey('dictation-live-chip-semantics'),
+          button: true,
+          label: 'Stop dictation',
+          value: warning == null
+              ? 'Microphone level $percent percent'
+              : '$warning; microphone level $percent percent',
+          enabled: _canStopLiveSession,
+          child: Material(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            elevation: 5,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: const ValueKey('stop-dictation-compact'),
+              onTap: _canStopLiveSession ? _stopAndDismiss : null,
+              child: SizedBox(
+                width: 44,
+                height: 40,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.stop_rounded, size: 19),
+                    const SizedBox(height: 3),
+                    SizedBox(
+                      width: 30,
+                      child: LinearProgressIndicator(
+                        value: level.clamp(0.0, 1.0),
+                        minHeight: 3,
+                        semanticsLabel: 'Microphone input level',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }

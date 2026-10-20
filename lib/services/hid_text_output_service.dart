@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'hid_service.dart';
 
@@ -282,6 +283,16 @@ class HidTextOutputService {
           item.completer.complete();
         } catch (error, stackTrace) {
           item.completer.completeError(error, stackTrace);
+          if (_isNavigationInterruption(error) &&
+              _canKeepSessionAfterInterruption(item.session)) {
+            _dropQueuedPhrases(
+              item.session,
+              const HidTextOutputException(
+                'Bluetooth text output was interrupted by manual input. The phrase was dropped.',
+              ),
+            );
+            continue;
+          }
           if (identical(_session, item.session)) {
             // A rejected native batch may have typed only part of the phrase.
             // Invalidate its session and discard every queued phrase; never
@@ -300,6 +311,33 @@ class HidTextOutputService {
       _draining = false;
       if (_queue.isNotEmpty) unawaited(_drain());
     }
+  }
+
+  bool _isNavigationInterruption(Object error) =>
+      error is PlatformException &&
+      (error.code == 'NAVIGATION_INTERRUPTED' || error.code == 'INPUT_BUSY');
+
+  bool _canKeepSessionAfterInterruption(HidTextOutputSession session) {
+    if (!identical(_session, session)) return false;
+    try {
+      _requireValidSession(session);
+      return true;
+    } on HidTextOutputException {
+      return false;
+    }
+  }
+
+  void _dropQueuedPhrases(
+    HidTextOutputSession session,
+    HidTextOutputException error,
+  ) {
+    final stackTrace = StackTrace.current;
+    for (final item in _queue.where(
+      (item) => identical(item.session, session),
+    )) {
+      item.completer.completeError(error, stackTrace);
+    }
+    _queue.removeWhere((item) => identical(item.session, session));
   }
 }
 

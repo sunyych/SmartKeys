@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/hid_text_output_service.dart';
@@ -170,6 +171,59 @@ void main() {
     output.dispose();
     hid.dispose();
   });
+
+  test(
+    'manual shortcut interruption drops old phrases but keeps the dictation session',
+    () async {
+      final hid = RecordingHidService();
+      final failures = <PlatformException>[
+        PlatformException(code: 'NAVIGATION_INTERRUPTED'),
+        PlatformException(code: 'INPUT_BUSY'),
+      ];
+      hid.onTextBatch = () async {
+        if (failures.isNotEmpty) throw failures.removeAt(0);
+      };
+      final output = HidTextOutputService(hid: hid);
+      final session = output.beginSession();
+      final interrupted = output.sendText(session, 'first phrase');
+      final queued = output.sendText(session, 'stale queued phrase');
+
+      await expectLater(
+        interrupted,
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'NAVIGATION_INTERRUPTED',
+          ),
+        ),
+      );
+      await expectLater(queued, throwsA(isA<HidTextOutputException>()));
+      expect(hid.textBatches, hasLength(1));
+      expect(output.pendingPhraseCount, 0);
+      expect(hid.cancelledTextBatches, isEmpty);
+
+      // A phrase spoken while a manual modifier is still held is dropped too.
+      await expectLater(
+        output.sendText(session, 'held modifier phrase'),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(hid.textBatches, hasLength(2));
+      expect(hid.cancelledTextBatches, isEmpty);
+      expect(hid.calls, isNot(contains('releaseAllKeys')));
+
+      await output.sendText(session, 'next phrase');
+      expect(hid.textBatches, hasLength(3));
+      expect(
+        hid.textBatches.last.strokes,
+        UsAsciiHidTextEncoder.encode('next phrase'),
+      );
+      expect(hid.cancelledTextBatches, isEmpty);
+      await output.cancelSession(session);
+      output.dispose();
+      hid.dispose();
+    },
+  );
 
   test(
     'a partial output failure cancels every queued phrase and session',

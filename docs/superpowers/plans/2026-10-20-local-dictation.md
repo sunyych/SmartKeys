@@ -150,3 +150,16 @@ sessionId <= 128 ASCII-safe characters; sequence nonnegative integer.
 - [x] Add exact accented/CJK UTF-8 regressions at the phone client JSON boundary and Desktop receiver sink boundary, retaining rejection/partial-failure no-retry coverage.
 - [x] Root ran all four Dart suites with line coverage, Android Kotlin unit tests, screenshot suites/gallery, ARM64 APK build and Android install/reinstall. Report live microphone/target typing and native macOS acceptance as unverified.
 - [x] Preserve HexNumpad registry details only as superseded historical evidence; do not present it as a current setup step or supported mode.
+
+## Task 7: Start dictation from shortcuts with a live audio meter — complete
+
+**Ownership:** Phone UI coder owns the Home-owned Stack corner control and shortcut interaction while listening. Shared-engine coder owns only the PCM audio-level notifier and focused meter tests in `packages/local_dictation/lib/src/controller.dart` and `packages/local_dictation/test/controller_test.dart`. HID coder owns native/Dart shortcut preemption. Root coordinates integration, full validation, Android build/reinstall, and commit/push.
+
+- [x] Return to shortcut controls after starting capture, keep shortcuts usable, and show the same compact corner control in Bluetooth and Desktop modes.
+- [x] Expose throttled normalized PCM16 RMS as `ValueListenable<double> audioLevel` without per-chunk controller notifications or audio persistence/network transfer.
+- [x] Preserve arbitrary PCM chunk boundaries and ASR input; reset on stop, cancel, capture error, start failure, and close, with no updates after close.
+- [x] Keep shortcut preemption and confirmed zero-output Desktop `input_busy` compatible with capture; drop only the interrupted phrase. Unknown or partial insertion failures cancel; never replay.
+- [x] Add focused meter/lifecycle tests and preserve recognition-language and real SenseVoice regressions.
+- [x] Update product/validation docs and both package versions to `1.2.2+4`; full Dart/Kotlin/installer/screenshot validation, coverage, ARM64 build and Android install completed as recorded in `docs/LOCAL_DICTATION_VALIDATION.md`.
+
+Repository commit/push remains root-owned and is not claimed by this plan update.

@@ -219,6 +219,19 @@ the phone. Desktop mode does not silently fall back to Bluetooth. The first use
 of either dictation entry explains the difference and asks for acknowledgement.
 Declining the explanation does not open the microphone.
 
+Tap the dictation microphone for a quick start using the last selected output.
+On first use, or when the selected model is missing, the app opens setup instead
+of starting capture. Long-press the microphone to always open output, model, and
+recognition-language settings, including when quick start would otherwise begin
+immediately.
+
+While listening, the phone returns to its shortcut controls, which remain
+usable. A compact **44 × 40** corner control combines Stop with the live
+microphone-level indicator in both Bluetooth and Desktop modes. The indicator
+reads the existing in-memory PCM stream; it does not create an audio recording.
+Stop returns to the home screen. Back or opening settings leaves dictation and
+cancels capture; returning later does not restart it automatically.
+
 Audio remains in bounded memory on the phone. It is never sent to Desktop or
 written to an audio file, log, or history. The phone stores only the explicitly
 downloaded/imported model files and the selected model/language preferences.
@@ -236,11 +249,14 @@ the app does not change Windows settings, switch modes, or retry a phrase
 automatically. HexNumpad setup instructions in older validation records are
 historical and superseded; HexNumpad is not a supported output mode.
 
-The screen stays awake only while dictation is active. Stopping, closing the
-panel, leaving the foreground, disconnecting Bluetooth, or changing the
-selected computer stops capture and releases held keys and the wake lock. A
-Desktop host change also cancels capture; delivery failures are shown without
-retry or fallback. Android microphone and Bluetooth permissions are required.
+The screen stays awake only while dictation is active. Stopping, pressing Back,
+opening settings, leaving the foreground, disconnecting Bluetooth, or changing
+the selected computer stops capture and releases held keys and the wake lock.
+A Desktop host change cancels capture. A confirmed pre-insertion input-busy
+result or a manually triggered shortcut preemption drops only the current
+phrase and keeps listening; no phrase is replayed. Unknown or partial delivery
+failures cancel capture without retry or Bluetooth fallback. Android microphone
+and Bluetooth permissions are required.
 
 ### Desktop local dictation
 

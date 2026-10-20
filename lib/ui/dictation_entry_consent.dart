@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const dictationConsentPreferenceKey = 'dictation.entry_explained.v4';
+const dictationConsentPreferenceKey = 'dictation.entry_explained.v5';
 
 Future<bool> ensureDictationEntryExplained(BuildContext context) async {
   final preferences = await SharedPreferences.getInstance();
@@ -30,7 +30,7 @@ Future<bool> ensureDictationEntryExplained(BuildContext context) async {
             leading: Icon(Icons.mic_external_on),
             title: Text('Local quick dictation'),
             subtitle: Text(
-              'Bluetooth English types ASCII through the connected keyboard without PC software. LumiaKey Desktop supports multilingual dictation and needs the PC companion.',
+              'Tap the microphone to quick-start with the selected output. Hold it for output and language settings; after starting, stop from the corner chip, then hold the microphone to change settings. Bluetooth sends English ASCII through the connected keyboard; LumiaKey Desktop supports multilingual dictation and needs the PC companion.',
             ),
           ),
           Text(

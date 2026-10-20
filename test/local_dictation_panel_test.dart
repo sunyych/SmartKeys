@@ -3,14 +3,17 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/hid_text_output_service.dart';
+import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
 import 'package:smart_keys/ui/local_dictation_panel.dart';
+import 'package:smart_keys/ui/local_dictation_route_observer.dart';
 
 Future<void> _tapVisible(WidgetTester tester, Finder target) async {
   await tester.ensureVisible(target);
@@ -351,6 +354,94 @@ void main() {
   );
 
   testWidgets(
+    'desktop modifier busy skips one phrase and continues without HID fallback',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final hid = RecordingHidService();
+      final companion = _BusyOnceCompanion()..host.value = _dictationHost();
+      final capture = _FakeCapture();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              companion: companion,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, _) async => _FakeRecognizer(text: '你好'),
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-output-mode')),
+      );
+      await tester.tap(find.text('LumiaKey Desktop · multilingual').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+
+      Future<void> finalizePhrase() async {
+        capture.audio.add(
+          List<int>.generate(6400, (index) => index.isEven ? 0x10 : 0x27),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+        capture.audio.add(List<int>.filled(32000, 0));
+        for (var frame = 0; frame < 40 && companion.attempts < 1; frame++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 1)),
+          );
+        }
+      }
+
+      await finalizePhrase();
+      expect(companion.attempts, 1);
+      expect(capture.stopCount, 0);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('stop-dictation')))
+            .onPressed,
+        isNotNull,
+        reason: 'a preflight modifier conflict leaves capture listening',
+      );
+      expect(hid.textBatches, isEmpty, reason: 'no HID fallback is allowed');
+      expect(
+        find.textContaining('This phrase was skipped; dictation continues'),
+        findsOneWidget,
+      );
+
+      capture.audio.add(
+        List<int>.generate(6400, (index) => index.isEven ? 0x10 : 0x27),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      capture.audio.add(List<int>.filled(32000, 0));
+      for (var frame = 0; frame < 40 && companion.attempts < 2; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(companion.attempts, 2);
+      expect(companion.dictationRequests, hasLength(1));
+      expect(companion.dictationRequests.single.text, '你好');
+      expect(companion.dictationRequests.single.sequence, 1);
+      expect(capture.stopCount, 0);
+      expect(hid.textBatches, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      hid.dispose();
+      companion.dispose();
+    },
+  );
+
+  testWidgets(
     'desktop delivery failure stops capture and never replays or falls back',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -416,6 +507,432 @@ void main() {
       await tester.pumpAndSettle();
       hid.dispose();
       companion.dispose();
+    },
+  );
+
+  testWidgets(
+    'entry owner prevents duplicate overlays and closes capture with its route',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        dictationConsentPreferenceKey: true,
+      });
+      final hid = _readyHid();
+      final capture = _FakeCapture();
+      var wakeLockEnabled = 0;
+      var wakeLockDisabled = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorObservers: [localDictationRouteObserver],
+          home: Scaffold(
+            body: Stack(
+              children: [
+                Center(
+                  child: TextButton(
+                    key: const ValueKey('underlying-home-shortcut'),
+                    onPressed: () => hid.sendPress(
+                      const HidAction(
+                        type: ActionType.keyboard,
+                        keyCode: 'KEY_A',
+                      ),
+                    ),
+                    child: const Text('Home shortcut'),
+                  ),
+                ),
+                Positioned.fill(
+                  child: LocalDictationEntryButton(
+                    hid: hid,
+                    modelManager: _FakeModelManager(),
+                    capture: capture,
+                    recognizerFactory: (_, _) async => _FakeRecognizer(),
+                    enableWakeLock: () async => wakeLockEnabled++,
+                    disableWakeLock: () async => wakeLockDisabled++,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('local-quick-output')));
+      await tester.tap(find.byKey(const ValueKey('local-quick-output')));
+      await tester.pumpAndSettle();
+      for (var frame = 0; frame < 30 && capture.startCount == 0; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(capture.startCount, 1);
+      expect(wakeLockEnabled, 1);
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('dictation-entry-barrier')),
+        findsNothing,
+      );
+
+      final homeNavigator = Navigator.of(
+        tester.element(find.byKey(const ValueKey('local-quick-output'))),
+      );
+      expect(await homeNavigator.maybePop(), isTrue);
+      await tester.pumpAndSettle();
+      for (
+        var frame = 0;
+        frame < 30 && (capture.stopCount < 1 || wakeLockDisabled < 1);
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(find.text('Home shortcut'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsNothing,
+      );
+      expect(capture.stopCount, 1, reason: 'Back closes entry before home');
+      expect(wakeLockDisabled, 1, reason: 'Back releases wake lock');
+
+      await tester.tap(find.byKey(const ValueKey('local-quick-output')));
+      await tester.pumpAndSettle();
+      for (var frame = 0; frame < 30 && capture.startCount < 2; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsOneWidget,
+      );
+      expect(
+        capture.startCount,
+        2,
+        reason: 'entry can reopen after Back closes it',
+      );
+
+      await tester.tap(find.byKey(const ValueKey('underlying-home-shortcut')));
+      await tester.pumpAndSettle();
+      expect(hid.pressedActions, hasLength(1));
+      expect(capture.stopCount, 1);
+
+      unawaited(
+        Navigator.of(
+          tester.element(find.byKey(const ValueKey('local-quick-output'))),
+        ).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Settings route')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (
+        var frame = 0;
+        frame < 30 && (capture.stopCount < 2 || wakeLockDisabled < 2);
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(capture.stopCount, 2, reason: 'covering route stops capture');
+      expect(wakeLockDisabled, 2, reason: 'route stop releases wake lock');
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsNothing,
+      );
+      Navigator.of(tester.element(find.text('Settings route'))).pop();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsNothing,
+      );
+      expect(capture.startCount, 2, reason: 'return does not restart capture');
+      expect(
+        await homeNavigator.maybePop(),
+        isFalse,
+        reason: 'page navigation removed the old local-history entry',
+      );
+
+      await tester.tap(find.byKey(const ValueKey('local-quick-output')));
+      await tester.pumpAndSettle();
+      for (var frame = 0; frame < 30 && capture.startCount < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(capture.startCount, 3, reason: 'entry can be opened again');
+      expect(wakeLockEnabled, 3);
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      for (
+        var frame = 0;
+        frame < 30 && (capture.stopCount < 3 || wakeLockDisabled < 3);
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(capture.stopCount, 3, reason: 'home disposal closes microphone');
+      expect(wakeLockDisabled, 3, reason: 'home disposal releases wake lock');
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsNothing,
+      );
+      await capture.dispose();
+      hid.dispose();
+    },
+  );
+
+  testWidgets(
+    'holding the quick mic opens multilingual settings without quick-starting',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        dictationConsentPreferenceKey: true,
+      });
+      final hid = RecordingHidService();
+      final companion = RecordingCompanionService()
+        ..host.value = _dictationHost();
+      final capture = _FakeCapture();
+      var configuredLanguage = DictationLanguage.chinese;
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorObservers: [localDictationRouteObserver],
+          home: Scaffold(
+            body: LocalDictationEntryButton(
+              hid: hid,
+              companion: companion,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, language) async {
+                configuredLanguage = language;
+                return _FakeRecognizer(text: 'hello');
+              },
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.longPress(find.byKey(const ValueKey('local-quick-output')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('local-dictation-panel')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('dictation-output-mode')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('dictation-language')), findsNothing);
+      expect(
+        capture.startCount,
+        0,
+        reason: 'hold opens options, not quick start',
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('start-dictation')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(
+        tester
+            .widget<DropdownButtonFormField<DictationOutputMode>>(
+              find.byKey(const ValueKey('dictation-output-mode')),
+            )
+            .onChanged,
+        isNotNull,
+      );
+
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-output-mode')),
+      );
+      final desktopOption = find.byKey(
+        const ValueKey('dictation-output-desktopMultilingual'),
+      );
+      expect(desktopOption, findsOneWidget);
+      await _tapVisible(tester, desktopOption);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('dictation-language')), findsOneWidget);
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('dictation-language')),
+      );
+      final englishOption = find.text('English').hitTestable();
+      expect(englishOption, findsOneWidget);
+      await tester.tap(englishOption);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(configuredLanguage, DictationLanguage.english);
+      expect(capture.startCount, 1);
+      expect(hid.textBatches, isEmpty, reason: 'desktop mode uses no HID');
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      await capture.dispose();
+      hid.dispose();
+      companion.dispose();
+    },
+  );
+
+  testWidgets(
+    'live panel collapses without blocking shortcuts and shows PCM level',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final hid = _readyHid();
+      final capture = _FakeCapture();
+      final allowWakeLockRelease = Completer<void>();
+      var wakeLockReleaseCount = 0;
+      var overlayVisible = true;
+      var shortcutTaps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => Stack(
+                children: [
+                  Center(
+                    child: TextButton(
+                      key: const ValueKey('underlying-shortcut'),
+                      onPressed: () async {
+                        shortcutTaps++;
+                        await hid.sendPress(
+                          const HidAction(
+                            type: ActionType.keyboard,
+                            keyCode: 'KEY_A',
+                          ),
+                        );
+                      },
+                      child: const Text('Shortcut'),
+                    ),
+                  ),
+                  if (overlayVisible)
+                    Positioned.fill(
+                      child: LocalDictationPanel(
+                        hid: hid,
+                        modelManager: _FakeModelManager(),
+                        capture: capture,
+                        recognizerFactory: (_, _) async =>
+                            _FakeRecognizer(text: 'hello'),
+                        enableWakeLock: () async {},
+                        disableWakeLock: () {
+                          wakeLockReleaseCount++;
+                          return allowWakeLockRelease.future;
+                        },
+                        autoCollapseWhileListening: true,
+                        onDismiss: () => setState(() => overlayVisible = false),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('dictation-entry-barrier')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('dictation-output-mode')), findsNothing);
+      expect(capture.startCount, 1);
+
+      final chipSemantics = find.byKey(
+        const ValueKey('dictation-live-chip-semantics'),
+      );
+      expect(
+        tester.widget<Semantics>(chipSemantics).properties.value,
+        contains('0 percent'),
+      );
+      await tester.runAsync(() async {
+        for (var chunk = 0; chunk < 4; chunk++) {
+          capture.audio.add(
+            List<int>.generate(6400, (index) => index.isEven ? 0x10 : 0x27),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
+      await tester.pump();
+      expect(
+        tester.widget<Semantics>(chipSemantics).properties.value,
+        isNot(contains('0 percent')),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('underlying-shortcut')));
+      await tester.pumpAndSettle();
+      expect(shortcutTaps, 1);
+      expect(hid.pressedActions, hasLength(1));
+      expect(capture.startCount, 1, reason: 'shortcut use keeps capture live');
+
+      capture.audio.add(List<int>.filled(32000, 0));
+      for (var frame = 0; frame < 30 && hid.textBatches.isEmpty; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(hid.textBatches, hasLength(1));
+      expect(
+        hid.textBatches.single.strokes,
+        UsAsciiHidTextEncoder.encode('hello'),
+      );
+      expect(capture.stopCount, 0);
+
+      await tester.tap(find.byKey(const ValueKey('stop-dictation-compact')));
+      await tester.pump();
+      expect(capture.stopCount, 1);
+      for (var frame = 0; frame < 30 && wakeLockReleaseCount == 0; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(wakeLockReleaseCount, 1);
+      expect(
+        tester
+            .widget<InkWell>(
+              find.byKey(const ValueKey('stop-dictation-compact')),
+            )
+            .onTap,
+        isNull,
+        reason: 'a second tap is disabled while Stop cleanup is pending',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(capture.stopCount, 1);
+      expect(wakeLockReleaseCount, 1);
+      allowWakeLockRelease.complete();
+      await tester.pumpAndSettle();
+      expect(overlayVisible, isFalse);
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsNothing,
+      );
+      hid.dispose();
     },
   );
 
@@ -552,6 +1069,20 @@ void main() {
       expect(languages.last, DictationLanguage.english);
       expect(capture.startCount, 3);
       recognizers.last.allowDispose.complete();
+      await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+      await tester.pumpAndSettle();
+      for (
+        var frame = 0;
+        frame < 30 && (capture.stopCount < 3 || releasedWakeLocks < 3);
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(capture.stopCount, 3);
+      expect(releasedWakeLocks, 3);
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       await tester.pumpAndSettle();
       hid.dispose();
@@ -926,6 +1457,154 @@ void main() {
   );
 
   testWidgets(
+    'Bluetooth navigation interruption keeps mic live for a later phrase',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final capture = _FakeCapture();
+      final hid = _readyHid();
+      var attempts = 0;
+      hid.onTextBatch = () async {
+        attempts++;
+        if (attempts == 1) {
+          throw PlatformException(
+            code: 'NAVIGATION_INTERRUPTED',
+            message: 'manual navigation interrupted this phrase',
+          );
+        }
+      };
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, _) async => _FakeRecognizer(text: 'hello'),
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+
+      Future<void> finalizePhrase(int batchCount) async {
+        capture.audio.add(
+          List<int>.generate(6400, (index) => index.isEven ? 0x10 : 0x27),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+        capture.audio.add(List<int>.filled(32000, 0));
+        for (var frame = 0; frame < 60 && attempts < batchCount; frame++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 1)),
+          );
+        }
+      }
+
+      await finalizePhrase(1);
+      expect(attempts, 1);
+      expect(capture.startCount, 1);
+      expect(capture.stopCount, 0);
+      expect(
+        find.textContaining('This phrase was skipped; dictation continues'),
+        findsOneWidget,
+      );
+
+      await finalizePhrase(2);
+      expect(attempts, 2);
+      expect(hid.textBatches, hasLength(2));
+      expect(
+        hid.textBatches.last.strokes,
+        UsAsciiHidTextEncoder.encode('hello'),
+      );
+      expect(capture.startCount, 1);
+      expect(capture.stopCount, 0);
+      await tester.tap(find.byKey(const ValueKey('stop-dictation')));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      await capture.dispose();
+      hid.dispose();
+    },
+  );
+
+  testWidgets(
+    'Bluetooth report failure cancels capture and does not request another phrase',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final capture = _FakeCapture();
+      final hid = _readyHid();
+      var wakeLockReleases = 0;
+      var attempts = 0;
+      hid.onTextBatch = () async {
+        attempts++;
+        throw PlatformException(
+          code: 'REPORT_FAILED',
+          message: 'native report rejected',
+        );
+      };
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationPanel(
+              hid: hid,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, _) async => _FakeRecognizer(text: 'hello'),
+              enableWakeLock: () async {},
+              disableWakeLock: () async => wakeLockReleases++,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      await tester.pumpAndSettle();
+      capture.audio.add(
+        List<int>.generate(6400, (index) => index.isEven ? 0x10 : 0x27),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      capture.audio.add(List<int>.filled(32000, 0));
+      for (
+        var frame = 0;
+        frame < 60 && (capture.stopCount == 0 || wakeLockReleases == 0);
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(attempts, 1);
+      expect(hid.textBatches, hasLength(1));
+      expect(capture.startCount, 1);
+      expect(capture.stopCount, 1);
+      expect(wakeLockReleases, 1);
+      expect(
+        find.textContaining(
+          'Bluetooth text delivery failed; dictation stopped',
+        ),
+        findsOneWidget,
+      );
+
+      capture.audio.add(
+        List<int>.generate(6400, (index) => index.isEven ? 0x10 : 0x27),
+      );
+      capture.audio.add(List<int>.filled(32000, 0));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(attempts, 1, reason: 'failed phrase is never replayed');
+      expect(hid.textBatches, hasLength(1));
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      await capture.dispose();
+      hid.dispose();
+    },
+  );
+
+  testWidgets(
     'quick entry auto-starts a warm model and never downloads implicitly',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -1180,6 +1859,29 @@ class _PartialRejectingCompanion extends RecordingCompanionService {
       text: text,
     );
     throw StateError('PC rejected text after partial insertion');
+  }
+}
+
+class _BusyOnceCompanion extends RecordingCompanionService {
+  int attempts = 0;
+
+  @override
+  Future<void> sendDictation({
+    required String sessionId,
+    required int sequence,
+    required String text,
+  }) async {
+    attempts++;
+    if (attempts == 1) {
+      throw const CompanionInputBusyException(
+        'A manual keyboard shortcut is active.',
+      );
+    }
+    await super.sendDictation(
+      sessionId: sessionId,
+      sequence: sequence,
+      text: text,
+    );
   }
 }
 
