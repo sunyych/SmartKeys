@@ -78,5 +78,5 @@ Ownership: community_server/** and service README; update CI only if required.
 - [x] Run full Flutter/Dart checks/coverage, Android build and Kotlin tests.
 - [x] Build the final Linux image; replace only the running API container,
   verify persistent DB mount and browser Dashboard at port 18443.
-- [ ] Document measured checks and setup behavior; stage only this scope,
+- [x] Document measured checks and setup behavior; stage only this scope,
   commit/push main, verify remote SHA/clean status and native/server CI.

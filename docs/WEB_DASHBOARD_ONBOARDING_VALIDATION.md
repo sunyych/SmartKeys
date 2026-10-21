@@ -111,5 +111,19 @@ physical iOS/Android acceptance are not claimed without that setup/devices.
 
 ## Remote validation
 
-Source commit and new Rust/PostgreSQL + unsigned iOS CI results will be recorded
-after push. Unsigned iOS compilation verifies source/plugin linkage only.
+Both implementation commits were pushed and their remote refs verified:
+
+- `dd09efb66ec70315f337174f42ed7f090bf8b51b`: mobile setup, optional metadata,
+  PostgreSQL migration and embedded Dashboard.
+- `e39b12ed98ff5b14183f6afccb765f26323a7b84`: final browser error handling and
+  corresponding validation evidence; mobile sources are unchanged from dd09efb.
+
+New CI checks completed successfully:
+
+- [Rust/PostgreSQL for dd09efb](https://github.com/sunyych/SmartKeys/actions/runs/39650473399).
+- [Rust/PostgreSQL for final web code e39b12e](https://github.com/sunyych/SmartKeys/actions/runs/39651673148).
+- [Unsigned iOS build for the mobile changes dd09efb](https://github.com/sunyych/SmartKeys/actions/runs/39650473169).
+
+Unsigned iOS compilation verifies source/plugin linkage only, not signing,
+physical-device behavior or Google account login. The delivery evidence update
+after these runs changes documentation only.
