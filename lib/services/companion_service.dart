@@ -100,12 +100,19 @@ abstract interface class CompanionService {
   void dispose();
 }
 
-class LanCompanionService implements CompanionService {
+abstract interface class ManualCompanionConnection {
+  Future<void> connectManually(String code);
+  Future<void> disconnect();
+}
+
+class LanCompanionService
+    implements CompanionService, ManualCompanionConnection {
   LanCompanionService({
     this.discoveryPort = 45832,
     this.hostExpiry = const Duration(seconds: 8),
     this.expiryPollInterval = const Duration(seconds: 3),
     this.dictationTimeout = const Duration(seconds: 8),
+    this.enableDiscovery = true,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -113,6 +120,7 @@ class LanCompanionService implements CompanionService {
   final Duration hostExpiry;
   final Duration expiryPollInterval;
   final Duration dictationTimeout;
+  final bool enableDiscovery;
   final DateTime Function() _now;
   final ValueNotifier<CompanionHost?> _host = ValueNotifier(null);
   final ValueNotifier<DesktopManifest?> _manifest = ValueNotifier(null);
@@ -124,7 +132,14 @@ class LanCompanionService implements CompanionService {
   Timer? _expiryTimer;
   DateTime? _lastSeen;
   bool _fetchingManifest = false;
+  bool _manualHeartbeatRunning = false;
+  bool _manualConnectionSelected = false;
   int? _pendingRevision;
+  CompanionHost? _pendingManifestHost;
+  int? _pendingManifestEpoch;
+  Timer? _manualHeartbeat;
+  int _selectionEpoch = 0;
+  bool _disposed = false;
 
   /// Ephemeral listener port, also useful to bind an in-process loopback peer.
   int? get boundDiscoveryPort => _socket?.port;
@@ -143,7 +158,11 @@ class LanCompanionService implements CompanionService {
 
   @override
   Future<void> start() async {
-    if (_socket != null) return;
+    if (_disposed || _socket != null) return;
+    if (!enableDiscovery) {
+      _status.value = CompanionSyncStatus.disconnected;
+      return;
+    }
     _status.value = CompanionSyncStatus.discovering;
     try {
       final socket = await RawDatagramSocket.bind(
@@ -151,6 +170,10 @@ class LanCompanionService implements CompanionService {
         discoveryPort,
         reuseAddress: true,
       );
+      if (_disposed) {
+        socket.close();
+        return;
+      }
       _socket = socket;
       socket.listen((event) {
         if (event != RawSocketEvent.read) return;
@@ -167,11 +190,249 @@ class LanCompanionService implements CompanionService {
         }
       });
     } catch (error) {
-      _setError('Companion discovery unavailable: $error');
+      if (!_disposed) _setError('Companion discovery unavailable: $error');
     }
   }
 
+  @override
+  Future<void> connectManually(String code) async {
+    if (_disposed) return;
+    final epoch = ++_selectionEpoch;
+    _manualConnectionSelected = true;
+    _clearPendingManifestRefresh();
+    _manualHeartbeat?.cancel();
+    _host.value = null;
+    _manifest.value = null;
+    _lastSeen = null;
+    _status.value = CompanionSyncStatus.syncing;
+    _error.value = null;
+    try {
+      final parsed = _parseConnectionCode(code);
+      final info = await _getJson(
+        parsed.address,
+        parsed.port,
+        '/info',
+        parsed.token,
+      );
+      if (epoch != _selectionEpoch) return;
+      final platform = info['platform'];
+      final version = info['version'];
+      final revision = info['revision'];
+      final capabilities = info['capabilities'];
+      if (info['name'] is! String ||
+          (info['name'] as String).isEmpty ||
+          !['windows', 'macos', 'linux'].contains(platform) ||
+          version is! int ||
+          version < 2 ||
+          revision is! int ||
+          capabilities is! List ||
+          !capabilities.map((value) => value.toString()).contains('manifest')) {
+        throw const FormatException('This LumiaKey Desktop is not compatible.');
+      }
+      final host = CompanionHost(
+        name: info['name'] as String,
+        platform: platform as String,
+        address: parsed.address,
+        port: parsed.port,
+        token: parsed.token,
+        protocolVersion: version,
+        revision: revision,
+        capabilities: capabilities.map((value) => value.toString()).toSet(),
+      );
+      _host.value = host;
+      final manifestJson = await _getJson(
+        host.address,
+        host.port,
+        '/manifest',
+        host.token,
+      );
+      if (epoch != _selectionEpoch) return;
+      final manifest = DesktopManifest.fromJson(
+        manifestJson.map((key, value) => MapEntry(key.toString(), value)),
+      );
+      if (manifest.revision != host.revision) {
+        throw const FormatException(
+          'Desktop layout changed during pairing. Retry connection.',
+        );
+      }
+      _manifest.value = manifest;
+      _lastSeen = _now();
+      _status.value = CompanionSyncStatus.ready;
+      _manualHeartbeat = Timer.periodic(expiryPollInterval, (_) {
+        final selected = _host.value;
+        if (selected != null) unawaited(_checkManualHost(selected, epoch));
+      });
+    } catch (error) {
+      if (epoch != _selectionEpoch) return;
+      _host.value = null;
+      _manifest.value = null;
+      _setError('Desktop connection failed: $error');
+    }
+  }
+
+  Future<void> _checkManualHost(CompanionHost host, int epoch) async {
+    if (_disposed || _manualHeartbeatRunning) return;
+    _manualHeartbeatRunning = true;
+    try {
+      final info = await _getJson(host.address, host.port, '/info', host.token);
+      if (epoch != _selectionEpoch || _host.value != host) return;
+      final revision = info['revision'];
+      if (revision is! int) {
+        throw const FormatException('Invalid Desktop revision.');
+      }
+      var currentHost = host;
+      if (revision != host.revision) {
+        currentHost = CompanionHost(
+          name: info['name'] is String ? info['name'] as String : host.name,
+          platform: host.platform,
+          address: host.address,
+          port: host.port,
+          token: host.token,
+          protocolVersion: host.protocolVersion,
+          revision: revision,
+          capabilities: host.capabilities,
+        );
+        _host.value = currentHost;
+        final manifestJson = await _getJson(
+          host.address,
+          host.port,
+          '/manifest',
+          host.token,
+        );
+        if (epoch != _selectionEpoch || _host.value != currentHost) return;
+        final manifest = DesktopManifest.fromJson(
+          manifestJson.map((key, value) => MapEntry(key.toString(), value)),
+        );
+        if (manifest.revision != revision) {
+          throw const FormatException('Desktop layout did not synchronize.');
+        }
+        _manifest.value = manifest;
+      }
+      if (epoch == _selectionEpoch && _host.value == currentHost) {
+        _lastSeen = _now();
+        _status.value = CompanionSyncStatus.ready;
+        _error.value = null;
+      }
+    } catch (_) {
+      if (epoch != _selectionEpoch) return;
+      _host.value = null;
+      _manifest.value = null;
+      _lastSeen = null;
+      _status.value = CompanionSyncStatus.disconnected;
+      _error.value =
+          'LumiaKey Desktop connection expired. Reconnect using its code.';
+    } finally {
+      _manualHeartbeatRunning = false;
+    }
+  }
+
+  @override
+  Future<void> disconnect() async {
+    if (_disposed) return;
+    ++_selectionEpoch;
+    _manualConnectionSelected = false;
+    _clearPendingManifestRefresh();
+    _manualHeartbeat?.cancel();
+    _manualHeartbeat = null;
+    _host.value = null;
+    _manifest.value = null;
+    _lastSeen = null;
+    _status.value = enableDiscovery
+        ? CompanionSyncStatus.discovering
+        : CompanionSyncStatus.disconnected;
+    _error.value = null;
+  }
+
+  Future<Map<String, dynamic>> _getJson(
+    String address,
+    int port,
+    String path,
+    String token,
+  ) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    try {
+      final request = await client
+          .get(address, port, path)
+          .timeout(const Duration(seconds: 4));
+      request.followRedirects = false;
+      request.headers.set('x-lumiakeys-token', token);
+      final response = await request.close().timeout(
+        const Duration(seconds: 4),
+      );
+      final body = await _readBoundedResponse(
+        response,
+        const Duration(seconds: 4),
+        256 * 1024,
+      );
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+          'Desktop rejected the connection (${response.statusCode}).',
+        );
+      }
+      final decoded = jsonDecode(body);
+      if (decoded is! Map) {
+        throw const FormatException('Invalid Desktop response.');
+      }
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<String> _readBoundedResponse(
+    HttpClientResponse response,
+    Duration timeout,
+    int maxBytes,
+  ) async {
+    Future<String> read() async {
+      final bytes = <int>[];
+      await for (final chunk in response) {
+        if (bytes.length + chunk.length > maxBytes) {
+          throw const FormatException('Desktop response is too large.');
+        }
+        bytes.addAll(chunk);
+      }
+      return utf8.decode(bytes);
+    }
+
+    return read().timeout(timeout);
+  }
+
+  static ({String address, int port, String token}) _parseConnectionCode(
+    String code,
+  ) {
+    final match = RegExp(
+      r'^((?:\d{1,3}\.){3}\d{1,3}):(\d{1,5})\s+([A-Fa-f0-9]{32,128})$',
+    ).firstMatch(code.trim());
+    if (match == null) {
+      throw const FormatException(
+        'Paste the Desktop code in address:port token format.',
+      );
+    }
+    final address = InternetAddress.tryParse(match.group(1)!);
+    final port = int.parse(match.group(2)!);
+    if (address == null ||
+        address.type != InternetAddressType.IPv4 ||
+        port < 1 ||
+        port > 65535 ||
+        !_isPrivateAddress(address)) {
+      throw const FormatException(
+        'Only a private IPv4 Desktop address and valid port are allowed.',
+      );
+    }
+    return (address: address.address, port: port, token: match.group(3)!);
+  }
+
+  static bool _isPrivateAddress(InternetAddress address) {
+    final octets = address.rawAddress;
+    return octets[0] == 10 ||
+        octets[0] == 127 ||
+        (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+        (octets[0] == 192 && octets[1] == 168);
+  }
+
   void _receive(Datagram packet) {
+    if (_disposed || !enableDiscovery || _manualConnectionSelected) return;
     try {
       final data = jsonDecode(utf8.decode(packet.data));
       if (data is! Map || data['service'] != 'lumiakeys-companion') return;
@@ -204,6 +465,10 @@ class LanCompanionService implements CompanionService {
           previous.address != address ||
           previous.port != port ||
           previous.token != token;
+      if (hostChanged) {
+        ++_selectionEpoch;
+        _clearPendingManifestRefresh();
+      }
       final revisionChanged = previous?.revision != revision;
       _lastSeen = _now();
       final host = CompanionHost(
@@ -234,19 +499,36 @@ class LanCompanionService implements CompanionService {
 
   @override
   Future<void> refreshManifest() async {
+    if (_disposed) return;
     final host = _host.value;
     if (host == null || !host.supportsManifest) return;
-    if (_fetchingManifest) return;
+    final epoch = _selectionEpoch;
+    if (_fetchingManifest) {
+      _pendingManifestHost = host;
+      _pendingManifestEpoch = epoch;
+      return;
+    }
+    _pendingManifestHost = null;
+    _pendingManifestEpoch = null;
     _fetchingManifest = true;
     _status.value = CompanionSyncStatus.syncing;
+    HttpClient? client;
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 3);
-      final request = await client.get(host.address, host.port, '/manifest');
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+      final request = await client
+          .get(host.address, host.port, '/manifest')
+          .timeout(const Duration(seconds: 4));
+      request.followRedirects = false;
       request.headers.set('x-lumiakeys-token', host.token);
-      final response = await request.close();
-      final body = await utf8.decoder.bind(response).join();
-      client.close(force: true);
+      final response = await request.close().timeout(
+        const Duration(seconds: 4),
+      );
+      final body = await _readBoundedResponse(
+        response,
+        const Duration(seconds: 4),
+        256 * 1024,
+      );
+      if (_disposed || _selectionEpoch != epoch || _host.value != host) return;
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           body.isEmpty ? 'Desktop rejected layout sync' : body,
@@ -261,11 +543,23 @@ class LanCompanionService implements CompanionService {
       _error.value = null;
       _status.value = CompanionSyncStatus.ready;
     } catch (error) {
-      _setError('Desktop sync failed: $error');
+      if (!_disposed && _selectionEpoch == epoch && _host.value == host) {
+        _setError('Desktop sync failed: $error');
+      }
     } finally {
+      client?.close(force: true);
       _fetchingManifest = false;
       final pending = _pendingRevision;
-      if (pending != null && pending != _manifest.value?.revision) {
+      final pendingHost = _pendingManifestHost;
+      final pendingEpoch = _pendingManifestEpoch;
+      if (!_disposed &&
+          pending != null &&
+          pending != _manifest.value?.revision &&
+          pendingEpoch == _selectionEpoch &&
+          pendingHost != null &&
+          pendingHost == _host.value) {
+        _pendingManifestHost = null;
+        _pendingManifestEpoch = null;
         unawaited(refreshManifest());
       }
     }
@@ -281,6 +575,11 @@ class LanCompanionService implements CompanionService {
     required int sequence,
     required String text,
   }) async {
+    if (_disposed) {
+      throw const CompanionDictationException(
+        'LumiaKey Desktop connection is closed.',
+      );
+    }
     final host = _host.value;
     if (host == null) {
       throw const CompanionDictationException(
@@ -350,21 +649,32 @@ class LanCompanionService implements CompanionService {
   Future<void> execute(String command) => _post(command);
 
   Future<void> _post(String body) async {
+    if (_disposed) return;
     final host = _host.value;
     if (host == null) {
       _setError('No LumiaKey Desktop found on this network.');
       return;
     }
+    final epoch = _selectionEpoch;
+    HttpClient? client;
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 3);
-      final request = await client.post(host.address, host.port, '/action');
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+      final request = await client
+          .post(host.address, host.port, '/action')
+          .timeout(const Duration(seconds: 4));
+      request.followRedirects = false;
       request.headers.contentType = ContentType.json;
       request.headers.set('x-lumiakeys-token', host.token);
       request.write(body);
-      final response = await request.close();
-      final responseBody = await utf8.decoder.bind(response).join();
-      client.close(force: true);
+      final response = await request.close().timeout(
+        const Duration(seconds: 4),
+      );
+      final responseBody = await _readBoundedResponse(
+        response,
+        const Duration(seconds: 4),
+        64 * 1024,
+      );
+      if (_selectionEpoch != epoch || _host.value != host) return;
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           responseBody.isEmpty ? 'Desktop rejected the action' : responseBody,
@@ -379,7 +689,11 @@ class LanCompanionService implements CompanionService {
       _error.value = null;
       _status.value = CompanionSyncStatus.ready;
     } catch (error) {
-      _setError('Desktop action failed: $error');
+      if (_selectionEpoch == epoch && _host.value == host) {
+        _setError('Desktop action failed: $error');
+      }
+    } finally {
+      client?.close(force: true);
     }
   }
 
@@ -388,8 +702,19 @@ class LanCompanionService implements CompanionService {
     _status.value = CompanionSyncStatus.error;
   }
 
+  void _clearPendingManifestRefresh() {
+    _pendingRevision = null;
+    _pendingManifestHost = null;
+    _pendingManifestEpoch = null;
+  }
+
   @override
   void dispose() {
+    _disposed = true;
+    ++_selectionEpoch;
+    _manualConnectionSelected = false;
+    _clearPendingManifestRefresh();
+    _manualHeartbeat?.cancel();
     _expiryTimer?.cancel();
     _socket?.close();
     _host.dispose();

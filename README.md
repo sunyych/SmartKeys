@@ -1,10 +1,52 @@
 # LumiaKey
 
-LumiaKey provides Bluetooth keyboard controls and on-device speech dictation.
-The Android phone app requires Android 9 (API 28) or later; its direct keyboard
-and dictation output do not require a computer receiver. This monorepo also
-contains the optional LumiaKey Desktop app in `desktop_companion/` for Windows
-and macOS, with desktop microphone dictation and managed application shortcuts.
+LumiaKey provides adaptive keyboard controls and on-device speech recognition.
+On Android 9 (API 28) and later, keyboard and media actions use the device's
+Bluetooth HID connection. On iPad, LumiaKey connects to LumiaKey Desktop over
+the same local Wi-Fi network for supported keyboard shortcuts and text output.
+The optional Desktop app in `desktop_companion/` runs on Windows and macOS and
+also provides local dictation and managed application shortcuts.
+
+## Tablet controls and iPad
+
+Automatic layout uses the current window size: LumiaKey shows the shortcut
+board when the shortest side is at least 600 logical pixels and keeps the
+phone controls in narrower windows. Settings can force Phone controls or the
+Shortcut board. Page size accepts any whole number from 24 through 60; 24, 40,
+and 60 are presets, and 40 is the default. Settings exposes the complete range.
+The same value is stored in `AppConfig.preferences`, for example:
+
+```json
+{
+  "preferences": {
+    "controlSurfaceLayout": "shortcutBoard",
+    "tabletKeysPerPage": 48
+  }
+}
+```
+
+Profiles that contain the original 15 shortcuts remain unchanged; extra
+positions are added only when edited, and banks make later positions
+accessible. Phone controls show up to 15 shortcuts at a time.
+
+iPad connects to LumiaKey Desktop on the same Wi-Fi network. In Desktop's
+**Connect an iPad** panel, choose **Copy iPad connection code**. On iPad, open
+**Settings → Desktop Companion**, paste the code, then choose **Connect**.
+Allow Local Network access when iPadOS asks. The code includes a temporary
+session token: treat it like a password. LumiaKey keeps the token in memory and
+sends it in the authentication header over local HTTP; this connection is not
+encrypted, so use a trusted local network. Android continues to use Bluetooth
+HID for direct keyboard input.
+
+Speech recognition stays on the device. On iPad, recognized text is sent to
+Desktop for insertion into the supported focused app. The tablet guide covers
+layout selection, profile banks, pairing, and platform validation in
+[`docs/TABLET_SUPPORT.md`](docs/TABLET_SUPPORT.md).
+
+Building, signing, and installing the iPad app requires macOS with Xcode, an
+Apple signing identity, and a connected iPad for device acceptance. The current
+Windows development environment has not verified an iOS native build or
+physical iPad input. Mac CI status is reported separately after validation.
 
 ## Implemented V1.2
 
@@ -308,7 +350,7 @@ and native error states in the connection sheet.
 
 ```sh
 flutter pub get
-flutter run                 # Android device only
+flutter run                 # Android; native iPad builds require macOS/Xcode
 flutter analyze
 flutter test
 flutter build apk --debug
@@ -341,10 +383,13 @@ Screenshot widget tests write PNGs and JSON sidecars under
 `build/ui_screenshots/` directory and generates an `index.html` gallery after
 the suites. Set the environment variable to keep a gallery elsewhere. These
 are deterministic widget-test captures, not screenshots from a physical phone.
-These automated checks do not replace
-Android microphone permission, actual-device ASR quality/latency, focused-app
-text insertion, or Windows/macOS native permission and injection acceptance.
+These automated checks do not replace Android microphone permission,
+actual-device ASR quality/latency, focused-app text insertion, Windows/macOS
+native permission and injection acceptance, or native iPad build/signing and
+physical-device input acceptance.
 
-Final hardware acceptance requires an Android 9+ phone whose Bluetooth stack
-exposes HID Device and a paired computer, because an emulator cannot verify
-over-the-air keyboard/consumer-control delivery.
+Android HID hardware acceptance requires an Android 9+ phone whose Bluetooth
+stack exposes HID Device and a paired computer, because an emulator cannot
+verify over-the-air keyboard/consumer-control delivery. iPad acceptance also
+requires a macOS/Xcode build, a provisioned iPad, and a local-network Desktop
+connection.

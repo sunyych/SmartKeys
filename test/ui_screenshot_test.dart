@@ -85,6 +85,109 @@ void main() {
     );
   });
 
+  testWidgets('tablet board screenshots cover window sizes and text scale', (
+    tester,
+  ) async {
+    final shots = ScreenshotSupport(tester);
+    final harness = await TestHarness.create();
+    final key = GlobalKey();
+    addTearDown(() async {
+      await shots.unmount();
+      shots.resetViewport();
+      tester.view.resetViewPadding();
+      tester.view.resetPadding();
+      tester.view.platformDispatcher.clearTextScaleFactorTestValue();
+      await harness.dispose();
+    });
+
+    await shots.setViewport(const Size(768, 1024));
+    tester.view.viewPadding = const FakeViewPadding(
+      left: 12,
+      top: 28,
+      right: 12,
+      bottom: 24,
+    );
+    tester.view.padding = const FakeViewPadding(
+      left: 12,
+      top: 28,
+      right: 12,
+      bottom: 24,
+    );
+    await tester.pumpWidget(_app(harness, key, const HomeScreen()));
+    expect(find.byKey(const ValueKey('shortcut-board-layout')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wheel-region')), findsNothing);
+    expect(find.byKey(const ValueKey('control-button-39')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('control-button-0'))).dy,
+      greaterThanOrEqualTo(28),
+    );
+    await shots.capture(
+      id: 'tablet-board-768x1024',
+      title: 'Tablet shortcut board · portrait',
+      orientation: 'portrait',
+      notes: 'Automatic board layout at 768×1024 logical pixels.',
+      boundaryKey: key,
+    );
+
+    for (final size in [const Size(1024, 768), const Size(1366, 1024)]) {
+      await shots.setViewport(size);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('shortcut-board-layout')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('wheel-region')), findsNothing);
+      expect(tester.takeException(), isNull);
+      await shots.capture(
+        id: 'tablet-board-${size.width.toInt()}x${size.height.toInt()}',
+        title:
+            'Tablet shortcut board · landscape ${size.width.toInt()}×${size.height.toInt()}',
+        orientation: 'landscape',
+        notes: 'Automatic board layout fills one bank without scrolling.',
+        boundaryKey: key,
+      );
+    }
+
+    await harness.controller.updateTabletKeysPerPage(48);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('control-button-47')), findsOneWidget);
+    await shots.capture(
+      id: 'tablet-board-48-keys',
+      title: 'Tablet shortcut board · 48 key preset',
+      orientation: 'portrait',
+      notes: 'Portrait board showing all 48 configured slots in one bank.',
+      boundaryKey: key,
+    );
+
+    await harness.controller.updateTabletKeysPerPage(60);
+    tester.view.platformDispatcher.textScaleFactorTestValue = 2.0;
+    await shots.setViewport(const Size(768, 1024));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('control-button-59')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await shots.capture(
+      id: 'tablet-board-text-scale',
+      title: 'Tablet shortcut board · 60 keys with large text',
+      orientation: 'portrait',
+      notes: 'Portrait 60-key board at 2× system text scale.',
+      boundaryKey: key,
+    );
+    tester.view.platformDispatcher.clearTextScaleFactorTestValue();
+
+    await shots.setViewport(const Size(540, 768));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('portrait-layout')), findsOneWidget);
+    expect(find.byKey(const ValueKey('shortcut-board-layout')), findsNothing);
+    expect(tester.takeException(), isNull);
+    await shots.capture(
+      id: 'tablet-board-split-window-phone-fallback',
+      title: 'Tablet split window · compact controls',
+      orientation: 'portrait',
+      notes: 'Automatic mode falls back below a 600 logical pixel short side.',
+      boundaryKey: key,
+    );
+  });
+
   testWidgets('public mobile pages render as screenshot gallery entries', (
     tester,
   ) async {
@@ -395,7 +498,9 @@ void main() {
   testWidgets(
     'live dictation chip keeps home keyboard visible in both orientations',
     (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        dictationConsentPreferenceKey: true,
+      });
       final shots = ScreenshotSupport(tester);
       final harness = await TestHarness.create();
       final capture = _ScreenshotCapture();
@@ -406,6 +511,8 @@ void main() {
         await shots.unmount();
         await capture.dispose();
         shots.resetViewport();
+        tester.view.resetViewPadding();
+        tester.view.resetPadding();
         await harness.dispose();
       });
       harness.hid.status.value = HidConnectionStatus.connected;
@@ -414,31 +521,40 @@ void main() {
         _app(
           harness,
           boundaryKey,
-          Stack(
-            fit: StackFit.expand,
-            children: [
-              const HomeScreen(),
-              Positioned.fill(
-                child: LocalDictationPanel(
-                  hid: harness.hid,
-                  modelManager: manager,
-                  capture: capture,
-                  recognizerFactory: (_, _) async => _ScreenshotRecognizer(),
-                  enableWakeLock: () async {},
-                  disableWakeLock: () async {},
-                  autoCollapseWhileListening: true,
-                ),
-              ),
-            ],
+          HomeScreen(
+            dictationModelManager: manager,
+            dictationCapture: capture,
+            dictationRecognizerFactory: (_, _) async => _ScreenshotRecognizer(),
+            enableDictationWakeLock: () async {},
+            disableDictationWakeLock: () async {},
           ),
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('start-dictation')));
+      final micFinder = find.byKey(const ValueKey('local-quick-output'));
+      final phoneMic = tester.getRect(micFinder);
+      expect(phoneMic.top, greaterThanOrEqualTo(0));
+      await tester.tap(micFinder);
+      await tester.pumpAndSettle();
+      capture.emitPcm();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 60)),
+      );
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('stop-dictation-compact')),
         findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.descendant(
+                of: find.byKey(const ValueKey('stop-dictation-compact')),
+                matching: find.byType(LinearProgressIndicator),
+              ),
+            )
+            .value,
+        greaterThan(0),
       );
       expect(
         find.byKey(const ValueKey('dictation-entry-barrier')),
@@ -468,6 +584,47 @@ void main() {
         orientation: 'landscape',
         notes:
             'The listening chip stays in the existing corner without covering the landscape keyboard grid.',
+        boundaryKey: boundaryKey,
+      );
+      await shots.setViewport(const Size(768, 1024));
+      capture.emitPcm();
+      tester.view.viewPadding = const FakeViewPadding(
+        left: 12,
+        top: 28,
+        right: 12,
+        bottom: 24,
+      );
+      tester.view.padding = const FakeViewPadding(
+        left: 12,
+        top: 28,
+        right: 12,
+        bottom: 24,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('shortcut-board-layout')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('control-button-39')), findsOneWidget);
+      final chipRect = tester.getRect(
+        find.byKey(const ValueKey('stop-dictation-compact')),
+      );
+      final micRect = tester.getRect(micFinder);
+      expect(micRect.top, greaterThanOrEqualTo(28));
+      expect(micRect.right, lessThanOrEqualTo(768 - 12));
+      expect(chipRect.top, micRect.top);
+      expect(chipRect.right, lessThanOrEqualTo(768 - 12));
+      expect(tester.takeException(), isNull);
+      await shots.capture(
+        id: 'tablet-dictation-live-chip',
+        title: 'Local dictation · tablet board listening chip',
+        orientation: 'portrait',
+        notes:
+            'The nonmodal listening chip remains available while the tablet board stays visible.',
         boundaryKey: boundaryKey,
       );
       await tester.tap(find.byKey(const ValueKey('stop-dictation-compact')));
@@ -505,6 +662,7 @@ void main() {
       await shots.unmount();
       await capture.dispose();
       shots.resetViewport();
+      tester.view.resetViewPadding();
       await harness.dispose();
     });
     harness.hid.status.value = HidConnectionStatus.disconnected;
@@ -710,20 +868,23 @@ void main() {
 Widget _app(TestHarness harness, GlobalKey boundaryKey, Widget page) =>
     screenshotBoundary(
       boundaryKey,
-      MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          brightness: Brightness.dark,
-          fontFamilyFallback: ScreenshotSupport.fontFamilyFallback,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF67E8F9),
+      SmartKeysScope(
+        controller: harness.controller,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
             brightness: Brightness.dark,
-            surface: const Color(0xFF10151D),
+            fontFamilyFallback: ScreenshotSupport.fontFamilyFallback,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF67E8F9),
+              brightness: Brightness.dark,
+              surface: const Color(0xFF10151D),
+            ),
+            scaffoldBackgroundColor: const Color(0xFF090D12),
+            useMaterial3: true,
           ),
-          scaffoldBackgroundColor: const Color(0xFF090D12),
-          useMaterial3: true,
+          home: page,
         ),
-        home: SmartKeysScope(controller: harness.controller, child: page),
       ),
     );
 
@@ -783,6 +944,10 @@ class _ScreenshotModelManager extends ModelManager {
 class _ScreenshotCapture implements DictationCapture {
   StreamController<List<int>> _audio = StreamController<List<int>>.broadcast();
   bool permitted = true;
+
+  void emitPcm() => _audio.add(
+    List<int>.generate(480, (index) => index.isEven ? 0xff : 0x7f),
+  );
 
   @override
   Future<bool> hasPermission() async => permitted;

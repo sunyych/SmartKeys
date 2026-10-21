@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'data/private_image_store.dart';
 import 'data/profile_template_repository.dart';
 import 'data/shortcut_usage_repository.dart';
 import 'services/hid_service.dart';
+import 'services/ios_companion_hid_service.dart';
 import 'services/companion_service.dart';
 import 'services/orientation_service.dart';
 import 'services/power_brightness_service.dart';
@@ -35,14 +37,21 @@ class _SmartKeysAppState extends State<SmartKeysApp>
     unawaited(_enterFullscreen());
     ownsController = widget.controller == null;
     final templates = ProfileTemplateRepository();
+    final companion =
+        widget.controller?.companion ??
+        LanCompanionService(enableDiscovery: !Platform.isIOS);
     controller =
         widget.controller ??
         AppController(
           repository: SharedPreferencesConfigRepository(templates: templates),
           templates: templates,
-          hid: MethodChannelHidService(),
-          companion: LanCompanionService(),
-          orientationService: SystemOrientationService(),
+          hid: Platform.isIOS
+              ? IosCompanionHidService(companion)
+              : MethodChannelHidService(),
+          companion: companion,
+          orientationService: SystemOrientationService(
+            followSystem: Platform.isIOS,
+          ),
           imageStore: PrivateImageStore(),
           powerBrightnessService: MethodChannelPowerBrightnessService(),
           shortcutUsage: SharedPreferencesShortcutUsageRepository(),

@@ -353,7 +353,11 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         (value) => value.name == outputModeName,
         orElse: () => DictationOutputMode.bluetoothEnglish,
       );
-      final language = outputMode == DictationOutputMode.bluetoothEnglish
+      final effectiveOutputMode = Platform.isIOS
+          ? DictationOutputMode.desktopMultilingual
+          : outputMode;
+      final language =
+          effectiveOutputMode == DictationOutputMode.bluetoothEnglish
           ? DictationLanguage.english
           : desktopLanguage;
       await _dictation.configure(model: model, language: language);
@@ -363,13 +367,16 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         _desktopLanguagePreferenceKey,
         desktopLanguage.name,
       );
-      await preferences.setString(_outputModePreferenceKey, outputMode.name);
+      await preferences.setString(
+        _outputModePreferenceKey,
+        effectiveOutputMode.name,
+      );
       final permission = await _capture.hasPermission();
       final ready = await _models.areModelsAvailable(model: model);
       if (!mounted) return;
       setState(() {
         _model = model;
-        _outputMode = outputMode;
+        _outputMode = effectiveOutputMode;
         _language = language;
         _desktopLanguage = desktopLanguage;
         _permissionGranted = permission;
@@ -1163,18 +1170,19 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
                               decoration: const InputDecoration(
                                 labelText: 'Output mode',
                               ),
-                              items: const [
-                                DropdownMenuItem(
-                                  key: ValueKey(
-                                    'dictation-output-bluetoothEnglish',
+                              items: [
+                                if (!Platform.isIOS)
+                                  DropdownMenuItem(
+                                    key: ValueKey(
+                                      'dictation-output-bluetoothEnglish',
+                                    ),
+                                    value: DictationOutputMode.bluetoothEnglish,
+                                    child: Text(
+                                      'Bluetooth English',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                  value: DictationOutputMode.bluetoothEnglish,
-                                  child: Text(
-                                    'Bluetooth English',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
                                 DropdownMenuItem(
                                   key: ValueKey(
                                     'dictation-output-desktopMultilingual',
@@ -1390,7 +1398,11 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       return Stack(
         key: const ValueKey('dictation-live-overlay'),
         children: [
-          Positioned(top: 7, right: 142, child: _buildLiveLevelStopChip()),
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + 7,
+            right: MediaQuery.paddingOf(context).right + 142,
+            child: _buildLiveLevelStopChip(),
+          ),
         ],
       );
     }

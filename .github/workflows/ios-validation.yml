@@ -1,0 +1,29 @@
+name: iOS unsigned build check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'lib/**'
+      - 'pubspec.*'
+      - 'packages/local_dictation/**'
+      - '.github/workflows/ios-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-debug:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          cache: true
+      - name: Resolve Flutter packages
+        run: flutter pub get
+      - name: Build unsigned iOS app
+        run: flutter build ios --debug --no-codesign

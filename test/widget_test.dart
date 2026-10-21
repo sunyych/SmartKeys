@@ -765,6 +765,16 @@ void main() {
     await _openControlMenu(tester);
     await tester.tap(find.text('Settings').last);
     await tester.pumpAndSettle();
+    final settingsScroll = find.descendant(
+      of: find.byKey(const ValueKey('settings-list')),
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(
+      find.text('Shortcut Community'),
+      300,
+      scrollable: settingsScroll,
+    );
+    expect(find.text('Shortcut Community'), findsOneWidget);
     await tester.tap(find.text('Shortcut Community'));
     await tester.pumpAndSettle();
     expect(find.text('4/$freeProfileLimit'), findsOneWidget);
@@ -836,23 +846,28 @@ void main() {
     await _openControlMenu(tester);
     await tester.tap(find.text('Settings').last);
     await tester.pumpAndSettle();
+    final settingsScroll = find.descendant(
+      of: find.byKey(const ValueKey('settings-list')),
+      matching: find.byType(Scrollable),
+    );
     await tester.scrollUntilVisible(
       find.text('CHARGING DISPLAY'),
       300,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: settingsScroll,
     );
 
     expect(find.text('CHARGING DISPLAY'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Charging brightness 80%'),
       120,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: settingsScroll,
     );
     expect(find.text('Charging brightness 80%'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Keep screen awake while charging'),
-      200,
-      scrollable: find.byType(Scrollable).first,
+      40,
+      scrollable: settingsScroll,
+      maxScrolls: 100,
     );
     expect(find.text('Keep screen awake while charging'), findsOneWidget);
     expect(
@@ -860,7 +875,13 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.ensureVisible(find.text('Dynamic / system controlled'));
+    await tester.scrollUntilVisible(
+      find.text('Dynamic / system controlled'),
+      -40,
+      scrollable: settingsScroll,
+      maxScrolls: 100,
+    );
+    expect(find.text('Dynamic / system controlled'), findsOneWidget);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Dynamic / system controlled'));
     await tester.pumpAndSettle();

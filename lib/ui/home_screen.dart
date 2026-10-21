@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:math' show sqrt;
+import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../app.dart';
@@ -7,8 +10,10 @@ import '../icons/icon_catalog.dart';
 import '../models/config.dart';
 import '../models/control_surface_status.dart';
 import '../services/hid_service.dart';
+import '../services/ios_companion_hid_service.dart';
 import 'button_editor_screen.dart';
 import 'bluetooth_connection_sheet.dart';
+import 'desktop_connection_panel.dart';
 import 'profile_management_screen.dart';
 import 'settings_screen.dart';
 import 'shortcut_community_screen.dart';
@@ -20,7 +25,24 @@ import 'widgets/jog_wheel.dart';
 import 'widgets/mouse_touchpad.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.dictationModelManager,
+    this.dictationCapture,
+    this.dictationRecognizerFactory,
+    this.enableDictationWakeLock,
+    this.disableDictationWakeLock,
+  });
+
+  final ModelManager? dictationModelManager;
+  final DictationCapture? dictationCapture;
+  final Future<DictationRecognizer> Function(
+    LocalAsrModelFiles,
+    DictationLanguage,
+  )?
+  dictationRecognizerFactory;
+  final Future<void> Function()? enableDictationWakeLock;
+  final Future<void> Function()? disableDictationWakeLock;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -32,6 +54,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String? selectedApplicationId;
   bool _followForeground = true;
   String? _handledActivationToken;
+  String? _lastScopeToken;
+  int _activeBank = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +64,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     controller.registerLayoutOrientation(landscape);
+    final mediaSize = MediaQuery.sizeOf(context);
+    final shortestSide = mediaSize.shortestSide;
+    final boardMode =
+        switch (controller.config.preferences.controlSurfaceLayout) {
+          ControlSurfaceLayout.phone => false,
+          ControlSurfaceLayout.shortcutBoard => true,
+          ControlSurfaceLayout.automatic => shortestSide >= 600,
+        };
     final accent = controller.activeProfile.accentColor == null
         ? Theme.of(context).colorScheme.primary
         : Color(controller.activeProfile.accentColor!);
@@ -70,40 +102,139 @@ class _HomeScreenState extends State<HomeScreen> {
       _HomeTab.keyboard => controller.genericSyncedLayout,
       _HomeTab.apps => null,
     };
-    final keyboardSurface = landscape
-        ? _LandscapePanel(
-            key: const ValueKey('landscape-layout'),
+    final keysPerPage = boardMode
+        ? controller.config.preferences.tabletKeysPerPage
+        : controlButtonCount;
+    final scopeToken =
+        '${mediaSize.width.round()}x${mediaSize.height.round()}:$boardMode:'
+        '${controller.activeProfile.id}:${remoteLayout?.id}:$keysPerPage';
+    if (_lastScopeToken != null && _lastScopeToken != scopeToken) {
+      _activeBank = 0;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(controller.prepareForContextChange());
+      });
+    }
+    _lastScopeToken = scopeToken;
+    final expectedBankScope = scopeToken;
+    final localCapacity = boardMode
+        ? maxControlButtonCount
+        : controller.activeProfile.buttons.fold<int>(
+            controlButtonCount,
+            (maxPosition, button) => maxPosition > button.position
+                ? maxPosition
+                : button.position + 1,
+          );
+    final effectiveBankCount = remoteLayout == null
+        ? (localCapacity / keysPerPage).ceil()
+        : (remoteLayout.buttons.length / keysPerPage).ceil().clamp(1, 99);
+    if (_activeBank >= effectiveBankCount) _activeBank = 0;
+    final keyboardSurface = boardMode
+        ? _ShortcutBoard(
+            key: const ValueKey('shortcut-board-layout'),
             controller: controller,
             editing: remoteLayout == null && editing,
             remoteLayout: remoteLayout,
+            keysPerPage: keysPerPage,
+            bank: _activeBank,
+            onSelectBank: (bank) async {
+              if (bank == _activeBank) return;
+              await controller.prepareForContextChange();
+              if (mounted && _lastScopeToken == expectedBankScope) {
+                setState(() => _activeBank = bank);
+              }
+            },
             onToggleEditing: () => setState(() => editing = !editing),
           )
-        : _PortraitPanel(
-            key: const ValueKey('portrait-layout'),
-            controller: controller,
-            editing: remoteLayout == null && editing,
-            remoteLayout: remoteLayout,
-            onToggleEditing: () => setState(() => editing = !editing),
+        : Column(
+            children: [
+              Expanded(
+                child: landscape
+                    ? _LandscapePanel(
+                        key: const ValueKey('landscape-layout'),
+                        controller: controller,
+                        editing: remoteLayout == null && editing,
+                        remoteLayout: remoteLayout,
+                        startPosition: _activeBank * keysPerPage,
+                        visibleCount: remoteLayout == null
+                            ? (localCapacity - _activeBank * keysPerPage)
+                                  .clamp(0, keysPerPage)
+                                  .toInt()
+                            : (remoteLayout.buttons.length -
+                                      _activeBank * keysPerPage)
+                                  .clamp(0, keysPerPage)
+                                  .toInt(),
+                        rowCountOverride: landscape ? 3 : 5,
+                        onToggleEditing: () =>
+                            setState(() => editing = !editing),
+                      )
+                    : _PortraitPanel(
+                        key: const ValueKey('portrait-layout'),
+                        controller: controller,
+                        editing: remoteLayout == null && editing,
+                        remoteLayout: remoteLayout,
+                        startPosition: _activeBank * keysPerPage,
+                        visibleCount: remoteLayout == null
+                            ? (localCapacity - _activeBank * keysPerPage)
+                                  .clamp(0, keysPerPage)
+                                  .toInt()
+                            : (remoteLayout.buttons.length -
+                                      _activeBank * keysPerPage)
+                                  .clamp(0, keysPerPage)
+                                  .toInt(),
+                        rowCountOverride: landscape ? 3 : 5,
+                        onToggleEditing: () =>
+                            setState(() => editing = !editing),
+                      ),
+              ),
+              if (effectiveBankCount > 1)
+                _PhoneBankNavigation(
+                  bank: _activeBank,
+                  bankCount: effectiveBankCount,
+                  onSelect: (bank) async {
+                    await controller.prepareForContextChange();
+                    if (mounted && _lastScopeToken == expectedBankScope) {
+                      setState(() => _activeBank = bank);
+                    }
+                  },
+                ),
+            ],
           );
-    void selectTab(_HomeTab tab) => setState(() {
-      selectedTab = tab;
-      selectedApplicationId = null;
-      editing = false;
-      _followForeground = false;
-    });
-    void selectApplication(RemoteApplication application) => setState(() {
-      selectedTab = _HomeTab.application;
-      selectedApplicationId = application.id;
-      editing = false;
-      _followForeground = false;
-    });
+    Future<void> selectTab(_HomeTab tab) async {
+      if (tab != selectedTab || selectedApplicationId != null) {
+        await controller.prepareForContextChange();
+      }
+      if (!mounted) return;
+      setState(() {
+        selectedTab = tab;
+        selectedApplicationId = null;
+        editing = false;
+        _activeBank = 0;
+        _followForeground = false;
+      });
+    }
+
+    Future<void> selectApplication(RemoteApplication application) async {
+      if (selectedTab != _HomeTab.application ||
+          selectedApplicationId != application.id) {
+        await controller.prepareForContextChange();
+      }
+      if (!mounted) return;
+      setState(() {
+        selectedTab = _HomeTab.application;
+        selectedApplicationId = application.id;
+        editing = false;
+        _activeBank = 0;
+        _followForeground = false;
+      });
+    }
+
     final content = switch (effectiveTab) {
       _HomeTab.keyboard || _HomeTab.application => keyboardSurface,
       _HomeTab.apps => _SyncedAppsPage(
         controller: controller,
-        onOpenApplication: (application) {
-          selectApplication(application);
-          controller.launchRemoteApplication(application);
+        onOpenApplication: (application) async {
+          await selectApplication(application);
+          await controller.launchRemoteApplication(application);
         },
       ),
       _HomeTab.codex => keyboardSurface,
@@ -118,40 +249,98 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       child: Scaffold(
-        body: Stack(
-          children: [
-            Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 190, 6),
-                  child: _HomeTabBar(
-                    controller: controller,
-                    selectedTab: effectiveTab,
-                    selectedApplicationId: effectiveApplication?.id,
-                    onSelectTab: selectTab,
-                    onSelectApplication: selectApplication,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 10, 190, 6),
+                    child: _HomeTabBar(
+                      controller: controller,
+                      selectedTab: effectiveTab,
+                      selectedApplicationId: effectiveApplication?.id,
+                      onSelectTab: selectTab,
+                      onSelectApplication: selectApplication,
+                    ),
                   ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ValueListenableBuilder<String?>(
+                      valueListenable: controller.hid.errorMessage,
+                      builder: (context, error, _) => Column(
+                        children: [
+                          if (error != null)
+                            Material(
+                              key: const ValueKey('control-surface-error'),
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.errorContainer,
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 5,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.error_outline,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onErrorContainer,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Tooltip(
+                                          message: error,
+                                          child: Text(
+                                            error,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onErrorContainer,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Expanded(child: content),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Positioned(
+                top: 7,
+                right: 10,
+                child: _CompactControlMenu(
+                  controller: controller,
+                  editing: editing,
+                  onToggleEditing: () => setState(() => editing = !editing),
                 ),
-                const Divider(height: 1),
-                Expanded(child: content),
-              ],
-            ),
-            Positioned(
-              top: 7,
-              right: 10,
-              child: _CompactControlMenu(
-                controller: controller,
-                editing: editing,
-                onToggleEditing: () => setState(() => editing = !editing),
               ),
-            ),
-            Positioned.fill(
-              child: LocalDictationEntryButton(
-                hid: controller.hid,
-                companion: controller.companion,
+              Positioned.fill(
+                child: LocalDictationEntryButton(
+                  hid: controller.hid,
+                  companion: controller.companion,
+                  modelManager: widget.dictationModelManager,
+                  capture: widget.dictationCapture,
+                  recognizerFactory: widget.dictationRecognizerFactory,
+                  enableWakeLock: widget.enableDictationWakeLock,
+                  disableWakeLock: widget.disableDictationWakeLock,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -189,6 +378,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+int _boardColumns(int keysPerPage, bool landscape) {
+  final scale = landscape ? 1.25 : 0.8;
+  return (sqrt(keysPerPage) * scale).round();
+}
+
 enum _HomeTab { keyboard, application, apps, codex }
 
 extension on _HomeTab {
@@ -207,18 +401,159 @@ extension on _HomeTab {
   };
 }
 
-class _PortraitPanel extends StatelessWidget {
-  const _PortraitPanel({
+class _ShortcutBoard extends StatelessWidget {
+  const _ShortcutBoard({
     super.key,
     required this.controller,
     required this.editing,
     required this.remoteLayout,
+    required this.keysPerPage,
+    required this.bank,
+    required this.onSelectBank,
     required this.onToggleEditing,
   });
 
   final AppController controller;
   final bool editing;
   final RemoteShortcutLayout? remoteLayout;
+  final int keysPerPage;
+  final int bank;
+  final ValueChanged<int> onSelectBank;
+  final VoidCallback onToggleEditing;
+
+  @override
+  Widget build(BuildContext context) {
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final columns = _boardColumns(keysPerPage, landscape);
+    final rows = (keysPerPage / columns).ceil();
+    final banks = remoteLayout == null
+        ? (maxControlButtonCount / keysPerPage).ceil()
+        : (remoteLayout!.buttons.length / keysPerPage).ceil().clamp(1, 99);
+    final start = bank * keysPerPage;
+    final visibleCount = remoteLayout == null
+        ? (maxControlButtonCount - start).clamp(0, keysPerPage).toInt()
+        : (remoteLayout!.buttons.length - start).clamp(1, keysPerPage).toInt();
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+            child: remoteLayout == null
+                ? _ButtonGrid(
+                    controller: controller,
+                    editing: editing,
+                    columns: columns,
+                    startPosition: start,
+                    visibleCount: visibleCount,
+                    rowCountOverride: rows,
+                  )
+                : _RemoteButtonGrid(
+                    controller: controller,
+                    layout: remoteLayout!,
+                    columns: columns,
+                    startIndex: start,
+                    visibleCount: visibleCount,
+                    rowCountOverride: rows,
+                  ),
+          ),
+        ),
+        const Divider(height: 1),
+        SizedBox(
+          height: 48,
+          child: Row(
+            children: [
+              const SizedBox(width: 10),
+              IconButton(
+                key: const ValueKey('board-bank-previous'),
+                tooltip: 'Previous bank',
+                onPressed: bank > 0 ? () => onSelectBank(bank - 1) : null,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    'Bank ${bank + 1} of $banks',
+                    key: const ValueKey('board-bank-label'),
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+              ),
+              if (remoteLayout == null)
+                TextButton.icon(
+                  key: const ValueKey('board-edit-toggle'),
+                  onPressed: onToggleEditing,
+                  icon: Icon(editing ? Icons.check : Icons.edit_outlined),
+                  label: Text(editing ? 'Done' : 'Edit'),
+                ),
+              IconButton(
+                key: const ValueKey('board-bank-next'),
+                tooltip: 'Next bank',
+                onPressed: bank + 1 < banks
+                    ? () => onSelectBank(bank + 1)
+                    : null,
+                icon: const Icon(Icons.chevron_right),
+              ),
+              const SizedBox(width: 10),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PhoneBankNavigation extends StatelessWidget {
+  const _PhoneBankNavigation({
+    required this.bank,
+    required this.bankCount,
+    required this.onSelect,
+  });
+
+  final int bank;
+  final int bankCount;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 42,
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          tooltip: 'Previous bank',
+          onPressed: bank > 0 ? () => onSelect(bank - 1) : null,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        Text('Bank ${bank + 1} of $bankCount'),
+        IconButton(
+          tooltip: 'Next bank',
+          onPressed: bank + 1 < bankCount ? () => onSelect(bank + 1) : null,
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    ),
+  );
+}
+
+class _PortraitPanel extends StatelessWidget {
+  const _PortraitPanel({
+    super.key,
+    required this.controller,
+    required this.editing,
+    required this.remoteLayout,
+    required this.startPosition,
+    required this.visibleCount,
+    required this.rowCountOverride,
+    required this.onToggleEditing,
+  });
+
+  final AppController controller;
+  final bool editing;
+  final RemoteShortcutLayout? remoteLayout;
+  final int startPosition;
+  final int visibleCount;
+  final int rowCountOverride;
   final VoidCallback onToggleEditing;
 
   @override
@@ -235,11 +570,17 @@ class _PortraitPanel extends StatelessWidget {
                     controller: controller,
                     editing: editing,
                     columns: 3,
+                    startPosition: startPosition,
+                    visibleCount: visibleCount,
+                    rowCountOverride: rowCountOverride,
                   )
                 : _RemoteButtonGrid(
                     controller: controller,
                     layout: remoteLayout!,
                     columns: 3,
+                    startIndex: startPosition,
+                    visibleCount: visibleCount,
+                    rowCountOverride: rowCountOverride,
                   ),
           ),
         ),
@@ -267,12 +608,18 @@ class _LandscapePanel extends StatelessWidget {
     required this.controller,
     required this.editing,
     required this.remoteLayout,
+    required this.startPosition,
+    required this.visibleCount,
+    required this.rowCountOverride,
     required this.onToggleEditing,
   });
 
   final AppController controller;
   final bool editing;
   final RemoteShortcutLayout? remoteLayout;
+  final int startPosition;
+  final int visibleCount;
+  final int rowCountOverride;
   final VoidCallback onToggleEditing;
 
   @override
@@ -289,11 +636,17 @@ class _LandscapePanel extends StatelessWidget {
                     controller: controller,
                     editing: editing,
                     columns: 5,
+                    startPosition: startPosition,
+                    visibleCount: visibleCount,
+                    rowCountOverride: rowCountOverride,
                   )
                 : _RemoteButtonGrid(
                     controller: controller,
                     layout: remoteLayout!,
                     columns: 5,
+                    startIndex: startPosition,
+                    visibleCount: visibleCount,
+                    rowCountOverride: rowCountOverride,
                   ),
           ),
         ),
@@ -465,16 +818,23 @@ class _RemoteButtonGrid extends StatelessWidget {
     required this.controller,
     required this.layout,
     required this.columns,
+    this.startIndex = 0,
+    this.visibleCount = controlButtonCount,
+    this.rowCountOverride,
   });
 
   final AppController controller;
   final RemoteShortcutLayout layout;
   final int columns;
+  final int startIndex;
+  final int visibleCount;
+  final int? rowCountOverride;
 
   @override
   Widget build(BuildContext context) {
-    final buttons = layout.buttons.take(controlButtonCount).toList();
-    final rows = (controlButtonCount / columns).ceil();
+    final buttons = layout.buttons.skip(startIndex).take(visibleCount).toList();
+    final count = visibleCount < 1 ? 1 : visibleCount;
+    final rows = rowCountOverride ?? (count / columns).ceil();
     return LayoutBuilder(
       builder: (context, constraints) {
         const horizontalSpacing = 4.0;
@@ -488,7 +848,7 @@ class _RemoteButtonGrid extends StatelessWidget {
           key: ValueKey('remote-layout-${layout.id}'),
           physics: const NeverScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
-          itemCount: controlButtonCount,
+          itemCount: count,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             crossAxisSpacing: horizontalSpacing,
@@ -830,17 +1190,32 @@ class _ButtonGrid extends StatelessWidget {
     required this.controller,
     required this.editing,
     required this.columns,
+    this.startPosition = 0,
+    this.visibleCount = controlButtonCount,
+    this.rowCountOverride,
   });
 
   final AppController controller;
   final bool editing;
   final int columns;
+  final int startPosition;
+  final int visibleCount;
+  final int? rowCountOverride;
 
   @override
   Widget build(BuildContext context) {
-    final buttons = [...controller.activeProfile.buttons]
-      ..sort((a, b) => a.position.compareTo(b.position));
-    final rows = (buttons.length / columns).ceil();
+    final byPosition = {
+      for (final button in controller.activeProfile.buttons)
+        button.position: button,
+    };
+    final buttons = List.generate(
+      visibleCount,
+      (index) =>
+          byPosition[startPosition + index] ??
+          ButtonConfig.empty(startPosition + index),
+      growable: false,
+    );
+    final rows = rowCountOverride ?? (visibleCount / columns).ceil();
     return LayoutBuilder(
       builder: (context, constraints) {
         const horizontalSpacing = 4.0;
@@ -860,7 +1235,7 @@ class _ButtonGrid extends StatelessWidget {
             mainAxisSpacing: verticalSpacing,
             childAspectRatio: width / height,
           ),
-          itemCount: buttons.length,
+          itemCount: visibleCount,
           itemBuilder: (context, index) {
             final button = buttons[index];
             final control = Semantics(
@@ -965,12 +1340,15 @@ class _WheelPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final wheel = controller.activeProfile.wheel;
     final isTouchpad = wheel.controlType == WheelControlType.mousePad;
+    final desktopKeyboardOnly = controller.hid is IosCompanionHidService;
     final panel = Stack(
       fit: StackFit.expand,
       children: [
         AbsorbPointer(
           absorbing: editing,
-          child: isTouchpad
+          child: isTouchpad && desktopKeyboardOnly
+              ? const _DesktopKeyboardOnlyHint()
+              : isTouchpad
               ? MouseTouchpad(
                   config: wheel,
                   inputEpoch: controller.inputEpoch,
@@ -1022,6 +1400,7 @@ class _WheelPanel extends StatelessWidget {
   }
 
   void _sendMouseClick(BuildContext context, {required bool secondary}) {
+    if (controller.hid is IosCompanionHidService) return;
     if (controller.hid.connectionStatus.value !=
         HidConnectionStatus.connected) {
       showBluetoothConnectionSheet(context, controller.hid);
@@ -1031,9 +1410,35 @@ class _WheelPanel extends StatelessWidget {
   }
 }
 
+class _DesktopKeyboardOnlyHint extends StatelessWidget {
+  const _DesktopKeyboardOnlyHint();
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Card(
+      key: const ValueKey('desktop-keyboard-only-hint'),
+      child: const Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.desktop_windows_outlined, size: 28),
+            SizedBox(height: 10),
+            Text(
+              'Mouse controls are unavailable on iPad. Connect to LumiaKey Desktop to use keyboard shortcuts.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 enum _ControlMenuAction {
   profiles,
   bluetooth,
+  desktopConnection,
   importExport,
   toggleEditing,
   settings,
@@ -1057,6 +1462,7 @@ class _CompactControlMenu extends StatelessWidget {
       builder: (context, status, _) => ValueListenableBuilder<bool?>(
         valueListenable: controller.powerBrightnessService.isPluggedIn,
         builder: (context, pluggedIn, _) {
+          final desktopKeyboardOnly = controller.hid is IosCompanionHidService;
           final display = _statusDisplay(
             controller.controlSurfaceStatus,
             status,
@@ -1080,11 +1486,24 @@ class _CompactControlMenu extends StatelessWidget {
                   ),
                 ),
                 PopupMenuItem(
-                  value: _ControlMenuAction.bluetooth,
+                  key: ValueKey(
+                    desktopKeyboardOnly
+                        ? 'menu-desktop-connection'
+                        : 'menu-bluetooth-connection',
+                  ),
+                  value: desktopKeyboardOnly
+                      ? _ControlMenuAction.desktopConnection
+                      : _ControlMenuAction.bluetooth,
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(_connectionIcon(status)),
-                    title: Text('Bluetooth · ${_connectionLabel(status)}'),
+                    leading: desktopKeyboardOnly
+                        ? const Icon(Icons.desktop_windows_outlined)
+                        : Icon(_connectionIcon(status)),
+                    title: Text(
+                      desktopKeyboardOnly
+                          ? 'Desktop connection'
+                          : 'Bluetooth · ${_connectionLabel(status)}',
+                    ),
                   ),
                 ),
                 PopupMenuItem(
@@ -1174,7 +1593,7 @@ class _CompactControlMenu extends StatelessWidget {
     );
   }
 
-  static _CompactStatusDisplay _statusDisplay(
+  _CompactStatusDisplay _statusDisplay(
     ControlSurfaceStatus surface,
     HidConnectionStatus hidStatus,
   ) {
@@ -1202,6 +1621,17 @@ class _CompactControlMenu extends StatelessWidget {
             : Colors.amberAccent,
       );
     }
+    if (controller.hid is IosCompanionHidService &&
+        !surface.desktopDiscovered &&
+        !surface.desktopSynced) {
+      return const _CompactStatusDisplay(
+        key: 'desktop-offline',
+        label: 'Desktop',
+        tooltip: 'LumiaKey Desktop · Not connected',
+        icon: Icons.desktop_windows_outlined,
+        color: Colors.amberAccent,
+      );
+    }
     return _CompactStatusDisplay(
       key: 'hid',
       label: 'HID',
@@ -1217,6 +1647,22 @@ class _CompactControlMenu extends StatelessWidget {
         _showProfileSelector(context, controller);
       case _ControlMenuAction.bluetooth:
         showBluetoothConnectionSheet(context, controller.hid);
+      case _ControlMenuAction.desktopConnection:
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (context) => AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: SafeArea(
+              child: SingleChildScrollView(
+                child: DesktopConnectionPanel(companion: controller.companion),
+              ),
+            ),
+          ),
+        );
       case _ControlMenuAction.toggleEditing:
         onToggleEditing();
       case _ControlMenuAction.importExport:

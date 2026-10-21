@@ -7,8 +7,13 @@ abstract interface class OrientationService {
 }
 
 class SystemOrientationService implements OrientationService {
+  const SystemOrientationService({this.followSystem = false});
+
+  final bool followSystem;
+
   @override
   Future<void> apply(OrientationMode mode) {
+    if (followSystem) return SystemChrome.setPreferredOrientations(const []);
     final orientations = switch (mode) {
       OrientationMode.auto => <DeviceOrientation>[],
       OrientationMode.portrait => [DeviceOrientation.portraitUp],

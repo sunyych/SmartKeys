@@ -161,15 +161,24 @@ class SharedPreferencesConfigRepository implements ConfigRepository {
             position: position,
           );
         });
-        return profile.copyWith(buttons: buttons);
+        final extraButtons = profile.buttons
+            .where((button) => button.position >= controlButtonCount)
+            .toList();
+        return profile.copyWith(buttons: [...buttons, ...extraButtons]);
       }
 
       final byPosition = {
-        for (final button in profile.buttons) button.position: button,
+        for (final button in profile.buttons)
+          if (button.position >= 0 && button.position < maxControlButtonCount)
+            button.position: button,
       };
+      final lastPosition = byPosition.keys.fold<int>(
+        controlButtonCount - 1,
+        (last, position) => position > last ? position : last,
+      );
       return profile.copyWith(
         buttons: List.generate(
-          controlButtonCount,
+          lastPosition + 1,
           (position) => byPosition[position] ?? ButtonConfig.empty(position),
         ),
       );

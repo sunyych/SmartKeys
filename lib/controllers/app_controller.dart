@@ -561,6 +561,31 @@ class AppController extends ChangeNotifier {
     await repository.save(config);
   }
 
+  Future<void> updateControlSurfaceLayout(ControlSurfaceLayout value) async {
+    await prepareForContextChange();
+    _config = config.copyWith(
+      preferences: config.preferences.copyWith(controlSurfaceLayout: value),
+    );
+    notifyListeners();
+    await repository.save(config);
+  }
+
+  Future<void> updateTabletKeysPerPage(int value) async {
+    if (value < minTabletKeysPerPage || value > maxTabletKeysPerPage) {
+      throw ArgumentError.value(
+        value,
+        'value',
+        'Must be between $minTabletKeysPerPage and $maxTabletKeysPerPage.',
+      );
+    }
+    await prepareForContextChange();
+    _config = config.copyWith(
+      preferences: config.preferences.copyWith(tabletKeysPerPage: value),
+    );
+    notifyListeners();
+    await repository.save(config);
+  }
+
   Future<void> updateFeedbackPreferences({
     bool? hapticEnabled,
     bool? soundEnabled,
@@ -623,13 +648,23 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> updateButton(ButtonConfig updated) async {
+    if (updated.position < 0 || updated.position >= maxControlButtonCount) {
+      return;
+    }
     final profile = activeProfile;
     final buttons = [...profile.buttons];
     final index = buttons.indexWhere(
       (button) => button.position == updated.position,
     );
-    if (index < 0) return;
-    buttons[index] = updated;
+    if (index < 0) {
+      while (buttons.length <= updated.position) {
+        buttons.add(ButtonConfig.empty(buttons.length));
+      }
+      buttons[updated.position] = updated;
+    } else {
+      buttons[index] = updated;
+    }
+    buttons.sort((a, b) => a.position.compareTo(b.position));
     await _replaceProfile(
       profile.copyWith(
         buttons: buttons,
@@ -640,20 +675,31 @@ class AppController extends ChangeNotifier {
 
   Future<void> swapButtons(int sourcePosition, int targetPosition) async {
     if (sourcePosition == targetPosition) return;
+    if (sourcePosition < 0 ||
+        sourcePosition >= maxControlButtonCount ||
+        targetPosition < 0 ||
+        targetPosition >= maxControlButtonCount) {
+      return;
+    }
     final profile = activeProfile;
-    final buttons = [...profile.buttons];
-    final sourceIndex = buttons.indexWhere(
-      (button) => button.position == sourcePosition,
+    final byPosition = {
+      for (final button in profile.buttons)
+        if (button.position >= 0 && button.position < maxControlButtonCount)
+          button.position: button,
+    };
+    final lastPosition = [
+      sourcePosition,
+      targetPosition,
+      ...byPosition.keys,
+    ].reduce((a, b) => a > b ? a : b);
+    final buttons = List.generate(
+      lastPosition + 1,
+      (position) => byPosition[position] ?? ButtonConfig.empty(position),
     );
-    final targetIndex = buttons.indexWhere(
-      (button) => button.position == targetPosition,
-    );
-    if (sourceIndex < 0 || targetIndex < 0) return;
-
-    final source = buttons[sourceIndex];
-    final target = buttons[targetIndex];
-    buttons[sourceIndex] = _moveButtonToPosition(target, sourcePosition);
-    buttons[targetIndex] = _moveButtonToPosition(source, targetPosition);
+    final source = buttons[sourcePosition];
+    final target = buttons[targetPosition];
+    buttons[sourcePosition] = _moveButtonToPosition(target, sourcePosition);
+    buttons[targetPosition] = _moveButtonToPosition(source, targetPosition);
     await _replaceProfile(
       profile.copyWith(
         buttons: buttons,
@@ -743,12 +789,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> resetButton(int position) async {
+    if (position < 0 || position >= maxControlButtonCount) return;
     final builtIns = await templates.loadAll();
     final template = builtIns
         .where((item) => item.id == activeProfile.id)
         .firstOrNull;
     await updateButton(
-      template?.buttons[position] ?? ButtonConfig.empty(position),
+      template != null && position < template.buttons.length
+          ? template.buttons[position]
+          : ButtonConfig.empty(position),
     );
   }
 

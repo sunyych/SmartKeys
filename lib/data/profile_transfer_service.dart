@@ -63,6 +63,7 @@ class ProfileTransferService {
         (decoded['buttons'] is! List && decoded['wheel'] is! Map)) {
       throw const FormatException('This is not a valid LumiaKey profile JSON.');
     }
+    _validateButtonPositions(decoded['buttons']);
     final profile = ProfileConfig.fromJson(decoded);
     final importedActions = [
       ...profile.buttons.map((button) => button.action),
@@ -87,6 +88,35 @@ class ProfileTransferService {
       createdAt: stamp ~/ 1000,
       updatedAt: stamp ~/ 1000,
     );
+  }
+
+  void _validateButtonPositions(Object? rawButtons) {
+    if (rawButtons is! List) return;
+    final seen = <int>{};
+    for (var index = 0; index < rawButtons.length; index++) {
+      final raw = rawButtons[index];
+      if (raw is! Map) {
+        throw FormatException('Profile button $index must be a JSON object.');
+      }
+      final rawPosition = raw['position'];
+      if (rawPosition == null) continue;
+      if (rawPosition is! num || rawPosition != rawPosition.toInt()) {
+        throw FormatException(
+          'Profile button $index has a malformed position.',
+        );
+      }
+      final position = rawPosition.toInt();
+      if (position < 0 || position >= maxControlButtonCount) {
+        throw FormatException(
+          'Profile button position $position is outside 0–${maxControlButtonCount - 1}.',
+        );
+      }
+      if (!seen.add(position)) {
+        throw FormatException(
+          'Profile contains duplicate button position $position.',
+        );
+      }
+    }
   }
 
   String _safeName(String input) => input

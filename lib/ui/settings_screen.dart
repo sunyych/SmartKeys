@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import '../app.dart';
 import '../controllers/app_controller.dart';
 import '../models/config.dart';
+import '../services/ios_companion_hid_service.dart';
 import 'bluetooth_connection_sheet.dart';
 import 'profile_management_screen.dart';
 import 'shortcut_community_screen.dart';
 import 'desktop_installers_screen.dart';
+import 'desktop_connection_panel.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -17,41 +19,27 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = SmartKeysScope.of(context);
     final preferences = controller.config.preferences;
+    final isIosDesktop = controller.hid is IosCompanionHidService;
     final content = ListView(
-      key: embedded ? const ValueKey('embedded-settings') : null,
+      key: ValueKey(embedded ? 'embedded-settings' : 'settings-list'),
       children: [
-        const _SectionLabel('BLUETOOTH HID'),
-        ValueListenableBuilder(
-          valueListenable: controller.hid.connectionStatus,
-          builder: (context, status, _) => ListTile(
-            leading: const Icon(Icons.bluetooth),
-            title: const Text('Computer connection'),
-            subtitle: Text(status.name),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showBluetoothConnectionSheet(context, controller.hid),
+        if (!isIosDesktop) ...[
+          const _SectionLabel('BLUETOOTH HID'),
+          ValueListenableBuilder(
+            valueListenable: controller.hid.connectionStatus,
+            builder: (context, status, _) => ListTile(
+              leading: const Icon(Icons.bluetooth),
+              title: const Text('Computer connection'),
+              subtitle: Text(status.name),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () =>
+                  showBluetoothConnectionSheet(context, controller.hid),
+            ),
           ),
-        ),
-        const Divider(),
+          const Divider(),
+        ],
         const _SectionLabel('DESKTOP COMPANION'),
-        ValueListenableBuilder(
-          valueListenable: controller.companion.activeHost,
-          builder: (context, host, _) => ListTile(
-            leading: Icon(
-              host == null ? Icons.desktop_access_disabled : Icons.computer,
-            ),
-            title: Text(host == null ? 'Looking for desktop…' : host.name),
-            subtitle: Text(
-              host == null
-                  ? 'Open LumiaKey Desktop on the same local network'
-                  : host.supportsManifest
-                  ? '${host.platform} · Desktop layout revision ${controller.desktopManifest?.revision ?? 'syncing'}'
-                  : '${host.platform} · legacy actions only',
-            ),
-            trailing: host == null
-                ? const Icon(Icons.search)
-                : const Icon(Icons.check_circle, color: Colors.green),
-          ),
-        ),
+        DesktopConnectionPanel(companion: controller.companion),
         const Divider(),
         const _SectionLabel('SHORTCUT PLATFORM'),
         RadioGroup<ShortcutPlatform>(
@@ -75,6 +63,52 @@ class SettingsScreen extends StatelessWidget {
         ),
         const Divider(),
         const _SectionLabel('CONTROL SURFACE'),
+        RadioGroup<ControlSurfaceLayout>(
+          groupValue: preferences.controlSurfaceLayout,
+          onChanged: (value) {
+            if (value != null) controller.updateControlSurfaceLayout(value);
+          },
+          child: Column(
+            children: ControlSurfaceLayout.values
+                .map(
+                  (layout) => RadioListTile<ControlSurfaceLayout>(
+                    title: Text(_controlSurfaceLayoutTitle(layout)),
+                    subtitle: Text(_controlSurfaceLayoutSubtitle(layout)),
+                    value: layout,
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.grid_view_outlined),
+          title: const Text('Shortcut board keys per screen'),
+          trailing: DropdownButton<int>(
+            key: const ValueKey('tablet-keys-per-page'),
+            value: preferences.tabletKeysPerPage,
+            items: [
+              for (
+                var count = minTabletKeysPerPage;
+                count <= maxTabletKeysPerPage;
+                count++
+              )
+                DropdownMenuItem<int>(
+                  value: count,
+                  child: Text(
+                    count == 40
+                        ? '$count (default)'
+                        : tabletKeysPerPageOptions.contains(count)
+                        ? '$count (preset)'
+                        : '$count',
+                  ),
+                ),
+            ],
+            onChanged: (value) {
+              if (value != null) controller.updateTabletKeysPerPage(value);
+            },
+          ),
+        ),
+        const Divider(),
         ListTile(
           leading: const Icon(Icons.dashboard_customize_outlined),
           title: const Text('Profiles'),
@@ -218,22 +252,30 @@ class SettingsScreen extends StatelessWidget {
           ),
           onTap: () => _confirmRestore(context),
         ),
-        const Padding(
-          padding: EdgeInsets.all(16),
+        Padding(
+          padding: const EdgeInsets.all(16),
           child: Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline),
-                  SizedBox(width: 12),
+                  const Icon(Icons.info_outline),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      'Bluetooth and Desktop use the same control surface. '
-                      'Desktop only supplies installed apps and dynamic app '
-                      'shortcuts; your phone Profiles remain available.',
-                    ),
+                    child: isIosDesktop
+                        ? const Text(
+                            'iPad sends supported keyboard shortcuts to '
+                            'LumiaKey Desktop over Wi-Fi; speech recognition '
+                            'stays on this device.',
+                            key: ValueKey('ipad-desktop-keyboard-explanation'),
+                          )
+                        : const Text(
+                            'Bluetooth and Desktop use the same control '
+                            'surface. Desktop provides installed apps and '
+                            'dynamic app shortcuts; your phone Profiles '
+                            'remain available.',
+                          ),
                   ),
                 ],
               ),
@@ -254,6 +296,22 @@ class SettingsScreen extends StatelessWidget {
     OrientationMode.portrait => 'Portrait',
     OrientationMode.landscape => 'Landscape',
   };
+
+  static String _controlSurfaceLayoutTitle(ControlSurfaceLayout layout) =>
+      switch (layout) {
+        ControlSurfaceLayout.automatic => 'Automatic',
+        ControlSurfaceLayout.phone => 'Phone controls',
+        ControlSurfaceLayout.shortcutBoard => 'Shortcut board',
+      };
+
+  static String _controlSurfaceLayoutSubtitle(ControlSurfaceLayout layout) =>
+      switch (layout) {
+        ControlSurfaceLayout.automatic =>
+          'Use the shortcut board when the window is tablet sized',
+        ControlSurfaceLayout.phone => 'Use the existing phone controls',
+        ControlSurfaceLayout.shortcutBoard =>
+          'Use the full-screen keyboard-only board',
+      };
 
   static String _orientationSubtitle(OrientationMode mode) => switch (mode) {
     OrientationMode.auto => 'Follow the physical device orientation',

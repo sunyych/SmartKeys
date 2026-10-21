@@ -20,7 +20,13 @@ enum ActionType {
 
 enum WheelControlType { jog, mousePad }
 
+enum ControlSurfaceLayout { automatic, phone, shortcutBoard }
+
 const controlButtonCount = 15;
+const maxControlButtonCount = 60;
+const minTabletKeysPerPage = 24;
+const maxTabletKeysPerPage = 60;
+const tabletKeysPerPageOptions = [24, 40, 60];
 const freeProfileLimit = 4;
 const defaultFreeProfileIds = {
   'profile_general',
@@ -39,6 +45,14 @@ extension _FirstOrNull<T> on Iterable<T> {
     final iterator = this.iterator;
     return iterator.moveNext() ? iterator.current : null;
   }
+}
+
+int _tabletKeysPerPage(Object? raw) {
+  if (raw is! num || !raw.isFinite || raw != raw.toInt()) return 40;
+  final value = raw.toInt();
+  return value >= minTabletKeysPerPage && value <= maxTabletKeysPerPage
+      ? value
+      : 40;
 }
 
 class ButtonVisual {
@@ -335,16 +349,29 @@ class ProfileConfig {
   final int updatedAt;
 
   factory ProfileConfig.fromJson(Map<String, dynamic> json) {
-    final parsed = (json['buttons'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => ButtonConfig.fromJson(item.cast<String, dynamic>()))
-        .toList();
-    final byPosition = {for (final button in parsed) button.position: button};
+    final byPosition = <int, ButtonConfig>{};
+    for (final item in json['buttons'] as List? ?? const []) {
+      if (item is! Map) continue;
+      final buttonJson = item.cast<String, dynamic>();
+      final rawPosition = buttonJson['position'];
+      if (rawPosition != null &&
+          (rawPosition is! num || rawPosition != rawPosition.toInt())) {
+        continue;
+      }
+      final button = ButtonConfig.fromJson(buttonJson);
+      if (button.position < 0 || button.position >= maxControlButtonCount) {
+        continue;
+      }
+      byPosition.putIfAbsent(button.position, () => button);
+    }
+    final lastPosition = byPosition.keys.fold<int>(
+      controlButtonCount - 1,
+      (last, position) => position > last ? position : last,
+    );
     final buttons = List.generate(
-      controlButtonCount,
+      lastPosition + 1,
       (position) => byPosition[position] ?? ButtonConfig.empty(position),
     );
-    buttons.sort((a, b) => a.position.compareTo(b.position));
     final now = DateTime.now().millisecondsSinceEpoch;
     return ProfileConfig(
       id: json['id'] as String? ?? 'profile_$now',
@@ -426,6 +453,8 @@ class AppPreferences {
     this.soundEnabled = false,
     this.orientationMode = OrientationMode.landscape,
     this.shortcutPlatform = ShortcutPlatform.automatic,
+    this.controlSurfaceLayout = ControlSurfaceLayout.automatic,
+    this.tabletKeysPerPage = 40,
     this.chargingBrightnessMode = ChargingBrightnessMode.fixed,
     this.chargingBrightness = 0.8,
     this.keepScreenOnWhileCharging = true,
@@ -435,6 +464,8 @@ class AppPreferences {
   final bool soundEnabled;
   final OrientationMode orientationMode;
   final ShortcutPlatform shortcutPlatform;
+  final ControlSurfaceLayout controlSurfaceLayout;
+  final int tabletKeysPerPage;
   final ChargingBrightnessMode chargingBrightnessMode;
   final double chargingBrightness;
   final bool keepScreenOnWhileCharging;
@@ -452,6 +483,12 @@ class AppPreferences {
       json?['shortcutPlatform'],
       ShortcutPlatform.automatic,
     ),
+    controlSurfaceLayout: _enumValue(
+      ControlSurfaceLayout.values,
+      json?['controlSurfaceLayout'],
+      ControlSurfaceLayout.automatic,
+    ),
+    tabletKeysPerPage: _tabletKeysPerPage(json?['tabletKeysPerPage']),
     chargingBrightnessMode: _enumValue(
       ChargingBrightnessMode.values,
       json?['chargingBrightnessMode'],
@@ -471,6 +508,8 @@ class AppPreferences {
     'soundEnabled': soundEnabled,
     'orientationMode': orientationMode.name,
     'shortcutPlatform': shortcutPlatform.name,
+    'controlSurfaceLayout': controlSurfaceLayout.name,
+    'tabletKeysPerPage': tabletKeysPerPage,
     'chargingBrightnessMode': chargingBrightnessMode.name,
     'chargingBrightness': chargingBrightness,
     'keepScreenOnWhileCharging': keepScreenOnWhileCharging,
@@ -481,6 +520,8 @@ class AppPreferences {
     bool? soundEnabled,
     OrientationMode? orientationMode,
     ShortcutPlatform? shortcutPlatform,
+    ControlSurfaceLayout? controlSurfaceLayout,
+    int? tabletKeysPerPage,
     ChargingBrightnessMode? chargingBrightnessMode,
     double? chargingBrightness,
     bool? keepScreenOnWhileCharging,
@@ -489,6 +530,13 @@ class AppPreferences {
     soundEnabled: soundEnabled ?? this.soundEnabled,
     orientationMode: orientationMode ?? this.orientationMode,
     shortcutPlatform: shortcutPlatform ?? this.shortcutPlatform,
+    controlSurfaceLayout: controlSurfaceLayout ?? this.controlSurfaceLayout,
+    tabletKeysPerPage:
+        (tabletKeysPerPage ?? this.tabletKeysPerPage) >= minTabletKeysPerPage &&
+            (tabletKeysPerPage ?? this.tabletKeysPerPage) <=
+                maxTabletKeysPerPage
+        ? tabletKeysPerPage ?? this.tabletKeysPerPage
+        : this.tabletKeysPerPage,
     chargingBrightnessMode:
         chargingBrightnessMode ?? this.chargingBrightnessMode,
     chargingBrightness: (chargingBrightness ?? this.chargingBrightness).clamp(

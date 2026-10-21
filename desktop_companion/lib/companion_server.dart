@@ -100,6 +100,19 @@ class CompanionServer extends ChangeNotifier {
       await _reject(request, HttpStatus.forbidden, 'forbidden');
       return;
     }
+    if (request.method == 'GET' && request.uri.path == '/info') {
+      request.response.write(
+        jsonEncode({
+          'name': Platform.localHostname,
+          'platform': platform,
+          'version': 2,
+          'capabilities': capabilities,
+          'revision': controller.manifest.revision,
+        }),
+      );
+      await request.response.close();
+      return;
+    }
     if (request.method == 'POST' && request.uri.path == '/dictation') {
       try {
         await _dictationReceiver.handle(request);

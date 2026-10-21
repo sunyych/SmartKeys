@@ -23,11 +23,16 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
   bool initialized = false;
   bool saving = false;
 
+  ButtonConfig _buttonAt(List<ButtonConfig> buttons) =>
+      widget.position >= 0 && widget.position < buttons.length
+      ? buttons[widget.position]
+      : ButtonConfig.empty(widget.position);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (initialized) return;
-    draft = SmartKeysScope.of(context).activeProfile.buttons[widget.position];
+    draft = _buttonAt(SmartKeysScope.of(context).activeProfile.buttons);
     labelController = TextEditingController(text: draft.label);
     subtitleController = TextEditingController(text: draft.subtitle);
     actionController = TextEditingController(
@@ -519,13 +524,13 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
   Future<void> _paste() async {
     final controller = SmartKeysScope.of(context);
     await controller.pasteButton(widget.position);
-    _loadFrom(controller.activeProfile.buttons[widget.position]);
+    _loadFrom(_buttonAt(controller.activeProfile.buttons));
   }
 
   Future<void> _reset() async {
     final controller = SmartKeysScope.of(context);
     await controller.resetButton(widget.position);
-    _loadFrom(controller.activeProfile.buttons[widget.position]);
+    _loadFrom(_buttonAt(controller.activeProfile.buttons));
   }
 
   void _clear() {

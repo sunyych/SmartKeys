@@ -18,6 +18,9 @@ migration:
     - platform: android
       create_revision: 924134a44c189315be2148659913dda1671cbe99
       base_revision: 924134a44c189315be2148659913dda1671cbe99
+    - platform: ios
+      create_revision: c9a6c484230f8b5e408ec57be1ef71dee1e77020
+      base_revision: c9a6c484230f8b5e408ec57be1ef71dee1e77020
 
   # User provided section
 
@@ -27,3 +30,4 @@ migration:
   # Files that are not part of the templates will be ignored by default.
   unmanaged_files:
     - 'lib/main.dart'
+    - 'ios/Runner.xcodeproj/project.pbxproj'

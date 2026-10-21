@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
@@ -439,6 +440,8 @@ class _BluetoothPage extends StatelessWidget {
         displayHost: displayHost,
       ),
       const SizedBox(height: 24),
+      _TabletPairingCard(server: server),
+      const SizedBox(height: 24),
       Card(
         child: Column(
           children: [
@@ -455,7 +458,7 @@ class _BluetoothPage extends StatelessWidget {
               title: const Text('Desktop layout sync'),
               subtitle: Text(
                 server.running
-                    ? 'Secure companion channel active on port ${server.actionPort ?? 'starting'}'
+                    ? 'Authenticated local channel active on port ${server.actionPort ?? 'starting'}'
                     : server.error ?? 'Not running',
               ),
             ),
@@ -475,6 +478,130 @@ class _BluetoothPage extends StatelessWidget {
         'Bluetooth HID remains the input path. V1.2 layout data uses the authenticated companion channel so the desktop can send structured layouts and icons back to Android.',
       ),
     ],
+  );
+}
+
+class _TabletPairingCard extends StatefulWidget {
+  const _TabletPairingCard({required this.server});
+  final CompanionServer server;
+
+  @override
+  State<_TabletPairingCard> createState() => _TabletPairingCardState();
+}
+
+class _TabletPairingCardState extends State<_TabletPairingCard> {
+  List<String> _addresses = const [];
+  String? _selectedAddress;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadAddresses());
+  }
+
+  Future<void> _loadAddresses() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      final values =
+          interfaces
+              .expand((interface) => interface.addresses)
+              .where(_isPrivateIpv4)
+              .map((address) => address.address)
+              .toSet()
+              .toList()
+            ..sort();
+      if (mounted) {
+        setState(() {
+          _addresses = values;
+          if (!_addresses.contains(_selectedAddress)) {
+            _selectedAddress = values.isEmpty ? null : values.first;
+          }
+        });
+      }
+    } on SocketException {
+      if (mounted) setState(() => _addresses = const []);
+    }
+  }
+
+  bool _isPrivateIpv4(InternetAddress address) {
+    final bytes = address.rawAddress;
+    return bytes[0] == 10 ||
+        (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
+        (bytes[0] == 192 && bytes[1] == 168);
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Connect an iPad',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Join the same Wi-Fi, then paste this private connection code into LumiaKey on the iPad.',
+          ),
+          const SizedBox(height: 12),
+          if (_addresses.isEmpty)
+            const Text('No private IPv4 address is available.')
+          else ...[
+            DropdownButtonFormField<String>(
+              initialValue: _addresses.contains(_selectedAddress)
+                  ? _selectedAddress
+                  : null,
+              decoration: const InputDecoration(
+                labelText: 'Desktop network address',
+              ),
+              items: _addresses
+                  .map(
+                    (address) =>
+                        DropdownMenuItem(value: address, child: Text(address)),
+                  )
+                  .toList(growable: false),
+              onChanged: (address) =>
+                  setState(() => _selectedAddress = address),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Choose the Wi-Fi address reachable by your iPad. Avoid VPN or virtual adapter addresses.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed:
+                !widget.server.running ||
+                    widget.server.actionPort == null ||
+                    !_addresses.contains(_selectedAddress)
+                ? null
+                : () async {
+                    final address = _selectedAddress;
+                    if (address == null) return;
+                    final code =
+                        '$address:${widget.server.actionPort} ${widget.server.token}';
+                    await Clipboard.setData(ClipboardData(text: code));
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Private connection code copied. Treat it like a password.',
+                        ),
+                      ),
+                    );
+                  },
+            icon: const Icon(Icons.copy),
+            label: const Text('Copy iPad connection code'),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
