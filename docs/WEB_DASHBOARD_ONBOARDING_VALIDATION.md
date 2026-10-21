@@ -83,6 +83,10 @@ no JavaScript exceptions and no page width overflow. It also checked that
 are under `build/community-runtime/web-qa/`. CUA initialization timed out twice;
 browser QA used the bundled Playwright runtime and installed Edge instead.
 Synthetic data was confined to the disposable test database.
+The final deployed JavaScript also passed browser checks for non-JSON 503/429,
+invalid JSON, null or mismatched responses, network failure and recovery to the
+real empty ranking. These failures show fixed Chinese messages rather than raw
+browser/parser errors, and stale response checks remain after JSON parsing.
 
 ## Local Docker runtime
 
@@ -95,7 +99,7 @@ migration. Batch count, backup count and aggregate count matched before/after
 the upgrade. Health, embedded page and combined filter responses passed.
 
 Final Linux image:
-`sha256:ae92008b47f0277c1f4d340d605030d07a568eeedba7c81fa7c1c63547603790`.
+`sha256:7e60aee931067449a4bf2adba103bfec85d45cc07b61779615691958ff64ba9c`.
 The API remains bound to host loopback with proxy trust off, runs as UID 10001
 with a read-only filesystem and restarts unless stopped. PostgreSQL has no host
 port. Runtime passwords, .env, backups and test artifacts remain ignored.

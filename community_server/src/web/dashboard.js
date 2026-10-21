@@ -52,11 +52,20 @@
     if (experience.value) params.set("experience", experience.value);
     try {
       const response = await fetch(`/v1/rankings?${params}`, {signal: controller.signal, headers: {Accept: "application/json"}, cache: "no-store"});
-      const data = await response.json();
       if (run !== generation) return;
       if (response.status === 429) throw new Error("请求较频繁，请稍后再刷新。");
       if (!response.ok) throw new Error(response.status >= 500 ? "服务暂时无法访问，请稍后重试。" : "筛选条件无效，请调整后重试。");
-      if (!Array.isArray(data.rankings)) throw new Error("服务返回了无法识别的数据。");
+      let data;
+      try { data = await response.json(); } catch (_) { throw new Error("服务暂时无法读取，请稍后重试。"); }
+      if (run !== generation) return;
+      if (data === null || typeof data !== "object" || Array.isArray(data)) throw new Error("服务返回了无法识别的数据，请稍后重试。");
+      const expectedTag = tag.value || null, expectedExperience = experience.value || null;
+      if (data.schema_version !== 1 || data.period !== period.value || data.tag !== expectedTag || data.experience !== expectedExperience || !Array.isArray(data.rankings)) {
+        throw new Error("服务返回了无法识别的数据，请稍后重试。");
+      }
+      if (!data.rankings.every(item => item && ids.includes(item.shortcut_id) && Number.isSafeInteger(item.count) && item.count >= 0 && Number.isSafeInteger(item.contributions) && item.contributions >= 3)) {
+        throw new Error("服务返回了无法识别的数据，请稍后重试。");
+      }
       render(data.rankings);
       const now = new Date();
       updated.textContent = `更新于 ${now.toLocaleTimeString("zh-CN", {hour:"2-digit", minute:"2-digit", second:"2-digit"})}`;
@@ -65,7 +74,7 @@
     } catch (error) {
       if (error.name === "AbortError" || run !== generation) return;
       status.className = "status error";
-      status.textContent = error.message || "网络连接失败，请检查服务后重试。";
+      status.textContent = error instanceof TypeError ? "网络连接失败，请检查网络后重试。" : (error.message || "服务暂时无法访问，请稍后重试。");
     }
   }
   for (const control of [period, tag, experience]) control.addEventListener("change", load);
