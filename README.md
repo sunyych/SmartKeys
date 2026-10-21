@@ -43,10 +43,12 @@ Desktop for insertion into the supported focused app. The tablet guide covers
 layout selection, profile banks, pairing, and platform validation in
 [`docs/TABLET_SUPPORT.md`](docs/TABLET_SUPPORT.md).
 
-Building, signing, and installing the iPad app requires macOS with Xcode, an
-Apple signing identity, and a connected iPad for device acceptance. The current
-Windows development environment has not verified an iOS native build or
-physical iPad input. Mac CI status is reported separately after validation.
+An unsigned iOS build requires macOS with Xcode. [Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
+completed successfully, including the unsigned native build that verified
+Swift compilation and plugin linkage. Signing and installing on a physical
+iPad additionally require an Apple signing identity and a connected,
+provisioned device. The Windows development environment has no native iOS SDK;
+signed installation and physical iPad input remain unverified.
 
 ## Implemented V1.2
 
@@ -385,7 +387,7 @@ the suites. Set the environment variable to keep a gallery elsewhere. These
 are deterministic widget-test captures, not screenshots from a physical phone.
 These automated checks do not replace Android microphone permission,
 actual-device ASR quality/latency, focused-app text insertion, Windows/macOS
-native permission and injection acceptance, or native iPad build/signing and
+native permission and injection acceptance, or iPad signing, installation and
 physical-device input acceptance.
 
 Android HID hardware acceptance requires an Android 9+ phone whose Bluetooth

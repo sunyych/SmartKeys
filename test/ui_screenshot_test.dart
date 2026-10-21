@@ -153,9 +153,9 @@ void main() {
     expect(find.byKey(const ValueKey('control-button-47')), findsOneWidget);
     await shots.capture(
       id: 'tablet-board-48-keys',
-      title: 'Tablet shortcut board · 48 key preset',
-      orientation: 'portrait',
-      notes: 'Portrait board showing all 48 configured slots in one bank.',
+      title: 'Tablet shortcut board · 48 configured keys',
+      orientation: 'landscape',
+      notes: 'Landscape board showing all 48 configured slots in one bank.',
       boundaryKey: key,
     );
 

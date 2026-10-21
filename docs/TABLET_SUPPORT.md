@@ -75,15 +75,13 @@ unsupported actions report an error.
 
 ## Build and acceptance
 
-Native iPad builds and device signing require macOS with Xcode and an Apple
-signing identity. Installing and accepting the app on a physical iPad also
-requires a connected, appropriately provisioned device. A Windows checkout
-cannot validate those native and physical-device steps. No iOS native build,
-signature, or physical iPad input is claimed by this guide. The iOS target's
-minimum deployment version is iOS 13.0. A macOS GitHub Actions workflow runs an
-unsigned debug build with Flutter 3.44.2; unsigned CI validates compilation,
-not signing, installation, or physical input. Its result remains pending until
-the workflow has run and been inspected.
+An unsigned native iPad build requires macOS with Xcode. [Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
+completed successfully, including the unsigned debug build with Flutter 3.44.2
+that validates native compilation and plugin linkage. The iOS target's minimum
+deployment version is iOS 13.0. Signing and installing on a physical iPad
+additionally require an Apple signing identity and a connected, appropriately
+provisioned device. Unsigned CI does not validate signing, installation, or
+physical input; those steps remain unverified.
 
 Automated tablet screenshots and their HTML index are local validation output,
 kept in ignored build/output directories. They show Flutter widget rendering

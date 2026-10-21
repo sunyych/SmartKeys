@@ -15,6 +15,10 @@ the Runner target team in Xcode or pass the team's normal Flutter signing
 settings. Device acceptance also needs a physical iPad and a same-Wi-Fi
 LumiaKey Desktop host.
 
+[Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
+completed successfully. Its unsigned iOS build verified native Swift
+compilation and plugin linkage.
+
 The iPad connects by pasting the Desktop code. Desktop lets you choose which
 private IPv4 interface to advertise, so select the Wi-Fi address reachable by
 the iPad when VPNs or virtual adapters are present. The token is carried in the
@@ -26,11 +30,10 @@ executor; mouse, held-key, Bluetooth HID and text-batch behavior are not
 provided by this adapter.
 
 Local speech recognition continues to use the existing `local_dictation`
-package and `sherpa_onnx` plugin. Windows cannot verify CocoaPods/Swift package
-resolution, native iOS compilation, microphone capture, model performance, or
-real-device networking. The Mac workflow must pass before claiming native
-plugin linkage; microphone permissions, iPad split-window behavior, dictation
-quality and shortcut delivery still need physical iPad acceptance.
+package and `sherpa_onnx` plugin. Windows has no native iOS SDK; Mac CI has
+verified unsigned native compilation and plugin linkage. Microphone capture,
+model performance, real-device networking, iPad split-window behavior,
+dictation quality and shortcut delivery still need physical iPad acceptance.
 
 ## Current delivery evidence (2026-10-20)
 
@@ -52,6 +55,8 @@ screenshots were visually inspected. The ignored HTML index is
 `build/ui_screenshots-tablet/index.html`; the ZIP is
 `build/artifacts/LumiaKey-1.3.0-screenshots.zip`.
 
-The unsigned iOS CI workflow is pending its post-push run. No native iOS build
-or physical iPad acceptance is claimed. End-to-end dictation from real speech
-through insertion into a target app has not been tested.
+[Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
+completed successfully, including the unsigned iOS build. This verifies
+compilation and plugin linkage only. Signing and physical iPad acceptance are
+not complete. End-to-end dictation from real speech through insertion into a
+target app has not been tested.

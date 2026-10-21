@@ -59,8 +59,10 @@ configuration/controller/import tests. New tests may be separate files.
 
 Configuration task validation from the NTFS checkout: `tablet_config_test.dart`,
 `app_controller_test.dart`, and `config_repository_test.dart` passed (39 tests).
-The app and Desktop package versions are updated. This records Task 1 only; it
-does not state that the full plan, native iPad build, or CI has passed.
+The app and Desktop package versions are updated. This records Task 1 only; the
+full delivery validation is recorded below. Native iOS unsigned compilation and
+plugin linkage passed in [Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752);
+signing and physical iPad acceptance remain unverified.
 
 Example acceptance assertions:
 
@@ -126,5 +128,5 @@ optional iOS validation workflow and setup documentation.
 - [x] Build Android/Windows, install on connected supported devices and this
   PC, and preserve local models/preferences. An iPad build/install requires
   Mac/Xcode/signing and a connected iPad; report any absent prerequisite.
-- [ ] Commit only intended source/test/docs changes on existing main; push and
+- [x] Commit only intended source/test/docs changes on existing main; push and
   verify remote SHA equality. Return artifacts, validation and limits.

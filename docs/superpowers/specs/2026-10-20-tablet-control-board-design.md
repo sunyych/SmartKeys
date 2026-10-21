@@ -66,9 +66,11 @@ Root performs research, interface review, integration, full analysis/tests/
 coverage, Android and Windows builds/installation, HTML screenshot generation,
 commit and push. Source is tested from the existing NTFS validation checkout.
 Generated screenshots and HTML remain ignored. No Mac/Xcode or connected iPad
-is available on this Windows host: iPad compilation, signing and physical input
-acceptance must remain explicitly unverified. Provide a Mac validation command
-and an unsigned iOS CI build check where feasible.
+is available on this Windows host. Mac CI run
+[39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
+passed the unsigned iOS build step, verifying Swift compilation and plugin
+linkage. Signing and physical input acceptance remain explicitly unverified.
+Keep the Mac validation command and unsigned iOS CI build check documented.
 
 ## Research basis
 
