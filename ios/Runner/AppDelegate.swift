@@ -19,6 +19,42 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let usageChannel = FlutterMethodChannel(
+      name: "smart_keys/private_usage",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    usageChannel.setMethodCallHandler { call, result in
+      guard call.method == "getPath" else { result(FlutterMethodNotImplemented); return }
+      do {
+        let base = try FileManager.default.url(
+          for: .applicationSupportDirectory,
+          in: .userDomainMask,
+          appropriateFor: nil,
+          create: true
+        )
+        let directory = base.appendingPathComponent("LumiaKey/private_usage", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var excluded = directory
+        try excluded.setResourceValues(values)
+        result(directory.path)
+      } catch {
+        result(FlutterError(code: "PRIVATE_USAGE_PATH", message: error.localizedDescription, details: nil))
+      }
+    }
+    let googleChannel = FlutterMethodChannel(
+      name: "smart_keys/google_sign_in",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    googleChannel.setMethodCallHandler { call, result in
+      guard call.method == "isUrlSchemeRegistered", let expected = call.arguments as? String else {
+        result(FlutterMethodNotImplemented); return
+      }
+      let schemes = (Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? [])
+        .flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+      result(schemes.contains(expected))
+    }
     let channel = FlutterMethodChannel(
       name: "smart_keys/power",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()

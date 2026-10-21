@@ -54,7 +54,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
           ),
           imageStore: PrivateImageStore(),
           powerBrightnessService: MethodChannelPowerBrightnessService(),
-          shortcutUsage: SharedPreferencesShortcutUsageRepository(),
+          shortcutUsage: FileShortcutUsageRepository(),
         );
     WidgetsBinding.instance.addObserver(this);
     if (widget.controller == null || controller.isLoading) {

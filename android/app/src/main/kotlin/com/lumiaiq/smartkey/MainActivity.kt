@@ -23,6 +23,16 @@ class MainActivity : FlutterActivity() {
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )
+        flutterEngine.dartExecutor.binaryMessenger.let { messenger ->
+            io.flutter.plugin.common.MethodChannel(messenger, "smart_keys/private_usage")
+                .setMethodCallHandler { call, result ->
+                    if (call.method == "getPath") {
+                        result.success(java.io.File(noBackupFilesDir, "private_usage").absolutePath)
+                    } else {
+                        result.notImplemented()
+                    }
+                }
+        }
     }
 
     override fun onStart() {

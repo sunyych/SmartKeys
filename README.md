@@ -101,10 +101,19 @@ signed installation and physical iPad input remain unverified.
 - Phone Profile JSON import/export is available from the top-right menu and
   rejects Companion actions. Desktop Shortcut Layout JSON import/export omits
   executable data, only replaces known layouts, and validates application IDs.
-- Settings records shortcut counts in a separate phone-only preference. It
-  shows most/least-used shortcuts, can reorder the current local Profile by
-  usage, and states explicitly that the data is never sent to Desktop/cloud or
-  included in Profile exports.
+- Settings → Usage Dashboard records individual shortcut clicks and times in a
+  private mobile journal. Filter by date range, sort counts or click times,
+  explicitly put frequently used shortcuts first, and clear local history.
+  Optional, manual anonymous submissions contain only recognized shortcut
+  categories and aggregate counts, with an optional profession tag. Public
+  rankings do not require sharing and can be filtered by profession.
+  Selected settings, Profiles and optional custom images can be backed up
+  separately with Google sign-in. Click history and sharing receipts are never
+  included in account backups or Profile exports. See
+  [usage and sharing](docs/SHORTCUT_USAGE.md),
+  [Google backup setup](docs/GOOGLE_BACKUP.md),
+  [Rust/PostgreSQL service deployment](community_server/README.md), and
+  [validation evidence](docs/SHORTCUT_USAGE_VALIDATION.md).
 - Android does not persist Desktop manifests. It discovers Desktop, fetches the
   current manifest, watches its revision, renders it in memory, and sends only
   `buttonId`, `applicationId`, or `profileId`. Desktop resolves and executes

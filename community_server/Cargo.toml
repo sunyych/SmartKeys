@@ -1,0 +1,17 @@
+[package]
+name = "smartkeys-community-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+
+[dependencies]
+axum = { version = "=0.7.9", features = ["http1", "json", "tokio"] }
+base64 = "=0.22.1"
+jsonwebtoken = "=9.3.1"
+reqwest = { version = "=0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+time = { version = "=0.3.55", features = ["formatting"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "net", "signal"] }

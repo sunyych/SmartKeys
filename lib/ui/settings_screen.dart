@@ -9,6 +9,8 @@ import 'profile_management_screen.dart';
 import 'shortcut_community_screen.dart';
 import 'desktop_installers_screen.dart';
 import 'desktop_connection_panel.dart';
+import 'usage_dashboard_screen.dart';
+import 'account_backup_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -386,8 +388,7 @@ class _ShortcutUsageSection extends StatelessWidget {
             leading: Icon(Icons.privacy_tip_outlined),
             title: Text('Private, on-device data'),
             subtitle: Text(
-              'Shortcut usage never leaves this phone. It is never sent to '
-              'LumiaKey Desktop, the cloud, or Profile exports.',
+              'Usage stays on this device unless you opt in to share aggregate counts.',
             ),
           ),
           if (mostUsed == null)
@@ -411,58 +412,35 @@ class _ShortcutUsageSection extends StatelessWidget {
             ),
           ],
           ListTile(
-            leading: const Icon(Icons.low_priority),
-            title: const Text('Reorder current Profile by usage'),
-            subtitle: Text(
-              'Put frequently used ${controller.activeProfile.name} shortcuts first',
+            key: const ValueKey('open-usage-dashboard'),
+            leading: const Icon(Icons.query_stats_outlined),
+            title: const Text('Usage Dashboard'),
+            subtitle: const Text(
+              'Filter history, sort shortcuts, and manage optional sharing',
             ),
             trailing: const Icon(Icons.chevron_right),
-            enabled: records.isNotEmpty,
-            onTap: records.isEmpty
-                ? null
-                : () async {
-                    await controller.reorderActiveProfileByUsage();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Current Profile reordered by usage'),
-                      ),
-                    );
-                  },
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const UsageDashboardScreen(),
+              ),
+            ),
           ),
           ListTile(
-            leading: const Icon(Icons.delete_outline),
-            title: const Text('Clear usage data'),
-            enabled: records.isNotEmpty,
-            onTap: records.isEmpty ? null : () => _confirmClear(context),
+            key: const ValueKey('open-account-backup'),
+            leading: const Icon(Icons.cloud_outlined),
+            title: const Text('Google Drive backup'),
+            subtitle: const Text('Back up and restore your profiles'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AccountBackupScreen(),
+              ),
+            ),
           ),
         ],
       );
     },
   );
-
-  Future<void> _confirmClear(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clear shortcut usage?'),
-        content: const Text(
-          'This permanently removes the private usage counters stored on this phone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) await controller.shortcutUsage.clear();
-  }
 }
 
 class _SectionLabel extends StatelessWidget {

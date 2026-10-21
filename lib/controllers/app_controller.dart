@@ -6,8 +6,10 @@ import 'package:flutter/services.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../data/config_repository.dart';
+import '../data/account_backup_codec.dart';
 import '../data/private_image_store.dart';
 import '../data/profile_template_repository.dart';
+import '../data/public_shortcut_catalog.dart';
 import '../data/shortcut_usage_repository.dart';
 import '../models/config.dart';
 import '../models/control_surface_status.dart';
@@ -226,7 +228,11 @@ class AppController extends ChangeNotifier {
   Future<void> initialize() async {
     try {
       _config = await repository.load();
-      await shortcutUsage.load();
+      try {
+        await shortcutUsage.load();
+      } catch (_) {
+        // Usage is optional; a storage failure must not disable the controls.
+      }
       await orientationService.apply(config.preferences.orientationMode);
       await powerBrightnessService.initialize();
       await companion.start();
@@ -299,6 +305,7 @@ class AppController extends ChangeNotifier {
     _recordShortcutUsage(
       _localButtonUsageKey(activeProfile, button),
       '${activeProfile.name} · ${button.label}',
+      action: button.action,
     );
     if (_isDarkAction(button.action)) {
       if (config.preferences.hapticEnabled && button.hapticEnabled) {
@@ -367,6 +374,7 @@ class AppController extends ChangeNotifier {
       _recordShortcutUsage(
         'local:${activeProfile.id}:wheel:${clockwise ? 'clockwise' : 'counterClockwise'}',
         '${activeProfile.name} · ${clockwise ? 'Wheel clockwise' : 'Wheel counter-clockwise'}',
+        action: action,
       );
       await hid.sendStep(_resolveShortcutAction(action));
     }
@@ -378,6 +386,7 @@ class AppController extends ChangeNotifier {
       _recordShortcutUsage(
         'local:${activeProfile.id}:wheel:center',
         '${activeProfile.name} · Wheel center',
+        action: action,
       );
       final resolvedAction = _resolveShortcutAction(action);
       _pressedWheelCenterAction = resolvedAction;
@@ -753,8 +762,18 @@ class AppController extends ChangeNotifier {
     ].join(':');
   }
 
-  void _recordShortcutUsage(String key, String label) {
-    unawaited(shortcutUsage.record(key, label).catchError((Object _) {}));
+  void _recordShortcutUsage(String key, String label, {HidAction? action}) {
+    unawaited(
+      shortcutUsage
+          .record(
+            key,
+            label,
+            publicShortcutId: action == null
+                ? null
+                : publicShortcutIdForAction(action),
+          )
+          .catchError((Object _) {}),
+    );
   }
 
   static ButtonConfig _moveButtonToPosition(
@@ -1009,6 +1028,116 @@ class AppController extends ChangeNotifier {
     );
     notifyListeners();
     await repository.save(config);
+  }
+
+  /// Applies a reviewed account snapshot without invoking Desktop or HID
+  /// actions. Configuration is persisted before the visible state changes.
+  Future<void> restoreAccountBackup(
+    DecodedAccountBackup backup, {
+    bool restoreSettings = true,
+    Set<String>? profileIds,
+    bool restoreImages = true,
+  }) async {
+    final selectedIds =
+        profileIds ?? backup.profiles.map((item) => item.id).toSet();
+    final incoming = backup.profiles
+        .where((item) => selectedIds.contains(item.id))
+        .toList();
+    final incomingById = {for (final profile in incoming) profile.id: profile};
+    final merged = [...config.profiles];
+    for (final entry in incomingById.entries) {
+      final index = merged.indexWhere((profile) => profile.id == entry.key);
+      if (index >= 0) {
+        merged[index] = entry.value;
+      } else {
+        merged.add(entry.value);
+      }
+    }
+    if (merged.length > freeProfileLimit) {
+      throw const ProfileLimitException();
+    }
+
+    final incomingImageRefs = <String>{};
+    for (final profile in incoming) {
+      if (profile.profileIcon.type == VisualType.customImage &&
+          profile.profileIcon.value != null) {
+        incomingImageRefs.add(profile.profileIcon.value!);
+      }
+      for (final button in profile.buttons) {
+        if (button.visual.type == VisualType.customImage &&
+            button.visual.value != null) {
+          incomingImageRefs.add(button.visual.value!);
+        }
+      }
+    }
+    final selectedImageBytes = restoreImages
+        ? Map<String, Uint8List>.fromEntries(
+            backup.images.entries.where(
+              (e) => incomingImageRefs.contains(e.key),
+            ),
+          )
+        : <String, Uint8List>{};
+    await prepareForContextChange();
+    final imagePaths = await imageStore.writeRestoredImages(selectedImageBytes);
+    final restoredProfiles = <ProfileConfig>[];
+    late final AppConfig nextConfig;
+    try {
+      for (final profile in merged) {
+        if (!incomingById.containsKey(profile.id)) {
+          restoredProfiles.add(profile);
+          continue;
+        }
+        restoredProfiles.add(
+          await _resolveRestoredProfileImages(profile, imagePaths),
+        );
+      }
+      final order = [...config.profileOrder];
+      for (final profile in restoredProfiles) {
+        if (!order.contains(profile.id)) order.add(profile.id);
+      }
+      final preferences = restoreSettings && backup.preferences != null
+          ? backup.preferences!
+          : config.preferences;
+      nextConfig = config.copyWith(
+        profiles: restoredProfiles,
+        profileOrder: order,
+        preferences: preferences,
+      );
+      await repository.save(nextConfig);
+    } catch (_) {
+      await imageStore.deleteRestoredImages(imagePaths.values);
+      rethrow;
+    }
+    _config = nextConfig;
+    notifyListeners();
+    if (restoreSettings && backup.preferences != null) {
+      await orientationService.apply(nextConfig.preferences.orientationMode);
+      await _applyChargingDisplayState();
+    }
+    await imageStore.cleanupUnreferenced(nextConfig);
+  }
+
+  Future<ProfileConfig> _resolveRestoredProfileImages(
+    ProfileConfig profile,
+    Map<String, String> imagePaths,
+  ) async {
+    Future<ButtonVisual> resolve(ButtonVisual visual) async {
+      if (visual.type != VisualType.customImage || visual.value == null) {
+        return visual;
+      }
+      final restored = imagePaths[visual.value];
+      if (restored != null) return visual.copyWith(value: restored);
+      final existing = await imageStore.resolve(visual.value);
+      if (existing != null) return visual;
+      return visual.copyWith(type: VisualType.none, clearValue: true);
+    }
+
+    final icon = await resolve(profile.profileIcon);
+    final buttons = <ButtonConfig>[];
+    for (final button in profile.buttons) {
+      buttons.add(button.copyWith(visual: await resolve(button.visual)));
+    }
+    return profile.copyWith(profileIcon: icon, buttons: buttons);
   }
 
   Future<void> _replaceProfile(ProfileConfig replacement) async {

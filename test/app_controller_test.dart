@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/controllers/app_controller.dart';
+import 'package:smart_keys/data/shortcut_usage_repository.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/companion_service.dart';
@@ -545,6 +548,29 @@ void main() {
       expect(harness.shortcutUsage.records.first.count, 2);
       expect(harness.repository.value.toJson(), isNot(contains('usage')));
       expect(harness.companion.remoteActions, isEmpty);
+      expect(
+        harness.shortcutUsage.events.map((event) => event.publicShortcutId),
+        ['paste', 'paste', 'copy'],
+      );
+    },
+  );
+
+  test(
+    'usage storage load failure does not prevent control initialization',
+    () async {
+      final usage = _FailingLoadUsageRepository();
+      final harness = await TestHarness.create(shortcutUsage: usage);
+      addTearDown(harness.dispose);
+
+      expect(harness.controller.isLoading, isFalse);
+      expect(harness.controller.error, isNull);
+      expect(harness.orientation.applied, isNotEmpty);
+      await harness.controller.pressButton(
+        harness.controller.activeProfile.buttons.first,
+      );
+      await harness.controller.releaseButton(
+        harness.controller.activeProfile.buttons.first,
+      );
     },
   );
 
@@ -574,4 +600,9 @@ void main() {
       );
     },
   );
+}
+
+class _FailingLoadUsageRepository extends MemoryShortcutUsageRepository {
+  @override
+  Future<void> load() async => throw const FileSystemException('offline');
 }

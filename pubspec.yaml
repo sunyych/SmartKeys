@@ -27,6 +27,8 @@ dependencies:
     sdk: flutter
 
   file_picker: ^10.3.10
+  crypto: ^3.0.7
+  google_sign_in: ^7.2.0
   image: ^4.7.2
   image_picker: ^1.2.1
   local_dictation:
@@ -39,7 +41,6 @@ dependencies:
   wakelock_plus: ^1.4.0
 
 dev_dependencies:
-  crypto: ^3.0.7
   flutter_test:
     sdk: flutter
 

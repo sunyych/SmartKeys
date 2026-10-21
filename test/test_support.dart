@@ -116,11 +116,12 @@ class TestHarness {
   final RecordingOrientationService orientation;
   final Directory directory;
   final RecordingPowerBrightnessService power;
-  final MemoryShortcutUsageRepository shortcutUsage;
+  final ShortcutUsageRepository shortcutUsage;
 
   static Future<TestHarness> create({
     AppConfig? config,
     bool? pluggedIn = false,
+    ShortcutUsageRepository? shortcutUsage,
   }) async {
     final directory = Directory.systemTemp.createTempSync('smart_keys_test_');
     final repository = MemoryConfigRepository(config ?? testConfig());
@@ -128,7 +129,7 @@ class TestHarness {
     final companion = RecordingCompanionService();
     final orientation = RecordingOrientationService();
     final power = RecordingPowerBrightnessService(pluggedIn: pluggedIn);
-    final shortcutUsage = MemoryShortcutUsageRepository();
+    final usageRepository = shortcutUsage ?? MemoryShortcutUsageRepository();
     final controller = AppController(
       repository: repository,
       templates: ProfileTemplateRepository(),
@@ -137,7 +138,7 @@ class TestHarness {
       orientationService: orientation,
       imageStore: PrivateImageStore(documentsDirectory: () async => directory),
       powerBrightnessService: power,
-      shortcutUsage: shortcutUsage,
+      shortcutUsage: usageRepository,
     );
     await controller.initialize();
     return TestHarness(
@@ -148,7 +149,7 @@ class TestHarness {
       orientation: orientation,
       directory: directory,
       power: power,
-      shortcutUsage: shortcutUsage,
+      shortcutUsage: usageRepository,
     );
   }
 

@@ -1,0 +1,42 @@
+name: community-server
+
+on:
+  push:
+    paths:
+      - "community_server/**"
+      - ".github/workflows/community-server.yml"
+  pull_request:
+    paths:
+      - "community_server/**"
+      - ".github/workflows/community-server.yml"
+
+jobs:
+  rust-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: smartkeys_test
+          POSTGRES_USER: smartkeys_test
+          POSTGRES_PASSWORD: ci_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U smartkeys_test -d smartkeys_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://smartkeys_test:ci_test_password@127.0.0.1:5432/smartkeys_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --manifest-path community_server/Cargo.toml --check
+      - name: Clippy
+        run: cargo clippy --manifest-path community_server/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Unit and PostgreSQL HTTP integration tests
+        run: cargo test --manifest-path community_server/Cargo.toml --locked --all-targets -- --include-ignored

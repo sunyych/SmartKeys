@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as image_lib;
@@ -26,6 +28,64 @@ class PrivateImageStore {
     return selection == null
         ? null
         : importFile(profileId, File(selection.path));
+  }
+
+  /// Writes restore bytes under fresh names, so a failed configuration save
+  /// cannot overwrite an image still referenced by the current configuration.
+  Future<Map<String, String>> writeRestoredImages(
+    Map<String, Uint8List> images,
+  ) async {
+    if (images.isEmpty) return const {};
+    final root = await _documentsDirectory();
+    final folder =
+        'backup_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 24).toRadixString(16)}';
+    final directory = Directory(path.join(root.path, 'images', folder));
+    await directory.create(recursive: true);
+    final output = <String, String>{};
+    try {
+      for (final entry in images.entries) {
+        final extension = path.extension(entry.key).toLowerCase();
+        if (!supportedExtensions.contains(extension.replaceFirst('.', ''))) {
+          throw const FormatException('Unsupported restored image type.');
+        }
+        final name =
+            'image_${Random.secure().nextInt(1 << 32).toRadixString(16)}$extension';
+        final relative = path.join('images', folder, name);
+        final destination = File(path.join(root.path, relative));
+        final temporary = File('${destination.path}.next');
+        await temporary.writeAsBytes(entry.value, flush: true);
+        await temporary.rename(destination.path);
+        output[entry.key] = relative;
+      }
+      return output;
+    } catch (_) {
+      for (final file in directory.listSync().whereType<File>()) {
+        try {
+          await file.delete();
+        } catch (_) {}
+      }
+      try {
+        await directory.delete();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  Future<void> deleteRestoredImages(Iterable<String> relativePaths) async {
+    final root = await _documentsDirectory();
+    for (final relative in relativePaths) {
+      if (path.isAbsolute(relative)) continue;
+      final target = File(path.normalize(path.join(root.path, relative)));
+      if (!path.isWithin(path.join(root.path, 'images'), target.path)) continue;
+      if (await target.exists()) await target.delete();
+      final thumbnail = File(
+        target.path.replaceFirst(RegExp(r'\.[^.]+$'), '_thumbnail.jpg'),
+      );
+      if (await thumbnail.exists()) await thumbnail.delete();
+      if (await target.parent.exists() && await target.parent.list().isEmpty) {
+        await target.parent.delete();
+      }
+    }
   }
 
   Future<String?> importFromFiles(String profileId) async {
@@ -86,12 +146,68 @@ class PrivateImageStore {
     final root = await _documentsDirectory();
     final candidate = File(path.normalize(path.join(root.path, relativePath)));
     if (!path.isWithin(root.path, candidate.path)) return null;
-    return candidate.existsSync() ? candidate : null;
+    if (!await candidate.exists()) return null;
+    try {
+      final resolvedRoot = await root.resolveSymbolicLinks();
+      final resolvedCandidate = await candidate.resolveSymbolicLinks();
+      if (!path.isWithin(resolvedRoot, resolvedCandidate)) return null;
+    } on FileSystemException {
+      return null;
+    }
+    return candidate;
+  }
+
+  Future<Map<String, Uint8List>> readSelectedImages(
+    Iterable<ProfileConfig> profiles,
+  ) async {
+    final paths = <String>{};
+    for (final profile in profiles) {
+      final icon = profile.profileIcon;
+      if (icon.type == VisualType.customImage && icon.value != null) {
+        paths.add(icon.value!);
+      }
+      for (final button in profile.buttons) {
+        if (button.visual.type == VisualType.customImage &&
+            button.visual.value != null) {
+          paths.add(button.visual.value!);
+        }
+      }
+    }
+    final result = <String, Uint8List>{};
+    if (paths.length > 244) {
+      throw StateError('Too many custom images were selected.');
+    }
+    var totalEncodedBytes = 0;
+    for (final imagePath in paths) {
+      final file = await resolve(imagePath);
+      if (file == null) {
+        throw StateError('A selected custom image is missing: $imagePath');
+      }
+      final length = await file.length();
+      if (length == 0 || length > 4 * 1024 * 1024) {
+        throw StateError(
+          'A selected custom image exceeds the 4 MiB limit: $imagePath',
+        );
+      }
+      totalEncodedBytes += ((length + 2) ~/ 3) * 4;
+      if (totalEncodedBytes > 18 * 1024 * 1024) {
+        throw StateError(
+          'Selected images exceed the account backup request limit.',
+        );
+      }
+      final bytes = await file.readAsBytes();
+      result[imagePath] = bytes;
+    }
+    return result;
   }
 
   Future<void> cleanupUnreferenced(AppConfig config) async {
     final referenced = <String>{};
     for (final profile in config.profiles) {
+      if (profile.profileIcon.type == VisualType.customImage &&
+          profile.profileIcon.value != null) {
+        referenced.add(path.normalize(profile.profileIcon.value!));
+      }
       for (final button in profile.buttons) {
         if (button.visual.type == VisualType.customImage &&
             button.visual.value != null) {

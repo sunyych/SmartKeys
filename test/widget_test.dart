@@ -1,16 +1,30 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image_lib;
 import 'package:path/path.dart' as path;
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/data/private_image_store.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/ui/widgets/button_face.dart';
 
 import 'test_support.dart';
+
+class _FixturePrivateImageStore extends PrivateImageStore {
+  _FixturePrivateImageStore(this.imagePath, this.imageFile)
+    : super(documentsDirectory: () async => imageFile.parent);
+
+  final String imagePath;
+  final File imageFile;
+
+  @override
+  Future<File?> resolve(String? relativePath) async =>
+      relativePath == imagePath ? imageFile : null;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -649,10 +663,16 @@ void main() {
     imageFile.writeAsBytesSync(
       image_lib.encodePng(image_lib.Image(width: 2, height: 2)),
     );
+    const imageRelativePath = 'images/profile_general/button.png';
+    final resolvedImage = await tester.runAsync(
+      () => harness.controller.imageStore.resolve(imageRelativePath),
+    );
+    expect(resolvedImage?.path, imageFile.path);
+    final imageStore = _FixturePrivateImageStore(imageRelativePath, imageFile);
     final button = ButtonConfig.empty(0).copyWith(
       visual: const ButtonVisual(
         type: VisualType.customImage,
-        value: 'images/profile_general/button.png',
+        value: imageRelativePath,
       ),
     );
 
@@ -661,10 +681,7 @@ void main() {
         home: SizedBox(
           width: 120,
           height: 90,
-          child: ButtonFace(
-            button: button,
-            imageStore: harness.controller.imageStore,
-          ),
+          child: ButtonFace(button: button, imageStore: imageStore),
         ),
       ),
     );
@@ -681,7 +698,7 @@ void main() {
             button: button.copyWith(
               visual: button.visual.copyWith(value: 'images/missing.webp'),
             ),
-            imageStore: harness.controller.imageStore,
+            imageStore: imageStore,
           ),
         ),
       ),
@@ -924,11 +941,82 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(
-      find.textContaining('Shortcut usage never leaves this phone'),
+      find.textContaining(
+        'Usage stays on this device unless you opt in to share aggregate counts.',
+      ),
       findsOneWidget,
     );
     expect(find.text('Most used'), findsOneWidget);
     expect(find.text('1×'), findsWidgets);
+
+    const privateUsageChannel = MethodChannel('smart_keys/private_usage');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          privateUsageChannel,
+          (call) async => harness.directory.path,
+        );
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(privateUsageChannel, null),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('open-usage-dashboard')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('open-usage-dashboard')),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-usage-dashboard')));
+    await _waitForDashboard(tester);
+    expect(find.text('Clicks'), findsOneWidget);
+    expect(find.text('1×'), findsWidgets);
+    final localRecord = harness.controller.shortcutUsage.records.single;
+    expect(
+      find.byKey(ValueKey('usage-rank-${localRecord.key}')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('usage-smart-sort')), findsOneWidget);
+    expect(find.byKey(const ValueKey('usage-clear')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('usage-smart-sort')));
+    await tester.pumpAndSettle();
+    expect(find.text('Current Profile reordered by usage'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('usage-clear')),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('usage-clear')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('usage-clear')));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear local usage?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('usage-sharing-enabled')),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('usage-sharing-enabled')),
+    );
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const ValueKey('usage-sharing-enabled')),
+          )
+          .value,
+      isFalse,
+    );
+    expect(
+      find.text('Community service is not configured for this build.'),
+      findsOneWidget,
+    );
   });
 }
 
@@ -941,4 +1029,20 @@ Future<void> _disposeHarness(WidgetTester tester, TestHarness harness) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pump();
   await harness.dispose();
+}
+
+Future<void> _waitForDashboard(WidgetTester tester) async {
+  for (var attempt = 0; attempt < 8; attempt++) {
+    await tester.pump();
+    if (find
+        .byKey(const ValueKey('usage-sharing-enabled'))
+        .evaluate()
+        .isNotEmpty) {
+      return;
+    }
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+  }
 }

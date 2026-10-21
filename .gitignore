@@ -33,6 +33,7 @@ migrate_working_dir/
 /build/
 /coverage/
 **/coverage/
+/.scratch/dart-appdata/
 
 # Symbolication related
 app.*.symbols
