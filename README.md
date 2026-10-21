@@ -43,7 +43,7 @@ Desktop for insertion into the supported focused app. The tablet guide covers
 layout selection, profile banks, pairing, and platform validation in
 [`docs/TABLET_SUPPORT.md`](docs/TABLET_SUPPORT.md).
 
-An unsigned iOS build requires macOS with Xcode. [Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
+An unsigned iOS build requires macOS with Xcode. [Mac CI run 39633120596](https://github.com/sunyych/SmartKeys/actions/runs/39633120596)
 completed successfully, including the unsigned native build that verified
 Swift compilation and plugin linkage. Signing and installing on a physical
 iPad additionally require an Apple signing identity and a connected,

@@ -113,6 +113,15 @@ transaction in one application/database round trip. Lifetime click totals are
 cached locally, while the mobile journal appends events without rewriting its
 entire history for every click.
 
+## Remote CI
+
+The implementation commit `eb9776b3eaf3f618e6933df9159886dc6fb8336a` also passed:
+
+- [Rust/PostgreSQL CI](https://github.com/sunyych/SmartKeys/actions/runs/39633120594),
+  including strict Clippy and all-target tests against the PostgreSQL service.
+- [macOS unsigned iOS build](https://github.com/sunyych/SmartKeys/actions/runs/39633120596),
+  including Swift compilation and native Google-plugin linkage.
+
 ## Acceptance boundaries
 
 The user has not supplied Google OAuth client IDs or a deployment hostname.
