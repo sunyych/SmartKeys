@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071419">
+  <title>LumiaKey 快捷键使用概览</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <script src="/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">⌘</span><span>LUMIAKEY <i>COMMUNITY</i></span></div>
+      <div class="hero-copy">
+        <p class="eyebrow">匿名汇总 · 自愿贡献</p>
+        <h1>快捷键使用概览</h1>
+        <p class="intro">查看社区选择分享的快捷键计数。每个类别至少汇总 3 个独立提交批次后才会显示。</p>
+      </div>
+    </header>
+
+    <section class="controls" aria-label="排行榜筛选">
+      <label>时间范围<select id="period"><option value="all">全部时间</option><option value="30d">最近 30 天</option><option value="7d">最近 7 天</option></select></label>
+      <label>职业方向<select id="tag"><option value="">全部方向</option><option value="software_engineering">软件工程</option><option value="design">设计</option><option value="video_editing">视频剪辑</option><option value="office">办公</option><option value="other">其他</option></select></label>
+      <label>熟练程度<select id="experience"><option value="">全部程度</option><option value="beginner">入门</option><option value="intermediate">熟悉</option><option value="advanced">进阶</option></select></label>
+      <button id="refresh" class="refresh" type="button"><span aria-hidden="true">↻</span> 刷新</button>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite">正在加载排行榜…</p>
+
+    <section class="summary" aria-label="已发布汇总">
+      <article class="summary-card"><span>已发布点击计数</span><strong id="total-count">—</strong><small>仅统计当前筛选下已发布类别</small></article>
+      <article class="summary-card"><span>已发布类别</span><strong id="category-count">—</strong><small>未达到发布门槛的类别不会显示</small></article>
+      <article class="summary-card leader-card"><span>当前领先快捷键</span><strong id="leader">—</strong><small id="leader-count">按汇总计数排序</small></article>
+    </section>
+
+    <section class="panel chart-panel">
+      <div class="section-heading"><div><p class="eyebrow">RANKINGS</p><h2>快捷键计数</h2></div><span id="updated" class="updated">尚未刷新</span></div>
+      <div id="chart" class="chart" aria-label="快捷键计数条形图"></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">排名</th><th scope="col">快捷键</th><th scope="col">点击计数</th><th scope="col">提交批次</th></tr></thead><tbody id="rows"></tbody></table></div>
+    </section>
+    <footer>提交批次不代表经过验证的独立用户。此页面只显示达到发布门槛的汇总计数，不展示个人记录。</footer>
+  </main>
+</body>
+</html>

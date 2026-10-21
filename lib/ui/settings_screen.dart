@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app.dart';
 import '../controllers/app_controller.dart';
+import '../data/community_setup_repository.dart';
 import '../models/config.dart';
 import '../services/ios_companion_hid_service.dart';
 import 'bluetooth_connection_sheet.dart';
@@ -11,6 +12,7 @@ import 'desktop_installers_screen.dart';
 import 'desktop_connection_panel.dart';
 import 'usage_dashboard_screen.dart';
 import 'account_backup_screen.dart';
+import 'community_setup_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -240,6 +242,25 @@ class SettingsScreen extends StatelessWidget {
           value: preferences.soundEnabled,
           onChanged: (value) =>
               controller.updateFeedbackPreferences(soundEnabled: value),
+        ),
+        const Divider(),
+        const _SectionLabel('COMMUNITY'),
+        ListTile(
+          key: const ValueKey('open-community-setup'),
+          leading: const Icon(Icons.tune),
+          title: const Text('Community sharing setup'),
+          subtitle: const Text(
+            'Optional profession and computer proficiency for reviewed batches',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => CommunitySetupScreen(
+                repository: CommunitySetupRepository(),
+                isReopen: true,
+              ),
+            ),
+          ),
         ),
         const Divider(),
         const _SectionLabel('SHORTCUT USAGE'),

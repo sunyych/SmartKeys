@@ -26,8 +26,20 @@ Future<void> main() async {
   );
   const category = 'close_tab';
   const tag = 'design';
+  const experience = 'intermediate';
   final globalBaseline = await _count(client, category);
   final taggedBaseline = await _count(client, category, tag: tag);
+  final experiencedBaseline = await _count(
+    client,
+    category,
+    experience: experience,
+  );
+  final combinedBaseline = await _count(
+    client,
+    category,
+    tag: tag,
+    experience: experience,
+  );
   final batches = <CommunityPendingBatch>[];
   try {
     for (var i = 0; i < 3; i++) {
@@ -37,6 +49,7 @@ Future<void> main() async {
         serverOrigin: client.serverOrigin!,
         items: const {category: 2},
         tag: tag,
+        experience: experience,
         eventIds: const ['must-remain-local'],
       );
       await client.submit(batch);
@@ -44,6 +57,17 @@ Future<void> main() async {
     }
     final globalAfterThree = await _count(client, category);
     final taggedAfterThree = await _count(client, category, tag: tag);
+    final experiencedAfterThree = await _count(
+      client,
+      category,
+      experience: experience,
+    );
+    final combinedAfterThree = await _count(
+      client,
+      category,
+      tag: tag,
+      experience: experience,
+    );
     _expect(
       globalAfterThree.count >= globalBaseline.count + 6,
       'three tagged batches should add six counts to the global ranking',
@@ -60,10 +84,28 @@ Future<void> main() async {
       taggedAfterThree.contributions >= taggedBaseline.contributions + 3,
       'three batches should add three contributions to the selected tag',
     );
+    _expect(
+      experiencedAfterThree.count >= experiencedBaseline.count + 6 &&
+          experiencedAfterThree.contributions >=
+              experiencedBaseline.contributions + 3,
+      'experience filter should include the three matching batches',
+    );
+    _expect(
+      combinedAfterThree.count >= combinedBaseline.count + 6 &&
+          combinedAfterThree.contributions >=
+              combinedBaseline.contributions + 3,
+      'combined profession and experience filters should intersect correctly',
+    );
 
     await client.submit(batches.first);
     final globalAfterRetry = await _count(client, category);
     final taggedAfterRetry = await _count(client, category, tag: tag);
+    final combinedAfterRetry = await _count(
+      client,
+      category,
+      tag: tag,
+      experience: experience,
+    );
     _expect(
       globalAfterRetry.count == globalAfterThree.count,
       'identical retry must not change the global count',
@@ -76,6 +118,11 @@ Future<void> main() async {
       taggedAfterRetry.count == taggedAfterThree.count &&
           taggedAfterRetry.contributions == taggedAfterThree.contributions,
       'identical retry must not change the selected tag',
+    );
+    _expect(
+      combinedAfterRetry.count == combinedAfterThree.count &&
+          combinedAfterRetry.contributions == combinedAfterThree.contributions,
+      'identical retry must not change combined filters',
     );
 
     await client.withdraw(
@@ -97,6 +144,17 @@ Future<void> main() async {
     }
     final globalAfterWithdrawn = await _count(client, category);
     final taggedAfterWithdrawn = await _count(client, category, tag: tag);
+    final experiencedAfterWithdrawn = await _count(
+      client,
+      category,
+      experience: experience,
+    );
+    final combinedAfterWithdrawn = await _count(
+      client,
+      category,
+      tag: tag,
+      experience: experience,
+    );
     _expect(
       globalAfterWithdrawn.count == globalBaseline.count,
       'withdrawing test batches should restore the global pre-test count',
@@ -109,6 +167,18 @@ Future<void> main() async {
       taggedAfterWithdrawn.count == taggedBaseline.count &&
           taggedAfterWithdrawn.contributions == taggedBaseline.contributions,
       'withdrawing test batches should restore the selected-tag baseline',
+    );
+    _expect(
+      experiencedAfterWithdrawn.count == experiencedBaseline.count &&
+          experiencedAfterWithdrawn.contributions ==
+              experiencedBaseline.contributions,
+      'withdrawal should restore the experience-filter baseline',
+    );
+    _expect(
+      combinedAfterWithdrawn.count == combinedBaseline.count &&
+          combinedAfterWithdrawn.contributions ==
+              combinedBaseline.contributions,
+      'withdrawal should restore the combined-filter baseline',
     );
     stdout.writeln(
       'Community API client contract passed; all test batches withdrawn.',
@@ -132,8 +202,13 @@ Future<({int count, int contributions})> _count(
   ShortcutCommunityClient client,
   String id, {
   String? tag,
+  String? experience,
 }) async {
-  final ranking = await client.fetchRankings('all', tag: tag);
+  final ranking = await client.fetchRankings(
+    'all',
+    tag: tag,
+    experience: experience,
+  );
   final row = ranking.rows.where((row) => row.shortcutId == id).firstOrNull;
   return (count: row?.count ?? 0, contributions: row?.contributions ?? 0);
 }

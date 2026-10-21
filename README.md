@@ -105,15 +105,19 @@ signed installation and physical iPad input remain unverified.
   private mobile journal. Filter by date range, sort counts or click times,
   explicitly put frequently used shortcuts first, and clear local history.
   Optional, manual anonymous submissions contain only recognized shortcut
-  categories and aggregate counts, with an optional profession tag. Public
-  rankings do not require sharing and can be filtered by profession.
+  categories and aggregate counts, with optional profession and computer
+  proficiency tags. A skippable first-launch setup saves defaults locally;
+  Settings can reopen it, and every upload still needs its own confirmation.
+  Public rankings do not require sharing and support combined tag filters.
+  The Rust service also serves a responsive browser Dashboard at `/`.
   Selected settings, Profiles and optional custom images can be backed up
   separately with Google sign-in. Click history and sharing receipts are never
   included in account backups or Profile exports. See
   [usage and sharing](docs/SHORTCUT_USAGE.md),
   [Google backup setup](docs/GOOGLE_BACKUP.md),
   [Rust/PostgreSQL service deployment](community_server/README.md), and
-  [validation evidence](docs/SHORTCUT_USAGE_VALIDATION.md).
+  [validation evidence](docs/SHORTCUT_USAGE_VALIDATION.md), and
+  [Dashboard/setup validation](docs/WEB_DASHBOARD_ONBOARDING_VALIDATION.md).
 - Android does not persist Desktop manifests. It discovers Desktop, fetches the
   current manifest, watches its revision, renders it in memory, and sends only
   `buttonId`, `applicationId`, or `profileId`. Desktop resolves and executes

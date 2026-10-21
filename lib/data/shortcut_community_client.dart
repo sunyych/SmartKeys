@@ -21,10 +21,12 @@ class CommunityRanking {
     required this.tag,
     required this.updatedAt,
     required this.rows,
+    this.experience,
   });
 
   final String period;
   final String? tag;
+  final String? experience;
   final DateTime updatedAt;
   final List<CommunityRankingRow> rows;
 }
@@ -75,15 +77,24 @@ class ShortcutCommunityClient {
     queryParameters: query,
   );
 
-  Future<CommunityRanking> fetchRankings(String period, {String? tag}) async {
+  Future<CommunityRanking> fetchRankings(
+    String period, {
+    String? tag,
+    String? experience,
+  }) async {
     if (!const {'all', '7d', '30d'}.contains(period)) {
       throw ArgumentError.value(period, 'period');
     }
     if (tag != null && !communityProfessionTags.containsKey(tag)) {
       throw ArgumentError.value(tag, 'tag');
     }
+    if (experience != null &&
+        !communityExperienceLevels.containsKey(experience)) {
+      throw ArgumentError.value(experience, 'experience');
+    }
     final query = {'period': period};
     if (tag != null) query['tag'] = tag;
+    if (experience != null) query['experience'] = experience;
     final uri = _uri('/v1/rankings', query);
     if (uri == null) throw const CommunityServiceException('not_configured');
     final result = await _request('GET', uri);
@@ -95,6 +106,9 @@ class ShortcutCommunityClient {
           json['period'] != period ||
           !json.containsKey('tag') ||
           json['tag'] != tag ||
+          (json.containsKey('experience')
+              ? json['experience'] != experience
+              : experience != null) ||
           json['rankings'] is! List ||
           json['updated_at'] is! String) {
         throw const FormatException();
@@ -124,6 +138,7 @@ class ShortcutCommunityClient {
       return CommunityRanking(
         period: period,
         tag: tag,
+        experience: experience,
         updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
         rows: List.unmodifiable(rows),
       );
@@ -259,6 +274,12 @@ const communityProfessionTags = <String, String>{
   'other': 'Other',
 };
 
+const communityExperienceLevels = <String, String>{
+  'beginner': 'Beginner',
+  'intermediate': 'Intermediate',
+  'advanced': 'Advanced',
+};
+
 class CommunityPendingBatch {
   CommunityPendingBatch({
     required this.batchId,
@@ -267,6 +288,7 @@ class CommunityPendingBatch {
     required Map<String, int> items,
     required this.eventIds,
     this.tag,
+    this.experience,
     this.cancelled = false,
   }) : items = Map.unmodifiable(items) {
     if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(batchId) ||
@@ -274,6 +296,8 @@ class CommunityPendingBatch {
         items.isEmpty ||
         items.length > 15 ||
         (tag != null && !communityProfessionTags.containsKey(tag)) ||
+        (experience != null &&
+            !communityExperienceLevels.containsKey(experience)) ||
         items.entries.any(
           (e) => !communityShortcutIds.contains(e.key) || e.value <= 0,
         ) ||
@@ -290,6 +314,7 @@ class CommunityPendingBatch {
   /// Local-only acknowledgement mapping; never included in [toPayload].
   final List<String> eventIds;
   final String? tag;
+  final String? experience;
   final bool cancelled;
 
   Map<String, Object?> toPayload() => {
@@ -297,6 +322,7 @@ class CommunityPendingBatch {
     'batch_id': batchId,
     'delete_token': deleteToken,
     'tag': tag,
+    if (experience != null) 'experience': experience,
     'items': [
       for (final id in items.keys.toList()..sort())
         {'shortcut_id': id, 'count': items[id]},
@@ -316,6 +342,7 @@ class CommunityPendingBatch {
         deleteToken: json['delete_token'] as String,
         serverOrigin: json['server_origin'] as String,
         tag: json['tag'] as String?,
+        experience: json['experience'] as String?,
         cancelled: json['cancelled'] == true,
         items: {
           for (final item in json['items'] as List)

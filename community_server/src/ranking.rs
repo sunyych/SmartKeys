@@ -12,12 +12,14 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 pub(super) struct PeriodQuery {
     period: String,
     tag: Option<String>,
+    experience: Option<String>,
 }
 #[derive(Serialize)]
 struct RankingsResponse {
     schema_version: u8,
     period: String,
     tag: Option<String>,
+    experience: Option<String>,
     updated_at: String,
     rankings: Vec<Ranking>,
 }
@@ -42,7 +44,34 @@ pub async fn get(State(state): State<AppState>, Query(query): Query<PeriodQuery>
     {
         return error(StatusCode::BAD_REQUEST, "invalid_request");
     }
-    let result = if let (Some(tag), Some(day)) = (query.tag.as_deref(), cutoff_day) {
+    if query
+        .experience
+        .as_deref()
+        .is_some_and(|value| !super::contributions::EXPERIENCES.contains(&value))
+    {
+        return error(StatusCode::BAD_REQUEST, "invalid_request");
+    }
+    let result = if let (Some(tag), Some(experience), Some(day)) = (
+        query.tag.as_deref(),
+        query.experience.as_deref(),
+        cutoff_day,
+    ) {
+        sqlx::query_as::<_, (String, i64, i64)>("SELECT shortcut_id, SUM(count)::BIGINT, SUM(contributions)::BIGINT FROM shortcut_tag_experience_daily_totals WHERE tag=$1 AND experience=$2 AND received_day >= $3 GROUP BY shortcut_id HAVING SUM(contributions) >= 3 ORDER BY SUM(count) DESC, shortcut_id ASC")
+            .bind(tag).bind(experience).bind(day).fetch_all(&state.pool).await
+    } else if let (Some(tag), Some(experience), None) = (
+        query.tag.as_deref(),
+        query.experience.as_deref(),
+        cutoff_day,
+    ) {
+        sqlx::query_as::<_, (String, i64, i64)>("SELECT shortcut_id,count,contributions FROM shortcut_tag_experience_totals WHERE tag=$1 AND experience=$2 AND contributions >= 3 ORDER BY count DESC, shortcut_id ASC")
+            .bind(tag).bind(experience).fetch_all(&state.pool).await
+    } else if let (Some(experience), Some(day)) = (query.experience.as_deref(), cutoff_day) {
+        sqlx::query_as::<_, (String, i64, i64)>("SELECT shortcut_id, SUM(count)::BIGINT, SUM(contributions)::BIGINT FROM shortcut_experience_daily_totals WHERE experience=$1 AND received_day >= $2 GROUP BY shortcut_id HAVING SUM(contributions) >= 3 ORDER BY SUM(count) DESC, shortcut_id ASC")
+            .bind(experience).bind(day).fetch_all(&state.pool).await
+    } else if let (Some(experience), None) = (query.experience.as_deref(), cutoff_day) {
+        sqlx::query_as::<_, (String, i64, i64)>("SELECT shortcut_id,count,contributions FROM shortcut_experience_totals WHERE experience=$1 AND contributions >= 3 ORDER BY count DESC, shortcut_id ASC")
+            .bind(experience).fetch_all(&state.pool).await
+    } else if let (Some(tag), Some(day)) = (query.tag.as_deref(), cutoff_day) {
         sqlx::query_as::<_, (String, i64, i64)>("SELECT shortcut_id, SUM(count)::BIGINT, SUM(contributions)::BIGINT FROM shortcut_tag_daily_totals WHERE tag=$1 AND received_day >= $2 GROUP BY shortcut_id HAVING SUM(contributions) >= 3 ORDER BY SUM(count) DESC, shortcut_id ASC")
             .bind(tag).bind(day).fetch_all(&state.pool).await
     } else if let (Some(tag), None) = (query.tag.as_deref(), cutoff_day) {
@@ -77,6 +106,7 @@ pub async fn get(State(state): State<AppState>, Query(query): Query<PeriodQuery>
             schema_version: 1,
             period: query.period,
             tag: query.tag,
+            experience: query.experience,
             updated_at,
             rankings,
         }),

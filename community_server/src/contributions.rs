@@ -35,6 +35,7 @@ pub(super) const TAGS: [&str; 5] = [
     "office",
     "other",
 ];
+pub(super) const EXPERIENCES: [&str; 3] = ["beginner", "intermediate", "advanced"];
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -44,6 +45,8 @@ pub(super) struct ContributionRequest {
     pub(super) delete_token: String,
     #[serde(default)]
     pub(super) tag: Option<String>,
+    #[serde(default)]
+    pub(super) experience: Option<String>,
     pub(super) items: Vec<Item>,
 }
 #[derive(Deserialize, Serialize, Clone)]
@@ -72,6 +75,13 @@ pub(super) fn validate(
     if body.tag.as_deref().is_some_and(|tag| !TAGS.contains(&tag)) {
         return Err(());
     }
+    if body
+        .experience
+        .as_deref()
+        .is_some_and(|value| !EXPERIENCES.contains(&value))
+    {
+        return Err(());
+    }
     let mut seen = HashSet::new();
     let mut total = 0u64;
     for item in &body.items {
@@ -87,9 +97,19 @@ pub(super) fn validate(
         }
     }
     body.items.sort_by(|a, b| a.shortcut_id.cmp(&b.shortcut_id));
-    let canonical =
+    let canonical = if let Some(experience) = &body.experience {
+        serde_json::to_vec(&(
+            body.schema_version,
+            &body.batch_id,
+            &body.tag,
+            Some(experience),
+            &body.items,
+        ))
+    } else {
+        // Preserve the exact pre-experience tuple so previously queued batches retry unchanged.
         serde_json::to_vec(&(body.schema_version, &body.batch_id, &body.tag, &body.items))
-            .map_err(|_| ())?;
+    }
+    .map_err(|_| ())?;
     let token_hash = digest(body.delete_token.as_bytes());
     let payload_hash = digest(&canonical);
     Ok((body, token_hash, payload_hash))
@@ -120,13 +140,14 @@ pub async fn post(State(state): State<AppState>, body: Bytes) -> Response {
         })
         .collect::<serde_json::Map<_, _>>();
     let result =
-        sqlx::query_scalar::<_, String>("SELECT submit_community_batch($1,$2,$3,$4,$5,$6,$7)")
+        sqlx::query_scalar::<_, String>("SELECT submit_community_batch($1,$2,$3,$4,$5,$6,$7,$8)")
             .bind(&body.batch_id)
             .bind(&token_hash)
             .bind(&payload_hash)
             .bind(received_at)
             .bind(received_day)
             .bind(&body.tag)
+            .bind(&body.experience)
             .bind(sqlx::types::Json(serde_json::Value::Object(item_map)))
             .fetch_one(&state.pool)
             .await;
@@ -233,6 +254,38 @@ mod tests {
         assert_ne!(untagged_hash, tagged_hash);
         let unknown = base.replace("\"items\"", "\"tag\":\"designer\",\"items\"");
         assert!(serde_json::from_str::<ContributionRequest>(&unknown)
+            .map_err(|_| ())
+            .and_then(validate)
+            .is_err());
+    }
+
+    #[test]
+    fn experience_is_optional_allowlisted_and_absence_preserves_legacy_hash() {
+        let base = r#"{"schema_version":1,"batch_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","delete_token":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","items":[{"shortcut_id":"copy","count":1}]}"#;
+        let (_, _, legacy_hash) = validate(serde_json::from_str(base).unwrap()).unwrap();
+        let canonical_items = vec![Item {
+            shortcut_id: "copy".into(),
+            count: 1,
+        }];
+        let expected = digest(
+            &serde_json::to_vec(&(
+                1u8,
+                &"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &None::<String>,
+                &canonical_items,
+            ))
+            .unwrap(),
+        );
+        assert_eq!(legacy_hash, expected);
+        let explicit_null = base.replace("\"items\"", "\"experience\":null,\"items\"");
+        let (_, _, null_hash) = validate(serde_json::from_str(&explicit_null).unwrap()).unwrap();
+        assert_eq!(legacy_hash, null_hash);
+        let experienced = base.replace("\"items\"", "\"experience\":\"beginner\",\"items\"");
+        let (_, _, experienced_hash) =
+            validate(serde_json::from_str(&experienced).unwrap()).unwrap();
+        assert_ne!(legacy_hash, experienced_hash);
+        let invalid = base.replace("\"items\"", "\"experience\":\"expert\",\"items\"");
+        assert!(serde_json::from_str::<ContributionRequest>(&invalid)
             .map_err(|_| ())
             .and_then(validate)
             .is_err());

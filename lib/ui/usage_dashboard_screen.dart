@@ -7,6 +7,7 @@ import '../app.dart';
 import '../controllers/app_controller.dart';
 import '../data/private_usage_directory.dart';
 import '../data/public_shortcut_catalog.dart';
+import '../data/community_setup_repository.dart';
 import '../data/shortcut_community_client.dart';
 import '../data/shortcut_community_store.dart';
 import '../data/shortcut_usage_repository.dart';
@@ -34,6 +35,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
   DateTimeRange? _customRange;
   String _communityPeriod = 'all';
   String _communityTag = '';
+  String _communityExperience = '';
   CommunityRanking? _communityRanking;
   String? _communityState;
   bool _working = false;
@@ -105,11 +107,15 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
     final generation = ++_rankingRequestGeneration;
     final requestedPeriod = _communityPeriod;
     final requestedTag = _communityTag.isEmpty ? null : _communityTag;
+    final requestedExperience = _communityExperience.isEmpty
+        ? null
+        : _communityExperience;
     setState(() => _communityState = 'loading');
     try {
       final result = await _client.fetchRankings(
         requestedPeriod,
         tag: requestedTag,
+        experience: requestedExperience,
       );
       if (!mounted) return;
       if (generation != _rankingRequestGeneration ||
@@ -117,6 +123,10 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
         return;
       }
       if (requestedTag != (_communityTag.isEmpty ? null : _communityTag)) {
+        return;
+      }
+      if (requestedExperience !=
+          (_communityExperience.isEmpty ? null : _communityExperience)) {
         return;
       }
       setState(() {
@@ -568,6 +578,27 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
               }
             },
           ),
+          const SizedBox(width: 16),
+          const Text('Experience'),
+          const SizedBox(width: 8),
+          DropdownButton<String>(
+            key: const ValueKey('usage-community-experience'),
+            value: _communityExperience,
+            items: [
+              const DropdownMenuItem(
+                value: '',
+                child: Text('All experience levels'),
+              ),
+              for (final entry in communityExperienceLevels.entries)
+                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+            ],
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _communityExperience = value);
+                _refreshCommunity();
+              }
+            },
+          ),
           IconButton(
             tooltip: 'Refresh rankings',
             onPressed: _refreshCommunity,
@@ -713,7 +744,20 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
     final items = counts.length > 15
         ? Map.fromEntries(counts.entries.take(15))
         : counts;
-    var selectedTag = '';
+    CommunitySetupPreferences setup = const CommunitySetupPreferences();
+    setState(() => _working = true);
+    try {
+      setup = await CommunitySetupRepository(
+        directoryProvider: widget.directoryProvider,
+      ).load();
+    } on Object {
+      // An unavailable setup preference must not block reviewed sharing.
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+    if (!mounted || !context.mounted || !services.store.sharingEnabled) return;
+    var selectedTag = setup.profession ?? '';
+    var selectedExperience = setup.experience ?? '';
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -725,7 +769,9 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Only these categories and counts will be sent:'),
+                const Text(
+                  'This batch includes these categories, counts and any optional choices below:',
+                ),
                 if (eligible.length > maxBatchEvents)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
@@ -745,7 +791,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   key: const ValueKey('usage-preview-tag'),
-                  initialValue: '',
+                  initialValue: selectedTag,
                   decoration: const InputDecoration(
                     labelText: 'Optional profession tag',
                     helperText:
@@ -760,6 +806,25 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                       ),
                   ],
                   onChanged: (value) => selectedTag = value ?? '',
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  key: const ValueKey('usage-preview-experience'),
+                  initialValue: selectedExperience,
+                  decoration: const InputDecoration(
+                    labelText: 'Optional computer proficiency',
+                    helperText:
+                        'Not inferred or linked to your Google account. Used only for this batch.',
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('None')),
+                    for (final entry in communityExperienceLevels.entries)
+                      DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                  ],
+                  onChanged: (value) => selectedExperience = value ?? '',
                 ),
               ],
             ),
@@ -790,6 +855,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
       items: items,
       eventIds: eventIds,
       tag: selectedTag.isEmpty ? null : selectedTag,
+      experience: selectedExperience.isEmpty ? null : selectedExperience,
     );
     setState(() => _working = true);
     try {

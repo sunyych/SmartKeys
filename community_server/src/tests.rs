@@ -108,6 +108,7 @@ fn valid_body() -> ContributionRequest {
         batch_id: "a".repeat(32),
         delete_token: "b".repeat(64),
         tag: None,
+        experience: None,
         items: vec![Item {
             shortcut_id: "copy".into(),
             count: 2,
@@ -274,6 +275,24 @@ async fn postgres_http_contract_concurrency_withdrawal_threshold_and_periods() {
             .status(),
         StatusCode::OK
     );
+    let dashboard = client.get(format!("{base}/")).send().await.unwrap();
+    assert_eq!(dashboard.status(), StatusCode::OK);
+    assert_eq!(
+        dashboard.headers()[reqwest::header::CONTENT_TYPE],
+        "text/html; charset=utf-8"
+    );
+    assert!(dashboard.headers().contains_key("content-security-policy"));
+    let page = dashboard.text().await.unwrap();
+    assert!(page.contains("快捷键使用概览"));
+    for (path, content_type) in [
+        ("/dashboard", "text/html; charset=utf-8"),
+        ("/assets/dashboard.css", "text/css; charset=utf-8"),
+        ("/assets/dashboard.js", "text/javascript; charset=utf-8"),
+    ] {
+        let asset = client.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(asset.status(), StatusCode::OK);
+        assert_eq!(asset.headers()[reqwest::header::CONTENT_TYPE], content_type);
+    }
 
     // A complete built-in General profile can roundtrip; backups are isolated by verified sub.
     let profile = full_general_profile();
@@ -576,6 +595,7 @@ async fn postgres_http_contract_concurrency_withdrawal_threshold_and_periods() {
         .await
         .unwrap();
     assert_eq!(tagged["tag"], "design");
+    assert_eq!(tagged["experience"], serde_json::Value::Null);
     assert_eq!(tagged["rankings"][0]["shortcut_id"], "save");
     assert_eq!(tagged["rankings"][0]["count"], 12);
     let (tagged_id, tagged_token) = tagged_receipt.unwrap();
@@ -620,6 +640,106 @@ async fn postgres_http_contract_concurrency_withdrawal_threshold_and_periods() {
             .status(),
         StatusCode::BAD_REQUEST
     );
+
+    let mut experienced_ids = Vec::new();
+    for index in 0..3 {
+        let id = new_batch_id();
+        let token = format!("{:064x}", 300 + index);
+        experienced_ids.push((id.clone(), token));
+        let body = serde_json::json!({"schema_version":1,"batch_id":id,"delete_token":format!("{:064x}", 300 + index),"tag":"design","experience":"beginner","items":[{"shortcut_id":"open","count":index+2}]});
+        assert_eq!(
+            client
+                .post(format!("{base}/v1/contributions"))
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CREATED
+        );
+    }
+    for query in [
+        "period=all&tag=design&experience=beginner",
+        "period=7d&tag=design&experience=beginner",
+        "period=30d&experience=beginner",
+        "period=all&experience=beginner",
+    ] {
+        let scoped: serde_json::Value = client
+            .get(format!("{base}/v1/rankings?{query}"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(scoped["experience"], "beginner");
+        assert_eq!(scoped["rankings"][0]["shortcut_id"], "open");
+        assert_eq!(scoped["rankings"][0]["count"], 9);
+        assert_eq!(scoped["rankings"][0]["contributions"], 3);
+    }
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/rankings?period=all&experience=expert"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let experienced_payload = serde_json::json!({"schema_version":1,"batch_id":experienced_ids[0].0,"delete_token":experienced_ids[0].1,"tag":"design","experience":"beginner","items":[{"shortcut_id":"open","count":2}]});
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/contributions"))
+            .json(&experienced_payload)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/v1/contributions/{}", experienced_ids[0].0))
+            .bearer_auth(&experienced_ids[0].1)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/v1/contributions/{}", experienced_ids[0].0))
+            .bearer_auth(&experienced_ids[0].1)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let removed_from_scope: serde_json::Value = client
+        .get(format!(
+            "{base}/v1/rankings?period=all&tag=design&experience=beginner"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(removed_from_scope["rankings"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let still_global: serde_json::Value = client
+        .get(format!("{base}/v1/rankings?period=all&experience=beginner"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(still_global["rankings"].as_array().unwrap().is_empty());
 
     let wrong = client
         .delete(format!("{base}/v1/contributions/{batch}"))
@@ -681,6 +801,170 @@ async fn postgres_http_contract_concurrency_withdrawal_threshold_and_periods() {
         .unwrap();
     admin.close().await;
     let _ = fresh_ids;
+}
+
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL database in TEST_DATABASE_URL; test creates and drops an isolated schema"]
+async fn postgres_experience_migration_preserves_legacy_rows_and_hashes() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL required");
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let schema = format!(
+        "community_migrate_{:032x}",
+        now_seconds() as u64 * 1_000_000 + 19
+    );
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let isolated = schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(8)
+        .after_connect(move |connection, _| {
+            let sql = format!("SET search_path TO {isolated}");
+            Box::pin(async move {
+                sqlx::query(&sql).execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("../migrations/001_init.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let mut legacy_payload = None;
+    for index in 0..3 {
+        let body = ContributionRequest {
+            schema_version: 1,
+            batch_id: new_batch_id(),
+            delete_token: format!("{:064x}", 900 + index),
+            tag: Some("design".to_owned()),
+            experience: None,
+            items: vec![Item {
+                shortcut_id: "italic".to_owned(),
+                count: 2,
+            }],
+        };
+        let (body, token_hash, payload_hash) = validate(body).unwrap();
+        let received_at = now_seconds();
+        let received_day = received_at.div_euclid(86_400);
+        let item_map = serde_json::json!({"italic":2});
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT submit_community_batch($1,$2,$3,$4,$5,$6,$7)")
+                .bind(&body.batch_id)
+                .bind(&token_hash)
+                .bind(&payload_hash)
+                .bind(received_at)
+                .bind(received_day)
+                .bind(&body.tag)
+                .bind(sqlx::types::Json(item_map))
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            "created"
+        );
+        if index == 0 {
+            legacy_payload = Some((body.batch_id, body.delete_token));
+        }
+    }
+
+    // Run startup migrations after seeded 001-only data, then repeat to verify idempotence.
+    initialize_schema(&pool).await.unwrap();
+    initialize_schema(&pool).await.unwrap();
+    let totals: (i64, i64) = sqlx::query_as("SELECT count,contributions FROM shortcut_tag_totals WHERE tag='design' AND shortcut_id='italic'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(totals, (6, 3));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM shortcut_experience_totals")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let post_migration_legacy = ContributionRequest {
+        schema_version: 1,
+        batch_id: new_batch_id(),
+        delete_token: "e".repeat(64),
+        tag: Some("design".to_owned()),
+        experience: None,
+        items: vec![Item {
+            shortcut_id: "italic".to_owned(),
+            count: 2,
+        }],
+    };
+    let (post_migration_legacy, token_hash, payload_hash) =
+        validate(post_migration_legacy).unwrap();
+    let received_at = now_seconds();
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT submit_community_batch($1,$2,$3,$4,$5,$6,$7)")
+            .bind(&post_migration_legacy.batch_id)
+            .bind(&token_hash)
+            .bind(&payload_hash)
+            .bind(received_at)
+            .bind(received_at.div_euclid(86_400))
+            .bind(&post_migration_legacy.tag)
+            .bind(sqlx::types::Json(serde_json::json!({"italic":2})))
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "created"
+    );
+
+    let state = AppState {
+        pool: pool.clone(),
+        limiter: Arc::new(Mutex::new(RateLimiter {
+            buckets: HashMap::new(),
+            hasher: RandomState::new(),
+            max_clients: 100,
+            window: 60,
+            limit: 500,
+        })),
+        trust_proxy: false,
+        verifier: auth::GoogleTokenVerifier::for_test(vec![], "http://127.0.0.1:1/unused".into()),
+        backup_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (batch_id, delete_token) = legacy_payload.unwrap();
+    let retry = serde_json::json!({"schema_version":1,"batch_id":batch_id,"delete_token":delete_token,"tag":"design","items":[{"shortcut_id":"italic","count":2}]});
+    assert_eq!(
+        client
+            .post(format!("http://{addr}/v1/contributions"))
+            .json(&retry)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let ranking: serde_json::Value = client
+        .get(format!("http://{addr}/v1/rankings?period=all&tag=design"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(ranking["rankings"][0]["shortcut_id"], "italic");
+    assert_eq!(ranking["rankings"][0]["count"], 8);
+    assert_eq!(ranking["rankings"][0]["contributions"], 4);
+    server.abort();
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
 }
 
 #[test]

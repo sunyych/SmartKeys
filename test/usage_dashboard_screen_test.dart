@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/data/account_backup_client.dart';
+import 'package:smart_keys/data/community_setup_repository.dart';
 import 'package:smart_keys/data/shortcut_community_client.dart';
 import 'package:smart_keys/data/shortcut_community_store.dart';
 import 'package:smart_keys/services/google_account_auth_service.dart';
@@ -116,6 +117,62 @@ void main() {
     expect(find.text('No clicks in this date range'), findsOneWidget);
   });
 
+  testWidgets('community profession and experience filters are independent', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await harness.dispose();
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SmartKeysScope(
+          controller: harness.controller,
+          child: UsageDashboardScreen(
+            client: ShortcutCommunityClient(endpoint: ''),
+            directoryProvider: () async => harness.directory,
+          ),
+        ),
+      ),
+    );
+    await _settleDashboard(tester);
+
+    final profession = find.byKey(const ValueKey('usage-community-tag'));
+    await tester.scrollUntilVisible(
+      profession,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.ensureVisible(profession);
+    await tester.pumpAndSettle();
+    await tester.tap(profession);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Design').last);
+    await tester.pumpAndSettle();
+
+    final experience = find.byKey(const ValueKey('usage-community-experience'));
+    await tester.scrollUntilVisible(
+      experience,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.ensureVisible(experience);
+    await tester.pumpAndSettle();
+    await tester.tap(experience);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Advanced').last);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<DropdownButton<String>>(profession).value, 'design');
+    expect(tester.widget<DropdownButton<String>>(experience).value, 'advanced');
+  });
+
   testWidgets('Dashboard renders phone and tablet screenshots', (tester) async {
     final shots = ScreenshotSupport(tester);
     final harness = await TestHarness.create();
@@ -140,7 +197,7 @@ void main() {
       publicShortcutId: 'paste',
     );
 
-    Future<void> capture(Size size, String id, String orientation) async {
+    Future<GlobalKey> capture(Size size, String id, String orientation) async {
       await shots.setViewport(size);
       final key = GlobalKey();
       await tester.pumpWidget(
@@ -169,9 +226,33 @@ void main() {
             'Local ranking, date filters, community opt-in controls, and persistent bottom actions.',
         boundaryKey: key,
       );
+      return key;
     }
 
-    await capture(const Size(412, 915), 'usage-dashboard-phone', 'portrait');
+    final phoneKey = await capture(
+      const Size(412, 915),
+      'usage-dashboard-phone',
+      'portrait',
+    );
+    final experienceFilter = find.byKey(
+      const ValueKey('usage-community-experience'),
+    );
+    await tester.scrollUntilVisible(
+      experienceFilter,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(experienceFilter);
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'usage-dashboard-phone-experience-filter',
+      title: 'Shortcut usage Dashboard · experience filter',
+      orientation: 'portrait',
+      notes:
+          'Public rankings can be filtered independently by profession and optional computer proficiency.',
+      boundaryKey: phoneKey,
+    );
     await capture(
       const Size(1366, 1024),
       'usage-dashboard-tablet',
@@ -249,6 +330,18 @@ void main() {
       'Copy',
       publicShortcutId: 'copy',
     );
+    final setupRepository = CommunitySetupRepository(
+      directoryProvider: () async => harness.directory,
+    );
+    await tester.runAsync(
+      () => setupRepository.save(
+        const CommunitySetupPreferences(
+          completed: true,
+          profession: 'office',
+          experience: 'beginner',
+        ),
+      ),
+    );
     const endpoint = 'https://rankings.example.test';
     await tester.pumpWidget(
       MaterialApp(
@@ -318,13 +411,31 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(const ValueKey('usage-share-preview')));
-    await tester.pump(const Duration(milliseconds: 300));
+    final previewTitle = find.text('Review this sharing batch');
+    for (
+      var attempt = 0;
+      attempt < 60 && previewTitle.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(previewTitle, findsOneWidget);
     expect(find.text('Copy: 1'), findsOneWidget);
+    expect(find.text('Office work'), findsOneWidget);
+    expect(find.text('Beginner'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('usage-preview-tag')));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('Design').last);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Design'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('usage-preview-experience')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Advanced').last);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Advanced'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Submit this batch'));
     await _settleDashboard(tester);
     final submissionStatus = find.textContaining('Submission not confirmed');
@@ -345,7 +456,131 @@ void main() {
     );
     await tester.runAsync(restored.load);
     expect(restored.pending?.tag, 'design');
+    expect(restored.pending?.experience, 'advanced');
     expect(restored.pending?.items, {'copy': 1});
+  });
+
+  testWidgets('sharing preview can omit saved metadata for one batch', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await harness.dispose();
+    });
+    await harness.shortcutUsage.record(
+      'key-paste',
+      'Paste',
+      publicShortcutId: 'paste',
+    );
+    final setupRepository = CommunitySetupRepository(
+      directoryProvider: () async => harness.directory,
+    );
+    await tester.runAsync(
+      () => setupRepository.save(
+        const CommunitySetupPreferences(
+          completed: true,
+          profession: 'design',
+          experience: 'advanced',
+        ),
+      ),
+    );
+    const endpoint = 'https://rankings.example.test';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SmartKeysScope(
+          controller: harness.controller,
+          child: UsageDashboardScreen(
+            client: ShortcutCommunityClient(endpoint: endpoint),
+            directoryProvider: () async => harness.directory,
+          ),
+        ),
+      ),
+    );
+    await _settleDashboard(tester);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('usage-sharing-enabled')),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('usage-sharing-enabled')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('usage-sharing-enabled')),
+        matching: find.byType(Switch),
+      ),
+    );
+    final preview = find.byKey(const ValueKey('usage-share-preview'));
+    for (
+      var attempt = 0;
+      attempt < 60 && preview.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(preview, findsOneWidget);
+    await tester.scrollUntilVisible(
+      preview,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.ensureVisible(preview);
+    await tester.pumpAndSettle();
+    await tester.tap(preview);
+    final previewTitle = find.text('Review this sharing batch');
+    for (
+      var attempt = 0;
+      attempt < 60 && previewTitle.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(previewTitle, findsOneWidget);
+    expect(find.text('Design'), findsOneWidget);
+    expect(find.text('Advanced'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('usage-preview-tag')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('None').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('usage-preview-experience')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('None').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Submit this batch'));
+    final submissionStatus = find.textContaining('Submission not confirmed');
+    for (
+      var attempt = 0;
+      attempt < 60 && submissionStatus.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(submissionStatus, findsOneWidget);
+    final restored = ShortcutCommunityStore(
+      directory: harness.directory,
+      serverOrigin: endpoint,
+    );
+    await tester.runAsync(restored.load);
+    expect(restored.pending?.tag, isNull);
+    expect(restored.pending?.experience, isNull);
+    expect(restored.pending!.toPayload().containsKey('experience'), isFalse);
   });
 }
 

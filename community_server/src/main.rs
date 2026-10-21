@@ -22,6 +22,7 @@ mod account_backup;
 mod auth;
 mod contributions;
 mod ranking;
+mod web;
 
 #[derive(Clone)]
 struct AppState {
@@ -140,6 +141,9 @@ async fn initialize_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../migrations/001_init.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../migrations/002_experience.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -160,6 +164,10 @@ fn app(state: AppState) -> Router {
         ))
         .with_state(state.clone());
     Router::new()
+        .route("/", get(web::index))
+        .route("/dashboard", get(web::index))
+        .route("/assets/dashboard.css", get(web::css))
+        .route("/assets/dashboard.js", get(web::js))
         .route("/healthz", get(health))
         .route(
             "/v1/contributions",

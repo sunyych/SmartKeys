@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'controllers/app_controller.dart';
 import 'data/config_repository.dart';
+import 'data/community_setup_repository.dart';
 import 'data/private_image_store.dart';
 import 'data/profile_template_repository.dart';
 import 'data/shortcut_usage_repository.dart';
@@ -15,6 +16,7 @@ import 'services/companion_service.dart';
 import 'services/orientation_service.dart';
 import 'services/power_brightness_service.dart';
 import 'ui/home_screen.dart';
+import 'ui/community_setup_screen.dart';
 import 'ui/local_dictation_route_observer.dart';
 
 class SmartKeysApp extends StatefulWidget {
@@ -30,12 +32,14 @@ class _SmartKeysAppState extends State<SmartKeysApp>
     with WidgetsBindingObserver {
   late final AppController controller;
   late final bool ownsController;
+  late final CommunitySetupRepository communitySetupRepository;
 
   @override
   void initState() {
     super.initState();
     unawaited(_enterFullscreen());
     ownsController = widget.controller == null;
+    communitySetupRepository = CommunitySetupRepository();
     final templates = ProfileTemplateRepository();
     final companion =
         widget.controller?.companion ??
@@ -139,7 +143,12 @@ class _SmartKeysAppState extends State<SmartKeysApp>
                 ),
               );
             }
-            return const HomeScreen();
+            final home = const HomeScreen();
+            if (!ownsController) return home;
+            return CommunitySetupGate(
+              repository: communitySetupRepository,
+              child: home,
+            );
           },
         ),
       ),

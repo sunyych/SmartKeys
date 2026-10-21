@@ -27,6 +27,7 @@ void main() {
       () async {
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         final seen = <Map<String, dynamic>>[];
+        final seenQueries = <Map<String, String>>[];
         final serving = () async {
           await for (final request in server) {
             if (request.method == 'POST') {
@@ -44,19 +45,23 @@ void main() {
                 }),
               );
             } else {
+              seenQueries.add(Map.of(request.uri.queryParameters));
               request.response.statusCode = 200;
               request.response.headers.contentType = ContentType.json;
-              request.response.write(
-                jsonEncode({
-                  'schema_version': 1,
-                  'period': request.uri.queryParameters['period'],
-                  'tag': request.uri.queryParameters['tag'],
-                  'updated_at': '2026-10-21T12:00:00Z',
-                  'rankings': [
-                    {'shortcut_id': 'copy', 'count': 18, 'contributions': 4},
-                  ],
-                }),
-              );
+              final ranking = <String, Object?>{
+                'schema_version': 1,
+                'period': request.uri.queryParameters['period'],
+                'tag': request.uri.queryParameters['tag'],
+                'updated_at': '2026-10-21T12:00:00Z',
+                'rankings': [
+                  {'shortcut_id': 'copy', 'count': 18, 'contributions': 4},
+                ],
+              };
+              if (request.uri.queryParameters.containsKey('experience')) {
+                ranking['experience'] =
+                    request.uri.queryParameters['experience'];
+              }
+              request.response.write(jsonEncode(ranking));
             }
             await request.response.close();
           }
@@ -91,11 +96,26 @@ void main() {
         final ranking = await client.fetchRankings('all');
         expect(ranking.rows.single.shortcutId, 'copy');
         expect(ranking.rows.single.count, 18);
-        final tagged = await client.fetchRankings('30d', tag: 'design');
+        expect(ranking.experience, isNull);
+        final tagged = await client.fetchRankings(
+          '30d',
+          tag: 'design',
+          experience: 'advanced',
+        );
         expect(tagged.tag, 'design');
         expect(tagged.period, '30d');
+        expect(tagged.experience, 'advanced');
+        expect(seenQueries.last, {
+          'period': '30d',
+          'tag': 'design',
+          'experience': 'advanced',
+        });
         expect(
           () => client.fetchRankings('all', tag: 'unrestricted free text'),
+          throwsArgumentError,
+        );
+        expect(
+          () => client.fetchRankings('all', experience: 'expert'),
           throwsArgumentError,
         );
         await server.close(force: true);
@@ -143,6 +163,8 @@ void main() {
             serverOrigin: origin,
             items: {'paste': 3},
             eventIds: const ['secret-event-id'],
+            tag: 'design',
+            experience: 'advanced',
           );
           await store.savePending(batch);
           await expectLater(
@@ -164,6 +186,7 @@ void main() {
           );
           await restored.load();
           expect(restored.pending?.batchId, batch.batchId);
+          expect(restored.pending?.experience, 'advanced');
           expect(restored.pending?.toPayload(), batch.toPayload());
           expect(restored.submittedEventIds, {'secret-event-id'});
           await restored.setSharingEnabled(true);
@@ -182,6 +205,7 @@ void main() {
           expect(secondRead.sharingEnabled, isTrue);
           await secondRead.setSharingEnabled(false);
           expect(secondRead.pending?.batchId, batch.batchId);
+          expect(secondRead.pending?.experience, 'advanced');
           expect(secondRead.sharingEnabled, isFalse);
           await secondRead.setSharingEnabled(true);
           await secondRead.acknowledgePending();
@@ -232,6 +256,34 @@ void main() {
           eventIds: const [],
         ).toPayload().containsKey('event_ids'),
         isFalse,
+      );
+      final tagged = CommunityPendingBatch(
+        batchId: '3' * 32,
+        deleteToken: '4' * 64,
+        serverOrigin: 'https://ranking.example.test',
+        items: {'copy': 1},
+        eventIds: const ['local-only'],
+        tag: 'design',
+        experience: 'intermediate',
+      );
+      expect(tagged.toPayload()['experience'], 'intermediate');
+      expect(jsonEncode(tagged.toPayload()), isNot(contains('local-only')));
+      expect(
+        CommunityPendingBatch.fromStorage(
+          tagged.toStorage().cast<String, dynamic>(),
+        ).experience,
+        'intermediate',
+      );
+      expect(
+        () => CommunityPendingBatch(
+          batchId: '5' * 32,
+          deleteToken: '6' * 64,
+          serverOrigin: 'https://ranking.example.test',
+          items: {'copy': 1},
+          eventIds: const [],
+          experience: 'expert',
+        ),
+        throwsArgumentError,
       );
     });
 

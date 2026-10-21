@@ -48,11 +48,27 @@ not unique people. Seven/thirty-day public rankings use the UTC calendar days
 on which contributions reached the service; private click times are not sent.
 The service is not a verified unique-person or fraud-proof popularity measure.
 
-Profession tags are optional. In a submission preview you may select software
+Profession and computer proficiency tags are optional. In a submission preview you may select software
 engineering, design, video editing, office work or other, or leave the tag empty.
 This does not infer your occupation or bind it to your Google account. Public
-ranking filters independently show all professions or one selected tag; the
-three-contribution threshold applies to each filtered category as well.
+ranking filters independently show all professions or one selected tag. Computer
+proficiency can be omitted or set to Beginner, Intermediate or Advanced. The two
+filters can be combined; the three-contribution threshold applies to each
+filtered category as well.
+
+On first launch, **Community setup** offers these optional choices. **Skip for
+now** remembers that setup was completed with neither choice. Saving only keeps
+defaults on this device: it does not enable sharing or send any data. Open
+**Settings → Community sharing setup** to change or clear the defaults. The
+submission preview can override or omit either default for that batch. These
+setup preferences are excluded from Google backups and Profile exports, and
+clearing local click history leaves them intact.
+
+The service also provides a Chinese browser Dashboard at `/` and `/dashboard`.
+It shows published counts, a proportional chart and a table, with all-time,
+7-day and 30-day periods plus combined profession/proficiency filters. Summary
+counts include published categories only; submission batches are not unique
+people. Refresh time indicates when the page fetched results.
 
 ## Service configuration
 
