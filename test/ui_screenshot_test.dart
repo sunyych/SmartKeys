@@ -536,10 +536,12 @@ void main() {
       expect(phoneMic.top, greaterThanOrEqualTo(0));
       await tester.tap(micFinder);
       await tester.pumpAndSettle();
-      capture.emitPcm();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 60)),
-      );
+      // The controller throttles meter updates against a Stopwatch. Emit from
+      // real async time so the test fake's stream zone cannot defer the sample.
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        capture.emitPcm();
+      });
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('stop-dictation-compact')),

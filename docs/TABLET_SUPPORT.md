@@ -75,13 +75,12 @@ unsupported actions report an error.
 
 ## Build and acceptance
 
-An unsigned native iPad build requires macOS with Xcode. [Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
-completed successfully, including the unsigned debug build with Flutter 3.44.2
-that validates native compilation and plugin linkage. The iOS target's minimum
-deployment version is iOS 13.0. Signing and installing on a physical iPad
-additionally require an Apple signing identity and a connected, appropriately
-provisioned device. Unsigned CI does not validate signing, installation, or
-physical input; those steps remain unverified.
+Historical note: [Mac CI run 39519873752](https://github.com/sunyych/SmartKeys/actions/runs/39519873752)
+used Flutter 3.44.2 and verified an unsigned debug build and native plugin
+linkage. Its iOS 13.0 deployment target is obsolete for the current build.
+Current build, signed development IPA, minimum OS, and simulator evidence are
+recorded in [`APPLE_BUILD_VALIDATION.md`](APPLE_BUILD_VALIDATION.md); no
+physical iPad input acceptance is claimed.
 
 Automated tablet screenshots and their HTML index are local validation output,
 kept in ignored build/output directories. They show Flutter widget rendering

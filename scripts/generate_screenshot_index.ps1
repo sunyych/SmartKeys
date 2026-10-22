@@ -79,7 +79,7 @@ $html = @"
 </style>
 </head>
 <body>
-<header><h1>LumiaKey UI screenshot gallery</h1><p>Flutter widget renders · deterministic test fixtures · no physical-device screenshot claim</p><div class="filters"><input id="search" type="search" placeholder="Search screens, notes, platform…" aria-label="Search screenshots"><select id="platform"><option value="">All platforms</option></select><select id="orientation"><option value="">All orientations</option></select></div><div id="count" aria-live="polite"></div></header>
+<header><h1>LumiaKey UI screenshot gallery</h1><p>Flutter widget and iOS Simulator captures · no physical-device screenshot claim</p><div class="filters"><input id="search" type="search" placeholder="Search screens, notes, platform…" aria-label="Search screenshots"><select id="platform"><option value="">All platforms</option></select><select id="orientation"><option value="">All orientations</option></select></div><div id="count" aria-live="polite"></div></header>
 <main id="gallery">
 $($cards -join "`n")
 </main><p class="empty" id="empty">No screenshots match these filters.</p>

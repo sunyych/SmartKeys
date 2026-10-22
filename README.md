@@ -43,12 +43,12 @@ Desktop for insertion into the supported focused app. The tablet guide covers
 layout selection, profile banks, pairing, and platform validation in
 [`docs/TABLET_SUPPORT.md`](docs/TABLET_SUPPORT.md).
 
-An unsigned iOS build requires macOS with Xcode. [Mac CI run 39633120596](https://github.com/sunyych/SmartKeys/actions/runs/39633120596)
-completed successfully, including the unsigned native build that verified
-Swift compilation and plugin linkage. Signing and installing on a physical
-iPad additionally require an Apple signing identity and a connected,
-provisioned device. The Windows development environment has no native iOS SDK;
-signed installation and physical iPad input remain unverified.
+Apple build results, development IPA scope, minimum OS versions, and remaining
+device/ASR acceptance are recorded in
+[`docs/APPLE_BUILD_VALIDATION.md`](docs/APPLE_BUILD_VALIDATION.md). A signed
+development IPA was exported for registered devices; this is not a
+TestFlight/App Store build and does not establish physical-device runtime
+acceptance.
 
 ## Implemented V1.2
 
@@ -395,13 +395,16 @@ it reports measured per-package and aggregate Dart line coverage. Pass
 checkout on NTFS because Flutter's plugin symlinks do not work from exFAT.
 Screenshot widget tests write PNGs and JSON sidecars under
 `SMARTKEYS_SCREENSHOT_DIR`; if unset, validation uses the ignored
-`build/ui_screenshots/` directory and generates an `index.html` gallery after
-the suites. Set the environment variable to keep a gallery elsewhere. These
-are deterministic widget-test captures, not screenshots from a physical phone.
+`build/ui_screenshots/` directory. Generate the combined gallery on any platform
+with `dart run scripts/generate_screenshot_index.dart` (or pass `--root <dir>`);
+the PowerShell entry point `scripts/generate_screenshot_index.ps1` is also
+available. Set `SMARTKEYS_SCREENSHOT_DIR` to use a different root. These are
+deterministic widget-test captures, not screenshots from a physical phone.
 These automated checks do not replace Android microphone permission,
 actual-device ASR quality/latency, focused-app text insertion, Windows/macOS
-native permission and injection acceptance, or iPad signing, installation and
-physical-device input acceptance.
+native permission and injection acceptance, or iPad installation and
+physical-device input acceptance (see
+[`docs/APPLE_BUILD_VALIDATION.md`](docs/APPLE_BUILD_VALIDATION.md)).
 
 Android HID hardware acceptance requires an Android 9+ phone whose Bluetooth
 stack exposes HID Device and a paired computer, because an emulator cannot
