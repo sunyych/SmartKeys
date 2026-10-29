@@ -1,0 +1,197 @@
+{
+  "version": "1.3.0+5",
+  "date": "2026-10-28",
+  "sourceCommit": "2469b3a",
+  "pages": [
+    {
+      "id": "overview",
+      "title": {"zh": "LumiaKey 软件功能说明书", "en": "LumiaKey Functional Guide"},
+      "intro": {"zh": "LumiaKey 将手机或平板变成电脑快捷键控制面板，提供键盘操作、媒体控制、触控输入和本地语音识别。本说明书面向首次使用者，介绍移动端与 LumiaKey Desktop 的功能及操作条件。", "en": "LumiaKey turns a phone or tablet into a computer shortcut panel with keyboard actions, media controls, touch input and local speech recognition. This guide helps new users understand the mobile app, LumiaKey Desktop and the requirements for each feature."},
+      "paragraphs": [
+        {"zh": "适用版本 1.3.0+5，依据 2026 年 10 月 28 日的项目源码编写。应用界面主要为英文；中文说明保留英文入口名。识别语言设置不会改变界面语言。", "en": "Applies to version 1.3.0+5, based on the project source reviewed on 28 October 2026. The app interface is primarily English. Recognition-language settings do not change the interface language."},
+        {"zh": "截图来自当前 Flutter 界面代码的测试渲染，未重绘界面。连接状态、应用列表、统计数字和语音状态使用示例数据，不代表真机已连接或语音质量已经验收。", "en": "Screenshots are test renders of the current Flutter interface, without redrawing the UI. Connection states, app lists, usage counts and dictation states use sample data; they do not establish device connectivity or speech quality."}
+      ],
+      "table": {
+        "headers": {"zh": ["使用端", "主要用途", "基本条件"], "en": ["Client", "Main use", "Requirements"]},
+        "rows": [
+          {"zh": ["Android 手机或平板", "快捷键、媒体、鼠标和触控板", "Android 9 或更新；设备支持蓝牙 HID Device"], "en": ["Android phone or tablet", "Shortcuts, media, mouse and touchpad", "Android 9 or later; Bluetooth HID Device support"]},
+          {"zh": ["iPad", "快捷键和识别文字输出", "与 Desktop 同一局域网；不支持 Android 式鼠标与持键"], "en": ["iPad", "Shortcuts and recognized text", "Same LAN as Desktop; no Android-style mouse or held-key actions"]},
+          {"zh": ["Windows 或 macOS", "Desktop 应用管理、托管快捷键与本地听写", "安装独立 LumiaKey Desktop；按功能授予权限"], "en": ["Windows or macOS", "Desktop app management, managed shortcuts and dictation", "Install LumiaKey Desktop separately and grant required permissions"]}
+        ]
+      },
+      "images": [{"file": "manual-home-landscape.png", "caption": {"zh": "图 1 手机横屏 General 默认布局，右侧为触控板", "en": "Figure 1 Default General profile in landscape with the touchpad on the right"}}]
+    },
+    {
+      "id": "connection",
+      "title": {"zh": "1 连接电脑与桌面伴侣", "en": "1 Connect to a Computer"},
+      "intro": {"zh": "Android 的普通键盘、媒体和鼠标输入走蓝牙 HID；应用启动、工作区同步和多语言文字输出依赖 Desktop。两种连接可以同时使用。", "en": "Android uses Bluetooth HID for ordinary keyboard, media and mouse input. App launching, workspace synchronization and multilingual text output require Desktop. Both connections can be used together."},
+      "steps": [
+        {"zh": "Android：打开右上角状态菜单或 Settings → Computer connection，允许“附近的设备”权限，选择 Make phone discoverable。", "en": "On Android, open the top-right status menu or Settings → Computer connection. Allow Nearby devices access and select Make phone discoverable."},
+        {"zh": "在电脑蓝牙设置中添加并配对手机。回到 LumiaKey，选择 Refresh，再选择已配对电脑进行连接。Bluetooth off 或 Permission required 表示仍需处理系统设置。", "en": "Add and pair the phone in the computer’s Bluetooth settings. Return to LumiaKey, select Refresh, then connect the paired computer. Resolve Bluetooth off or Permission required in system settings."},
+        {"zh": "Desktop：启动独立桌面应用，在 Windows 托盘或 macOS 菜单栏选择 Open Settings；手机与电脑接入同一局域网，查看 Settings → Desktop Companion。", "en": "Start the separate Desktop app and choose Open Settings from the Windows tray or macOS menu bar. Put both devices on the same LAN and check Settings → Desktop Companion on mobile."},
+        {"zh": "iPad：在 Desktop 的 Connect an iPad 面板复制连接码；在 iPad 的 Desktop Companion 中粘贴，选择 Connect，并允许本地网络访问。重启 Desktop 后使用新的连接码。", "en": "On iPad, copy the code from Desktop’s Connect an iPad panel, paste it into Desktop Companion, select Connect and allow Local Network access. Use a new code after restarting Desktop."}
+      ],
+      "paragraphs": [{"zh": "连接码包含临时凭据，应像密码一样保管。当前局域网通道经过认证但未加密，请使用可信网络。断开蓝牙可选择 Disconnect；显式断开会清除记住的电脑。", "en": "The connection code contains a temporary credential; protect it like a password. The current LAN channel is authenticated but unencrypted, so use a trusted network. Selecting Disconnect for Bluetooth also clears the remembered computer."}],
+      "imageHeight": 4.45,
+      "images": [
+        {"file": "phone-bluetooth.png", "caption": {"zh": "图 2 蓝牙连接面板，电脑名称为示例", "en": "Figure 2 Bluetooth connection panel with a sample computer"}},
+        {"file": "phone-settings.png", "caption": {"zh": "图 3 Settings 与 Desktop Companion 区域", "en": "Figure 3 Settings and the Desktop Companion section"}}
+      ]
+    },
+    {
+      "id": "controls",
+      "title": {"zh": "2 控制面板与触控输入", "en": "2 Control Surfaces and Touch Input"},
+      "intro": {"zh": "手机控制模式一页最多显示 15 个快捷键，竖屏为 3 列 5 行，横屏为 5 列 3 行。旋转屏幕会释放已按住的按键，布局变化保留当前配置。", "en": "Phone controls show up to 15 shortcuts per bank: three columns by five rows in portrait and five columns by three rows in landscape. Rotation releases held keys while preserving the active configuration."},
+      "paragraphs": [
+        {"zh": "General 默认按钮包括静音、音量、撤销、重做、上一首、播放暂停、下一首、打开、Dark、剪切、复制、粘贴、关闭和删除。目标程序需要处于合适的焦点状态，实际快捷键效果由目标程序决定。Dark 会调暗手机，并在 Desktop 可用时请求电脑亮度控制；电脑效果取决于平台支持。", "en": "General includes mute, volume, undo, redo, previous track, play/pause, next track, open, Dark, cut, copy, paste, close and delete. Keep the intended app focused; shortcut behavior depends on that app. Dark dims the phone and requests host brightness control when Desktop is available; host effects depend on platform support."},
+        {"zh": "Android 触控板：单指滑动移动指针，轻点左键，双指滑动滚动，双指轻点右键；右侧滚动带可单指上下滚动。其他配置可使用可编辑导航轮。iPad 不提供此鼠标输入路线。", "en": "Android touchpad gestures: drag one finger to move the pointer, tap for left-click, slide two fingers to scroll and tap two fingers for right-click. The right-edge strip also supports one-finger scrolling. Other profiles can use an editable navigation wheel. This mouse route is unavailable on iPad."},
+        {"zh": "Settings → Control Surface 可选 Automatic、Phone controls 或 Shortcut board。Automatic 在窗口最短边达到 600 逻辑像素时显示平板键盘板；窄分屏会切回手机模式。", "en": "Settings → Control Surface offers Automatic, Phone controls and Shortcut board. Automatic uses the board when the window’s shortest side reaches 600 logical pixels; narrow split views return to phone controls."},
+        {"zh": "Shortcut board keys per screen 可设 24 至 60 的任意整数，默认 40。键盘板不占用空间显示触控板或导航轮；使用分页控件浏览其他 bank。旧 15 键配置保留，编辑空位后才添加新按键。", "en": "Shortcut board keys per screen accepts any integer from 24 to 60, with 40 as the default. The board omits the touchpad and wheel. Use page controls for other banks. Existing 15-key profiles stay intact; editing an unused slot adds a key."}
+      ],
+      "imageHeight": 3.15,
+      "images": [{"file": "manual-tablet-board.png", "caption": {"zh": "图 4 平板 40 键布局，未配置的位置保留为空位", "en": "Figure 4 Tablet board with 40 slots; unused positions remain unconfigured"}}]
+    },
+    {
+      "id": "profiles",
+      "title": {"zh": "3 配置文件与按钮编辑", "en": "3 Profiles and Button Editing"},
+      "intro": {"zh": "Profile 保存一组按钮、图标和导航操作。初始本地配置为 General、Web、Zoom / Teams 和 Custom，免费版本最多保留四个本地 Profile。", "en": "A Profile stores buttons, visuals and navigation actions. The initial local profiles are General, Web, Zoom / Teams and Custom. The free edition supports up to four local profiles."},
+      "steps": [
+        {"zh": "在顶部快捷栏切换 Profile；进入 Settings → Profiles 可创建、复制、编辑、排序、删除或设为默认，并从内置模板恢复。槽位已满时导入需要选择替换。", "en": "Switch profiles in the top strip. Settings → Profiles lets you create, copy, edit, reorder, delete, set a default or restore a built-in template. Importing at capacity requires choosing a replacement slot."},
+        {"zh": "右上角菜单选择 Edit buttons，再点目标按钮。设置名称、图标或自定义图片、动作与反馈，保存后退出编辑模式。编辑模式下长按拖动到另一个按钮可交换完整配置。", "en": "Choose Edit buttons from the top-right menu, then tap a button. Set its label, icon or image, action and feedback, save, then leave edit mode. Long-press and drag onto another button to swap their complete configurations."},
+        {"zh": "跨平台快捷键中的 PRIMARY 在 Apple 电脑映射为 Command，在 Windows 或 Linux 映射为 Ctrl。自动识别不正确时，到 Settings → Shortcut Platform 手动指定。", "en": "PRIMARY maps to Command on Apple hosts and Ctrl on Windows or Linux. If automatic detection is incorrect, set the host platform manually in Settings → Shortcut Platform."}
+      ],
+      "paragraphs": [{"zh": "桌面托管的应用布局应在 Desktop → Shortcut Layout 编辑。手机 Profile JSON 导入会拒绝 Desktop Companion 动作；桌面布局与手机蓝牙 Profile 不可当作同一种文件互换。", "en": "Edit Desktop-managed app layouts in Desktop → Shortcut Layout. Phone Profile JSON import rejects Companion actions. Desktop layouts and phone Bluetooth profiles are different transfer formats."}],
+      "imageHeight": 4.45,
+      "images": [
+        {"file": "phone-profile-management.png", "caption": {"zh": "图 5 Profile 管理示例", "en": "Figure 5 Profile management with a sample list"}},
+        {"file": "phone-button-editor-action.png", "caption": {"zh": "图 6 按钮动作编辑区域", "en": "Figure 6 Button action editor"}}
+      ]
+    },
+    {
+      "id": "exchange",
+      "title": {"zh": "4 图标与配置交换", "en": "4 Icons and Profile Exchange"},
+      "intro": {"zh": "按钮可以显示文字、内置语义图标或自定义 PNG、JPEG、WebP 图片。Shortcut Community 提供内置离线配置包，以及通过剪贴板或文件交换 Profile 的入口。", "en": "Buttons can display text, built-in semantic icons or custom PNG, JPEG and WebP images. Shortcut Community provides curated offline packs and Profile exchange through the clipboard or files."},
+      "steps": [
+        {"zh": "在按钮编辑器打开图标选择器，按关键词搜索或按分类筛选；可使用最近选择、收藏、预览、尺寸和颜色设置。自定义图片会复制到应用私有目录，可调整适配、缩放、位置和文字覆盖。", "en": "Open the icon picker from the button editor. Search by keyword or filter by category; use recent choices, favorites, preview, size and color controls. Custom images are copied into app-private storage and support fit, scale, position and label overlays."},
+        {"zh": "打开 Settings → Shortcut Community，选择内置包，或粘贴／导入 Profile JSON。查看预览并确认替换槽位；未确认前不会覆盖当前配置。", "en": "Open Settings → Shortcut Community, choose a built-in pack or paste/import Profile JSON. Review it and confirm the replacement slot before changing the current configuration."},
+        {"zh": "使用 Copy active Profile JSON 复制配置，或导出 .smartkeys.json 文件。私有图片文件不会因复制 JSON 自动传到另一台设备；跨设备恢复图片可使用包含图片的账户备份。", "en": "Use Copy active Profile JSON or export a .smartkeys.json file. Copying JSON does not transfer private image files to another device; use an account backup that includes images when needed."}
+      ],
+      "paragraphs": [{"zh": "图片缺失时显示明确占位符，需重新导入或从备份恢复。这里的离线配置包与在线使用排行榜是不同功能；使用离线包不需要部署社区服务器。", "en": "Missing images display a placeholder and must be reimported or restored. Offline packs and online usage rankings are separate features; offline packs do not require a community server."}],
+      "imageHeight": 4.45,
+      "images": [
+        {"file": "phone-icon-picker.png", "caption": {"zh": "图 7 内置图标选择器", "en": "Figure 7 Built-in icon picker"}},
+        {"file": "phone-shortcut-community.png", "caption": {"zh": "图 8 离线配置包与 JSON 交换", "en": "Figure 8 Offline packs and JSON exchange"}}
+      ]
+    },
+    {
+      "id": "workspaces",
+      "title": {"zh": "5 应用与工作区", "en": "5 Apps and Workspaces"},
+      "intro": {"zh": "Desktop 同步后，手机显示电脑检测到的受支持应用和托管工作区。General 保留为蓝牙 HID 的通用入口；未连接 Desktop 时可继续使用本地 Profile。", "en": "With Desktop synchronized, mobile shows supported apps detected on the computer and their managed workspaces. General remains the common HID surface. Local profiles remain available when Desktop is offline."},
+      "paragraphs": [
+        {"zh": "Apps 是应用启动网格。点击 Chrome、Codex 或 VSCode 等图标会向 Desktop 发出受管理的应用标识，并进入相应快捷键布局。只显示 Desktop 检测到的应用，不代表支持列表内的软件已全部安装。", "en": "Apps is a launch grid. Tapping an app such as Chrome, Codex or VSCode sends its managed ID to Desktop and opens its shortcut layout. Only detected apps appear; the supported catalog does not imply that every app is installed."},
+        {"zh": "Chrome 默认布局覆盖标签页、导航、剪贴板、书签、地址栏、刷新和媒体等常用操作。Codex 布局包含 Focus Input、Dictation、新建／前后聊天、发送、搜索、终端、Review 和侧栏等入口；实际效果依赖目标软件版本和焦点。", "en": "Chrome’s default layout covers tabs, navigation, clipboard, bookmarks, address, refresh and media. Codex includes Focus Input, Dictation, chat navigation, Send, search, Terminal, Review and Sidebar. Results depend on the target app version and focus."},
+        {"zh": "电脑前台应用变化可触发工作区切换；普通同步刷新不会持续抢回你手动选择的页面。macOS 将 ChatGPT 映射为 Codex / ChatGPT 工作区，检测到时也可提供 Music 和 Finder。", "en": "A foreground-app change can switch the workspace. Routine synchronization does not repeatedly override a manual tab choice. On macOS, ChatGPT maps to the Codex / ChatGPT workspace; Music and Finder are also available when detected."}
+      ],
+      "imageHeight": 2.7,
+      "images": [
+        {"file": "manual-apps.png", "caption": {"zh": "图 9 Apps 网格，使用示例电脑应用清单", "en": "Figure 9 Apps grid using a sample computer app list"}},
+        {"file": "manual-codex.png", "caption": {"zh": "图 10 Desktop 托管的 Codex 工作区", "en": "Figure 10 Desktop-managed Codex workspace"}}
+      ]
+    },
+    {
+      "id": "desktop",
+      "title": {"zh": "6 Desktop 设置", "en": "6 Desktop Settings"},
+      "intro": {"zh": "LumiaKey Desktop 启动后位于系统托盘或菜单栏。选择 Open Settings 打开窗口；关闭设置窗口会隐藏应用，选择 Quit 才退出。", "en": "LumiaKey Desktop starts in the system tray or menu bar. Choose Open Settings to show its window. Closing settings hides the app; choose Quit to exit."},
+      "paragraphs": [
+        {"zh": "General 管理 Enable Apps Sync、Auto Launch Apps、Sync Icons 及当前连接手机／配置；Bluetooth 查看连接提示；Apps 检测支持的已安装程序并刷新运行状态；Profiles 管理桌面配置；About 显示产品信息。", "en": "General manages Enable Apps Sync, Auto Launch Apps, Sync Icons and the current phone/profile. Bluetooth shows connection guidance. Apps detects supported installed programs and refreshes running state. Profiles manages Desktop profiles; About shows product information."},
+        {"zh": "截图处于未连接示例状态。若实际使用时出现 Sync service unavailable，先检查 Desktop 服务、系统防火墙及局域网连接；No phone connected 表示当前没有手机会话。", "en": "The screenshot shows a disconnected example. If Sync service unavailable appears during use, check the Desktop service, firewall and LAN connection. No phone connected means there is no active phone session."}
+      ],
+      "imageHeight": 4.65,
+      "images": [{"file": "desktop-general-normal.png", "caption": {"zh": "图 11 Desktop General 设置，示例未启动同步服务", "en": "Figure 11 Desktop General settings with synchronization inactive in the test"}}]
+    },
+    {
+      "id": "desktop-shortcuts",
+      "title": {"zh": "7 Desktop 快捷键管理", "en": "7 Desktop Shortcut Management"},
+      "intro": {"zh": "桌面应用布局由 Desktop 管理并同步至手机。编辑前选择正确的应用与布局，保存后使用目标程序核对效果。", "en": "Desktop owns app layouts and synchronizes them to mobile. Select the correct app and layout before editing, then verify the saved result in the target app."},
+      "paragraphs": [
+        {"zh": "在 Shortcut Layout 选择应用和按钮，编辑 Button Name、Icon、Target Type、Shortcut、Launch App、URL 和 Description。当前可执行 Keyboard Shortcut、Launch Application 和 Open URL；Macro 与 Script 暂不可执行。", "en": "In Shortcut Layout, select an app and button, then edit Button Name, Icon, Target Type, Shortcut, Launch App, URL and Description. Keyboard Shortcut, Launch Application and Open URL are executable; Macro and Script are currently unavailable."},
+        {"zh": "桌面布局 JSON 可导入／导出，导出会省略可执行文件数据。导入只替换已知布局并验证应用标识；运行路径由 Desktop 管理。手机发送按钮标识，由 Desktop 解析实际动作。", "en": "Desktop layout JSON can be imported and exported; exports omit executable data. Imports replace known layouts and validate app IDs. Desktop owns executable paths and resolves the button IDs sent by mobile into actions."}
+      ],
+      "imageHeight": 4.65,
+      "images": [{"file": "desktop-shortcut-layout-normal.png", "caption": {"zh": "图 12 Desktop 快捷键布局管理", "en": "Figure 12 Desktop shortcut layout management"}}]
+    },
+    {
+      "id": "mobile-dictation",
+      "title": {"zh": "8 手机本地快速听写", "en": "8 Mobile Local Quick Dictation"},
+      "intro": {"zh": "Local quick dictation 使用手机麦克风和本地模型识别语音。它与 Application voice input 波形按钮不同，后者只触发目标应用自己的语音快捷键。首次使用需要阅读并确认说明。", "en": "Local quick dictation uses the phone’s microphone and a local recognition model. It differs from the Application voice input waveform button, which triggers the target app’s own voice shortcut. First use requires acknowledging the explanation."},
+      "steps": [
+        {"zh": "长按麦克风打开设置，选择输出、模型和识别语言，显式下载或导入模型。默认 SenseVoice Small 约 229 MiB；可选 Cohere Transcribe 约 2.7 GiB。模型通过大小和 SHA-256 校验后才可使用。", "en": "Long-press the microphone to choose output, model and recognition language, then explicitly download or import a model. SenseVoice Small is the default at about 229 MiB; Cohere Transcribe is an optional model at about 2.7 GiB. Files must pass size and SHA-256 checks."},
+        {"zh": "Bluetooth 输出仅支持英文，电脑应使用英文输入状态和美式键盘布局。中文或其他多语言文字必须选择 LumiaKey Desktop，并连接同一局域网内的 Desktop；不会自动切回蓝牙。", "en": "Bluetooth output is English-only and requires English input with a US keyboard layout on the computer. For Chinese or other multilingual text, choose LumiaKey Desktop and connect it on the same LAN. There is no automatic Bluetooth fallback."},
+        {"zh": "模型与输出就绪后点按麦克风快速开始。听写时仍可使用快捷键；角落控制显示音量和 Stop。点击 Stop 停止；返回、进入设置、离开前台或连接变更会取消收音。", "en": "When the model and output are ready, tap the microphone to start. Shortcuts remain usable while listening; the corner control shows the level and Stop. Stop ends capture. Back, settings, leaving the foreground or connection changes cancel capture."}
+      ],
+      "paragraphs": [{"zh": "音频只保留在有界内存，不写入录音文件或历史，也不发送给 Desktop。Desktop 模式仅发送最终识别文字。截图中的就绪与收音状态为测试示例，不代表实际模型下载或识别效果。", "en": "Audio stays in bounded memory and is neither saved as a recording/history nor sent to Desktop. Desktop mode sends finalized text only. Ready/listening screenshots use test states rather than evidence of a model download or recognition quality."}],
+      "imageHeight": 4.25,
+      "images": [
+        {"file": "phone-dictation-desktop-multilingual-ready.png", "caption": {"zh": "图 13 多语言 Desktop 输出设置示例", "en": "Figure 13 Multilingual Desktop output setup example"}},
+        {"file": "phone-dictation-live-chip-portrait.png", "caption": {"zh": "图 14 听写中的紧凑停止与音量控制", "en": "Figure 14 Compact stop and level control while listening"}}
+      ]
+    },
+    {
+      "id": "desktop-dictation",
+      "title": {"zh": "9 Desktop 本地听写", "en": "9 Desktop Local Dictation"},
+      "intro": {"zh": "Desktop 也可独立使用电脑麦克风和本地模型听写，不需要手机收音。它将最终文字插入当前受支持的外部应用。", "en": "Desktop can independently dictate with the computer’s microphone and a local model, without capturing audio on the phone. Final text is inserted into a supported focused external app."},
+      "steps": [
+        {"zh": "从托盘打开设置，进入 Local Dictation。选择模型和识别语言，下载或导入模型；下载不会自动开始。允许 Windows 隐私设置或 macOS 提示中的麦克风权限。", "en": "Open settings from the tray and select Local Dictation. Choose a model and recognition language, then download or import the model. Downloads are explicit. Allow microphone access in Windows privacy settings or the macOS prompt."},
+        {"zh": "在目标应用中聚焦可输入的文本框。默认全局快捷键 Ctrl+Shift+Space 启动或停止听写，也可用托盘 Start/Stop Local Dictation；快捷键可在设置里修改。", "en": "Focus an editable field in the target app. The default global shortcut Ctrl+Shift+Space starts or stops dictation; the tray offers Start/Stop Local Dictation too. Change the shortcut in settings if needed."},
+        {"zh": "macOS 文字插入还需要辅助功能与事件发送权限。若焦点不安全、目标改变或试图向 Desktop 自己的窗口输入，插入可能被拒绝；重新聚焦目标后显式重试。", "en": "On macOS, text insertion also needs Accessibility and event-posting permission. Insertion can be rejected if focus is unsafe, the target changes or Desktop’s own window is targeted. Refocus the intended app and retry explicitly."}
+      ],
+      "paragraphs": [{"zh": "麦克风音频在本机内存处理，不保存录音。模型就绪不等于麦克风权限、识别准确率或目标程序文字插入已验证；首次使用应在可丢弃文本中确认输出。", "en": "Microphone audio is processed in local memory without saving recordings. Model readiness does not verify microphone permission, recognition accuracy or insertion into a particular app. Check the first output in disposable text."}],
+      "imageHeight": 4.65,
+      "images": [{"file": "desktop-local-dictation-normal.png", "caption": {"zh": "图 15 Desktop 本地听写，模型和语言为测试状态", "en": "Figure 15 Desktop local dictation with sample model and language state"}}]
+    },
+    {
+      "id": "usage",
+      "title": {"zh": "10 使用统计与可选社区分享", "en": "10 Usage and Optional Community Sharing"},
+      "intro": {"zh": "Settings → Usage Dashboard 记录非空快捷键的点击尝试与时间。连接失败的点击也会计数，因此点击量并非成功执行次数。详细历史默认只留在本机。", "en": "Settings → Usage Dashboard records nonempty shortcut click attempts and times. Failed or disconnected attempts also count, so clicks are not successful executions. Detailed history stays on the device by default."},
+      "paragraphs": [
+        {"zh": "可选择 All time、Today、7 days、30 days 或自定义日期，按使用量或最近使用排序，并查看逐次历史。Smart sort 需要主动触发，按累计使用量重排当前本地 Profile；不会重排 Desktop 托管布局。Clear local usage 需要确认。", "en": "Choose All time, Today, 7 days, 30 days or custom dates. Sort by usage or latest use and inspect individual events. Smart sort explicitly reorders the current local Profile by lifetime counts; it does not reorder Desktop-managed layouts. Clear local usage requires confirmation."},
+        {"zh": "首次 Community setup 可选职业与电脑熟练度，也可 Skip for now。保存只保留本地默认值，不开启分享。Settings → Community sharing setup 可重新设置；每批提交仍需预览与确认。", "en": "First-launch Community setup offers optional profession and computer-proficiency tags, or Skip for now. Saving stores local defaults without enabling sharing. Reopen it through Settings → Community sharing setup. Every submission still requires preview and confirmation."},
+        {"zh": "可选上报仅包含认可的标准类别与聚合数量，不上传自定义名称、具体时间或原始命令。公开排行榜无需分享即可查看，但需要已配置服务；至少三批贡献才展示类别，贡献批次不等于人数。撤回线上贡献与清除本机历史分别操作。可选服务还提供中文浏览器 Dashboard，展示公开数量、比例图和表格，支持时间、职业及熟练度筛选。", "en": "Optional submissions contain recognized standard categories and aggregate counts, excluding custom labels, exact times and raw commands. Rankings need a configured service but do not require sharing. Categories require three contribution batches; batches are not people. Online withdrawal and local clearing are separate. The optional service also offers a Chinese browser Dashboard with counts, a proportional chart, a table and period/profession/proficiency filters."}
+      ],
+      "imageHeight": 4.25,
+      "images": [
+        {"file": "usage-dashboard-phone.png", "caption": {"zh": "图 16 使用统计，数量与时间为示例", "en": "Figure 16 Usage dashboard with sample counts and times"}},
+        {"file": "community-setup-phone.png", "caption": {"zh": "图 17 可跳过的社区资料设置", "en": "Figure 17 Optional community setup"}}
+      ]
+    },
+    {
+      "id": "backup-installers",
+      "title": {"zh": "11 备份恢复与桌面安装包", "en": "11 Backup Restore and Desktop Installers"},
+      "intro": {"zh": "账户备份与社区分享相互独立。当前设置入口名称为 Google Drive backup，实际通过 Google 登录访问独立备份服务，并不把文件写到你的 Google Drive。", "en": "Account backup is separate from community sharing. The settings entry currently says Google Drive backup, but Google sign-in accesses a separate backup service rather than storing files in your Google Drive."},
+      "paragraphs": [
+        {"zh": "配置服务和 Google OAuth 后，可登录、选择应用设置、指定 Profile 以及可选自定义图片，预览后手动备份。每个账户保存最新一份快照。恢复时选择项目并确认，Profile 总数仍受四个槽位限制，恢复不会执行快捷键。", "en": "Once the service and Google OAuth are configured, sign in, select app settings, Profiles and optional custom images, preview and back up manually. Each account stores its latest snapshot. Restore selected items within the four-profile limit; restoration does not execute shortcuts."},
+        {"zh": "配对信息、点击历史、分享回执和登录凭据不进入备份。退出登录不会删除线上快照，需单独选择 Delete online backup。当前未配置构建会显示不可用提示，不提供模拟登录或虚构备份。", "en": "Pairing, click history, sharing receipts and login credentials are excluded. Signing out does not delete the online snapshot; use Delete online backup separately. An unconfigured build shows an unavailable message rather than simulated sign-in or fabricated backups."},
+        {"zh": "Android 的 Settings → Desktop installers 显示正式发布时内置的 Windows 安装器和 macOS DMG，可查看版本、来源提交、大小与 SHA-256 并验证。开发构建可能没有安装包。", "en": "On Android, Settings → Desktop installers shows the Windows installer and macOS DMG bundled in a release. Review version, source commit, size and SHA-256, and verify them. Development builds may contain no installers."},
+        {"zh": "导出时在系统目录选择器选择共享存储位置，不覆盖已有文件；保存完成后校验大小与哈希。通过 USB 选择文件传输 MTP，将文件复制到电脑后安装；手机不会变成 USB 大容量磁盘。", "en": "Choose a shared-storage destination in the system folder picker. Export does not overwrite an existing file and verifies stored size and hash. Use USB file transfer/MTP to copy the package to the computer, then install it; the phone does not become a USB mass-storage drive."}
+      ],
+      "imageHeight": 4.25,
+      "images": [
+        {"file": "usage-account-backup-oauth-unconfigured.png", "caption": {"zh": "图 18 备份未配置提示", "en": "Figure 18 Backup configuration message"}},
+        {"file": "phone-installer-release-top.png", "caption": {"zh": "图 19 安装包展示示例，包信息为测试数据", "en": "Figure 19 Installer catalog with test package metadata"}}
+      ]
+    },
+    {
+      "id": "help",
+      "title": {"zh": "12 显示设置与常见问题", "en": "12 Display Settings and Troubleshooting"},
+      "intro": {"zh": "Settings 可选择 Landscape、Portrait 或 Auto，默认横屏；还可设置充电亮度及保持唤醒行为。进行听写时保持唤醒，停止或取消听写后释放相应唤醒状态。", "en": "Settings offers Landscape, Portrait and Auto, with landscape as the default, plus charging-brightness and wake options. Dictation keeps the screen awake while active and releases its wake state when stopped or cancelled."},
+      "paragraphs": [
+        {"zh": "电脑未出现：先在系统蓝牙中完成配对，再点 Refresh。确认手机硬件支持 HID Device；模拟器无法验证真实蓝牙输入。Desktop 未连接时，确认同一局域网、应用仍在托盘运行、系统防火墙允许通信；iPad 可重新复制连接码。", "en": "Computer missing: pair it in system Bluetooth settings, then select Refresh. Confirm that the phone supports HID Device; an emulator cannot verify physical Bluetooth input. For Desktop issues, check the same LAN, tray process and firewall permissions; recopy the code on iPad."},
+        {"zh": "按键效果不对：检查目标程序焦点、Shortcut Platform 和按钮动作。多语言听写无法输出：选择 LumiaKey Desktop 并确认连接；蓝牙听写只接受英文与美式键盘布局。不要将识别语言误认为输出通道。", "en": "Unexpected shortcut: check target focus, Shortcut Platform and the button action. For multilingual dictation, choose LumiaKey Desktop and verify its connection. Bluetooth dictation requires English with a US keyboard layout. Recognition language and output route are separate choices."},
+        {"zh": "模型或麦克风不可用：先完成模型校验，再检查系统麦克风权限；删除模型前会停止收音。排行榜或备份提示未配置：属于发布服务配置条件，仍可使用本机统计与离线配置，不代表有已上线服务。", "en": "Model or microphone unavailable: complete model verification and check system microphone permission. Deleting a model stops capture first. Unconfigured rankings or backup need release-service configuration; local statistics and offline profiles remain usable."},
+        {"zh": "验证范围：本说明书核对了源码与界面测试渲染。Android 真机蓝牙输入、实际识别准确率与延迟、Windows/macOS 权限和文字注入、iPad 签名安装与设备操作仍需在对应设备验收。", "en": "Verification scope: this guide checks source behavior and rendered UI tests. Physical Android Bluetooth input, speech accuracy/latency, Windows/macOS permissions and insertion, and signed iPad installation and use still require acceptance on the relevant devices."}
+      ],
+      "imageHeight": 3.6,
+      "images": [{"file": "phone-settings-orientation-charging.png", "caption": {"zh": "图 20 屏幕方向与充电显示设置", "en": "Figure 20 Screen orientation and charging display settings"}}]
+    }
+  ]
+}

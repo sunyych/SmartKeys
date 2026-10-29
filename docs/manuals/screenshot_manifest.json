@@ -1,0 +1,310 @@
+{
+  "schemaVersion": 1,
+  "reviewedProductCommit": "2469b3af6b2abad6a5ff5a8976d83e33f8ae0a04",
+  "documentationDate": "2026-10-28",
+  "screenshotType": "Flutter widget render with fixture hardware and network services; not a physical-device capture",
+  "textFont": "Microsoft YaHei via SMARTKEYS_SCREENSHOT_FONT",
+  "symbolFont": "Segoe UI Symbol",
+  "images": [
+    {
+      "file": "manual-home-landscape.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "1ddf53f0094eae20f972be0408ce59a14c32c987cbf0f3cbe4766be9ede723ed",
+      "capture": {
+        "id": "manual-home-landscape",
+        "title": "LumiaKey home · landscape",
+        "platform": "Android widget",
+        "orientation": "landscape",
+        "width": 844,
+        "height": 390,
+        "fileName": "phone/manual-home-landscape.png",
+        "notes": "Real bundled General Profile at 844×390; test fakes only supply device services. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-bluetooth.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "0ac3f196b34b4fc82b559239e92a95094f7383be632282783315ac2dc2b62bda",
+      "capture": {
+        "id": "phone-bluetooth",
+        "title": "Bluetooth HID connection",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-bluetooth.png",
+        "notes": "Actual modal sheet over a phone route; disconnected pairing guidance. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-settings.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "e1651217527dc7465e0286bd309d922c7c72c2abe57c43904ff0890bb3d8bf68",
+      "capture": {
+        "id": "phone-settings",
+        "title": "Settings",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-settings.png",
+        "notes": "Settings list, including connection, orientation, and charging controls. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "manual-tablet-board.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "2346d32449705cf0171fccbd6629ccf1e4114f7aad347a8a7fc9e87077ef9901",
+      "capture": {
+        "id": "manual-tablet-board",
+        "title": "LumiaKey shortcut board · 40 keys",
+        "platform": "Android widget",
+        "orientation": "landscape",
+        "width": 1024,
+        "height": 768,
+        "fileName": "phone/manual-tablet-board.png",
+        "notes": "Real bundled General Profile at 1024×768 with the configured 40-key board. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-profile-management.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "b0bf795440d2c2c1ef38f2f5b036fbbdbba430410f75623c4acb2cb03840036e",
+      "capture": {
+        "id": "phone-profile-management",
+        "title": "Profiles",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-profile-management.png",
+        "notes": "Profile list with active/default state and edit actions. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-button-editor-action.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "f9da393d0e34d7da9d2a85621b9bfc3a8b8addb12301e933ae0061b4a678cd12",
+      "capture": {
+        "id": "phone-button-editor-action",
+        "title": "Edit button · action controls",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-button-editor-action.png",
+        "notes": "Scrolled button editor exposing action type, key/value, and modifiers. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-icon-picker.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "32919fadda7e7a2093786f84832f830efffde07112b60d0aabfcf80831ba7774",
+      "capture": {
+        "id": "phone-icon-picker",
+        "title": "Built-in icon picker",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-icon-picker.png",
+        "notes": "Search and category controls with the semantic icon catalog. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-shortcut-community.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "c00818e8203461eccd60d03a03b6ecf8cea835113518898daf9808d4d6c32498",
+      "capture": {
+        "id": "phone-shortcut-community",
+        "title": "Shortcut Community",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-shortcut-community.png",
+        "notes": "Community packs and profile JSON import/export actions. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "manual-apps.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "8d23ffa77996d509e4ad0da29e7d87763437a8150b1a40ebe38a37868f62a05f",
+      "capture": {
+        "id": "manual-apps",
+        "title": "Desktop Apps workspace",
+        "platform": "Android widget",
+        "orientation": "landscape",
+        "width": 844,
+        "height": 390,
+        "fileName": "phone/manual-apps.png",
+        "notes": "Real HomeScreen with a fixture manifest advertising installed Codex, Chrome, and VSCode; no live Desktop connection. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "manual-codex.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "388de7bcd565eb985a3ce522b902dbdaf545e7aed77798598c9a97a52a3e6020",
+      "capture": {
+        "id": "manual-codex",
+        "title": "Codex workspace",
+        "platform": "Android widget",
+        "orientation": "landscape",
+        "width": 844,
+        "height": 390,
+        "fileName": "phone/manual-codex.png",
+        "notes": "Real HomeScreen and bundled Codex shortcut layout with a fixture Desktop manifest; actions are not sent to a host. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "desktop-general-normal.png",
+      "sourceTest": "desktop_companion/test/ui_screenshot_test.dart",
+      "sha256": "1b0de74aadbf0d81831821ce4b241da5c3cc5ac20868572133cc5cd696220eea",
+      "capture": {
+        "id": "desktop-general-normal",
+        "title": "General settings · normal",
+        "platform": "Windows widget",
+        "orientation": "landscape",
+        "width": 1080,
+        "height": 760,
+        "fileName": "desktop/desktop-general-normal.png",
+        "notes": "Windows Flutter widget render of the General desktop settings section at normal width. Sync service is deliberately offline in this isolated screenshot fixture."
+      }
+    },
+    {
+      "file": "desktop-shortcut-layout-normal.png",
+      "sourceTest": "desktop_companion/test/ui_screenshot_test.dart",
+      "sha256": "107676890415c6fe444ef84dcb605744713447c353c79c5efc3e6ec3bef67661",
+      "capture": {
+        "id": "desktop-shortcut-layout-normal",
+        "title": "Shortcut Layout settings · normal",
+        "platform": "Windows widget",
+        "orientation": "landscape",
+        "width": 1080,
+        "height": 760,
+        "fileName": "desktop/desktop-shortcut-layout-normal.png",
+        "notes": "Windows Flutter widget render of the Shortcut Layout desktop settings section at normal width."
+      }
+    },
+    {
+      "file": "phone-dictation-desktop-multilingual-ready.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "05d2ebf0e96899019bc1a9dad843a569cae7c3d828c75855ebe5cd43bc0172d4",
+      "capture": {
+        "id": "phone-dictation-desktop-multilingual-ready",
+        "title": "Local dictation · multilingual companion ready",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-dictation-desktop-multilingual-ready.png",
+        "notes": "A capable PC companion enables text-only LAN delivery from phone-local ASR while Bluetooth remains disconnected. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-dictation-live-chip-portrait.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "c89735755a2098eaa5d0b9ef3a4ef489159ebec92d57e9a31c385d48901dab1a",
+      "capture": {
+        "id": "phone-dictation-live-chip-portrait",
+        "title": "Local dictation · compact live chip in portrait",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-dictation-live-chip-portrait.png",
+        "notes": "The stop and microphone-level chip occupies the quick-dictation corner while the home keyboard remains available. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "desktop-local-dictation-normal.png",
+      "sourceTest": "desktop_companion/test/ui_screenshot_test.dart",
+      "sha256": "efdf386b7c51056440e2f9b1066e229c04f9994573fcf5dfbe6d4fe0ea5e77dc",
+      "capture": {
+        "id": "desktop-local-dictation-normal",
+        "title": "Local Dictation settings · normal",
+        "platform": "Windows widget",
+        "orientation": "landscape",
+        "width": 1080,
+        "height": 760,
+        "fileName": "desktop/desktop-local-dictation-normal.png",
+        "notes": "Windows Flutter widget render of the Local Dictation desktop settings section at normal width."
+      }
+    },
+    {
+      "file": "usage-dashboard-phone.png",
+      "sourceTest": "test/usage_dashboard_screen_test.dart",
+      "sha256": "05da29b1b54cb56715b68aa97fa3e2cd99b6489ff40c5bbca2f581cea13f1585",
+      "capture": {
+        "id": "usage-dashboard-phone",
+        "title": "Shortcut usage Dashboard · phone",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/usage-dashboard-phone.png",
+        "notes": "Local ranking, date filters, community opt-in controls, and persistent bottom actions. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "community-setup-phone.png",
+      "sourceTest": "test/community_setup_screen_test.dart",
+      "sha256": "c756a9a7d38eb30a2476add1a9942d8026c317fd60be333ecb6330d07a592016",
+      "capture": {
+        "id": "community-setup-phone",
+        "title": "Community setup",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 390,
+        "height": 844,
+        "fileName": "phone/community-setup-phone.png",
+        "notes": "Optional local profession and computer proficiency setup. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "usage-account-backup-oauth-unconfigured.png",
+      "sourceTest": "test/usage_dashboard_screen_test.dart",
+      "sha256": "ef50b4e5f3364d5d7179765fbadae4172b38b82774592534f17b63caa6961e61",
+      "capture": {
+        "id": "usage-account-backup-oauth-unconfigured",
+        "title": "Google account backup · OAuth not configured",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/usage-account-backup-oauth-unconfigured.png",
+        "notes": "Backup controls remain disabled until OAuth configuration exists. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-installer-release-top.png",
+      "sourceTest": "test/desktop_installer_screenshot_test.dart",
+      "sha256": "390e4a58d925e5143535ca60c53223d6c42e69d69e0cd5e8eb7c50b1078cf86a",
+      "capture": {
+        "id": "phone-installer-release-top",
+        "title": "Desktop installers · release and Windows package",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 390,
+        "height": 844,
+        "fileName": "phone/phone-installer-release-top.png",
+        "notes": "Top of the real installer page, including release metadata, local export guidance, and Windows package. Uses deterministic metadata fixtures. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "phone-settings-orientation-charging.png",
+      "sourceTest": "test/ui_screenshot_test.dart",
+      "sha256": "859d98ef7dc0346bc8e747cf9f1820045d5e9db1f9bb4b2d6db980f6450cff74",
+      "capture": {
+        "id": "phone-settings-orientation-charging",
+        "title": "Settings · orientation and charging display",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/phone-settings-orientation-charging.png",
+        "notes": "Scrolled middle section showing screen orientation controls. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    }
+  ]
+}

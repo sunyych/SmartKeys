@@ -7,6 +7,12 @@ the same local Wi-Fi network for supported keyboard shortcuts and text output.
 The optional Desktop app in `desktop_companion/` runs on Windows and macOS and
 also provides local dictation and managed application shortcuts.
 
+Illustrated functional guides for the mobile/tablet app and LumiaKey Desktop:
+[中文说明书](docs/manuals/LumiaKey_Functional_Guide_ZH.docx) ·
+[English guide](docs/manuals/LumiaKey_Functional_Guide_EN.docx).
+[Screenshot provenance and rebuilding](docs/manuals/README.md) describe the
+widget-rendered screenshots and the device-validation boundary.
+
 ## Tablet controls and iPad
 
 Automatic layout uses the current window size: LumiaKey shows the shortcut
