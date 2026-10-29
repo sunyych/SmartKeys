@@ -5,8 +5,11 @@ at version **1.3.0+5**. The reviewed product source is commit
 `2469b3af6b2abad6a5ff5a8976d83e33f8ae0a04`, dated for this documentation review on
 2026-10-28 in America/Los_Angeles.
 
-- [中文软件功能说明书](LumiaKey_Functional_Guide_ZH.docx)
-- [English functional guide](LumiaKey_Functional_Guide_EN.docx)
+- PDF reader editions: [中文软件功能说明书](LumiaKey_Functional_Guide_ZH.pdf) ·
+  [English functional guide](LumiaKey_Functional_Guide_EN.pdf)
+- Editable DOCX sources: [中文 DOCX](LumiaKey_Functional_Guide_ZH.docx) ·
+  [English DOCX](LumiaKey_Functional_Guide_EN.docx). DOCX files are for
+  editing; the PDFs are the reading and delivery versions.
 
 Each guide includes 20 screenshots and the same functional coverage. The app UI
 is primarily English; the Chinese guide retains visible English control names.
@@ -61,9 +64,10 @@ python scripts/build_feature_manuals.py
 ```
 
 Use the Codex bundled Python when working in Codex. The script writes the two
-DOCX files in this folder. Render both documents and inspect **every page**
-after any content, image, font or layout change. Rendering outputs and test logs
-belong in ignored `build/manual-qa/`, not in the deliverable directory.
+editable DOCX source files in this folder. Export reader PDFs from those DOCX
+files, then inspect **every page** after any content, image, font or layout
+change. Rendering outputs and test logs belong in ignored `build/manual-qa/`,
+not in the deliverable directory.
 
 ## Source references
 

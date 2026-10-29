@@ -8,8 +8,9 @@ The optional Desktop app in `desktop_companion/` runs on Windows and macOS and
 also provides local dictation and managed application shortcuts.
 
 Illustrated functional guides for the mobile/tablet app and LumiaKey Desktop:
-[中文说明书](docs/manuals/LumiaKey_Functional_Guide_ZH.docx) ·
-[English guide](docs/manuals/LumiaKey_Functional_Guide_EN.docx).
+[中文说明书（PDF 阅读版）](docs/manuals/LumiaKey_Functional_Guide_ZH.pdf) ·
+[English guide (PDF reader edition)](docs/manuals/LumiaKey_Functional_Guide_EN.pdf).
+Editable DOCX sources are available in [`docs/manuals/`](docs/manuals/README.md).
 [Screenshot provenance and rebuilding](docs/manuals/README.md) describe the
 widget-rendered screenshots and the device-validation boundary.
 

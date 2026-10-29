@@ -54,3 +54,16 @@ It does not validate physical Android HID transmission, real-model speech
 accuracy or latency, operating-system microphone/injection permissions,
 target-app input, production community/OAuth deployment, or signed iPad
 installation and physical-device use.
+
+## PDF delivery update — 2026-10-29
+
+The bilingual content and reviewed product source are unchanged. Each PDF
+reader edition is 13 pages and contains 20 screenshots. The PDFs were produced
+from the previous final Microsoft Word render; the DOCX files remain the
+editable sources, while the PDFs are the reading and delivery versions.
+
+Both delivered PDFs were re-rasterized with bundled Poppler at 120 dpi. SHA-256
+comparisons confirmed that all 26 pages exactly match the existing, visually
+reviewed `final-ZH` and `final-EN` page renders. PDF structure checks also
+confirmed 13 pages and 20 embedded images per document. The product source
+audit date above remains 2026-10-28.
