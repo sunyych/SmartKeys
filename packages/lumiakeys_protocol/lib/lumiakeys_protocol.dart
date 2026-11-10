@@ -7,6 +7,7 @@ enum RemoteTargetType {
   openUrl,
   macro,
   script,
+  system,
 }
 
 enum RemoteLayoutKind { keyboard, application, codex }
@@ -603,6 +604,179 @@ class DesktopManifest {
         shortcut('codex.sidebar', 'Sidebar', 'menu_open', ['PRIMARY', 'B']),
       ],
     );
+    RemoteShortcutLayout vibeLayout(
+      String id,
+      String name,
+      List<RemoteShortcutButton> buttons,
+    ) => RemoteShortcutLayout(
+      id: 'vibe.$id',
+      name: 'Vibe Coding · $name',
+      kind: RemoteLayoutKind.application,
+      buttons: buttons,
+    );
+    RemoteShortcutButton vibeShortcut(
+      String app,
+      String action,
+      String name,
+      String icon,
+      List<String> keys,
+    ) => shortcut('vibe.$app.$action', name, icon, keys);
+    RemoteShortcutButton deleteToStartButton(
+      String app,
+    ) => RemoteShortcutButton(
+      id: 'vibe.$app.deleteToStart',
+      name: 'Delete to Line Start',
+      icon: 'format_clear',
+      targetType: RemoteTargetType.keyboardShortcut,
+      shortcut: ['SHIFT', 'HOME'],
+      description:
+          'Select to the start of the current line, then delete. Desktop checks focus before both steps.',
+    );
+    RemoteShortcutButton vibeSystemButton(
+      String app,
+      String action,
+      String name,
+      String icon,
+    ) => RemoteShortcutButton(
+      id: 'vibe.$app.$action',
+      name: name,
+      icon: icon,
+      targetType: RemoteTargetType.system,
+      target: action,
+      description:
+          'Desktop built-in $name action. Fixed action; no custom text or script.',
+    );
+    List<RemoteShortcutButton> vibeEditingButtons(String app) => [
+      vibeShortcut(app, 'send', 'Send', 'send', ['ENTER']),
+      vibeShortcut(
+        app,
+        'alternateSend',
+        'Alternate Send (app-defined)',
+        'keyboard_return',
+        ['PRIMARY', 'ENTER'],
+      ),
+      vibeShortcut(app, 'backspace', 'Backspace', 'backspace', ['BACKSPACE']),
+      deleteToStartButton(app),
+      vibeShortcut(app, 'copy', 'Copy', 'copy', ['PRIMARY', 'C']),
+      vibeShortcut(app, 'paste', 'Paste', 'paste', ['PRIMARY', 'V']),
+      vibeShortcut(app, 'cut', 'Cut', 'content_cut', ['PRIMARY', 'X']),
+      vibeSystemButton(app, 'comma', 'Insert Comma', 'text_fields'),
+      vibeSystemButton(app, 'period', 'Insert Period', 'text_fields'),
+      vibeSystemButton(app, 'exclamation', 'Insert Exclamation', 'text_fields'),
+      vibeSystemButton(app, 'quote', 'Insert Quotation Marks', 'format_quote'),
+      vibeSystemButton(app, 'screenshot', 'Screenshot Selection', 'screenshot'),
+    ];
+    final vibeCodex = vibeLayout('codex', 'Codex', [
+      vibeShortcut('codex', 'project', 'Open Project', 'folder_open', [
+        'PRIMARY',
+        'ALT',
+        'SHIFT',
+        'O',
+      ]),
+      vibeShortcut('codex', 'newChat', 'New Chat', 'add', ['PRIMARY', 'N']),
+      vibeShortcut(
+        'codex',
+        'focusInput',
+        'Focus Input',
+        'center_focus_strong',
+        ['ESC'],
+      ),
+      vibeShortcut('codex', 'previousChat', 'Previous Chat', 'arrow_back', [
+        'PRIMARY',
+        'SHIFT',
+        '[',
+      ]),
+      vibeShortcut('codex', 'nextChat', 'Next Chat', 'arrow_forward', [
+        'PRIMARY',
+        'SHIFT',
+        ']',
+      ]),
+      vibeShortcut('codex', 'terminal', 'Toggle Terminal', 'terminal', [
+        'CTRL',
+        '`',
+      ]),
+      vibeShortcut('codex', 'review', 'Review', 'difference', [
+        'CTRL',
+        'SHIFT',
+        'G',
+      ]),
+      ...vibeEditingButtons('codex'),
+    ]);
+    final vibeClaude = vibeLayout('claude', 'Claude', [
+      RemoteShortcutButton(
+        id: 'vibe.claude.project',
+        name: 'Choose Project',
+        icon: 'folder_open',
+        targetType: RemoteTargetType.keyboardShortcut,
+        shortcut: ['PRIMARY', 'N'],
+        description:
+            'Start a new Claude Code session, then choose its project folder.',
+      ),
+      vibeShortcut('claude', 'stop', 'Stop Response', 'stop', ['ESC']),
+      vibeShortcut('claude', 'diff', 'Show Diff', 'difference', [
+        'PRIMARY',
+        'SHIFT',
+        'D',
+      ]),
+      vibeShortcut('claude', 'terminal', 'Toggle Terminal', 'terminal', [
+        'CTRL',
+        '`',
+      ]),
+      vibeShortcut('claude', 'shortcuts', 'Keyboard Shortcuts', 'keyboard', [
+        'PRIMARY',
+        '/',
+      ]),
+      vibeShortcut(
+        'claude',
+        'previousSession',
+        'Previous Session',
+        'arrow_back',
+        ['CTRL', 'SHIFT', 'TAB'],
+      ),
+      vibeShortcut('claude', 'nextSession', 'Next Session', 'arrow_forward', [
+        'CTRL',
+        'TAB',
+      ]),
+      ...vibeEditingButtons('claude'),
+    ]);
+    final vibeCursor = vibeLayout('cursor', 'Cursor', [
+      RemoteShortcutButton(
+        id: 'vibe.cursor.project',
+        name: 'Choose Project',
+        icon: 'folder_open',
+        targetType: RemoteTargetType.keyboardShortcut,
+        shortcut: ['PRIMARY', 'SHIFT', 'P'],
+        description:
+            'Opens Cursor Command Palette. Choose File: Open Folder or File: Open Recent; for direct opening, bind a dedicated Cursor shortcut and edit this button in Desktop > Shortcut Layout > Vibe Coding.',
+      ),
+      vibeShortcut('cursor', 'newChat', 'New Chat', 'add', ['PRIMARY', 'R']),
+      vibeShortcut('cursor', 'cancel', 'Cancel', 'cancel', [
+        'PRIMARY',
+        'SHIFT',
+        'BACKSPACE',
+      ]),
+      vibeShortcut('cursor', 'addContext', 'Add Selection to Chat', 'add_box', [
+        'PRIMARY',
+        'SHIFT',
+        'L',
+      ]),
+      vibeShortcut('cursor', 'previousChat', 'Previous Chat', 'arrow_back', [
+        'PRIMARY',
+        '[',
+      ]),
+      vibeShortcut('cursor', 'nextChat', 'Next Chat', 'arrow_forward', [
+        'PRIMARY',
+        ']',
+      ]),
+      vibeShortcut(
+        'cursor',
+        'agentPanel',
+        'Toggle Agent Panel',
+        'view_sidebar',
+        ['PRIMARY', 'I'],
+      ),
+      ...vibeEditingButtons('cursor'),
+    ]);
     final appleMusic = appLayout('app.appleMusic', 'Apple Music', [
       shortcut('appleMusic.playPause', 'Play / Pause', 'play', ['SPACE']),
       shortcut('appleMusic.next', 'Next Song', 'skip_next', [
@@ -663,6 +837,9 @@ class DesktopManifest {
         illustrator,
         solidworks,
         codex,
+        vibeCodex,
+        vibeClaude,
+        vibeCursor,
         appleMusic,
         finder,
       ],
@@ -673,6 +850,20 @@ class DesktopManifest {
           icon: 'code',
           executable: 'Codex',
           layoutId: 'codex',
+        ),
+        RemoteApplication(
+          id: 'claude',
+          name: 'Claude Code',
+          icon: 'terminal',
+          executable: 'Claude',
+          layoutId: 'vibe.claude',
+        ),
+        RemoteApplication(
+          id: 'cursor',
+          name: 'Cursor',
+          icon: 'code',
+          executable: 'Cursor',
+          layoutId: 'vibe.cursor',
         ),
         RemoteApplication(
           id: 'photoshop',

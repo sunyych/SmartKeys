@@ -536,10 +536,12 @@ void main() {
       expect(phoneMic.top, greaterThanOrEqualTo(0));
       await tester.tap(micFinder);
       await tester.pumpAndSettle();
-      capture.emitPcm();
+      // The audio meter deliberately ignores updates during its first 40 ms.
+      // Let that startup window pass before sending this test's only PCM frame.
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 60)),
       );
+      capture.emitPcm();
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('stop-dictation-compact')),

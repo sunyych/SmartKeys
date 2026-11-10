@@ -116,11 +116,23 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
           final detectedByName = installedWindowsApps.any(
             (installed) => candidates.any(installed.contains),
           );
+          final chatGptDetected =
+              app.id == 'codex' &&
+              (installedWindowsApps.any(
+                    (installed) => installed.contains('chatgpt'),
+                  ) ||
+                  runningProcesses.any(
+                    (process) => process.contains('chatgpt'),
+                  ));
           return app.copyWith(
             detected: result.exitCode == 0 || detectedByName || running,
             running: running,
             foreground: foreground,
-            executable: result.exitCode == 0 ? resolved : app.executable,
+            executable: chatGptDetected
+                ? 'ChatGPT.exe'
+                : result.exitCode == 0
+                ? resolved
+                : app.executable,
           );
         }
         final result = await Process.run('which', [app.executable]);
@@ -168,7 +180,15 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
       if (app.id == 'codex') 'codex.exe',
       if (app.id == 'codex') 'chatgpt',
       if (app.id == 'codex') 'chatgpt.app',
+      if (app.id == 'claude') 'claude.exe',
+      if (app.id == 'cursor') 'cursor.exe',
     ];
+  }
+
+  /// A fresh foreground probe used immediately before Vibe shortcut injection.
+  Future<bool> isForeground(RemoteApplication app) async {
+    final foreground = await _foregroundProcessName();
+    return foreground != null && _candidateNames(app).any(foreground.contains);
   }
 
   static Future<List<String>> _windowsApplicationNames() async {
@@ -214,10 +234,12 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        r'Add-Type @"'
+        r'Add-Type -TypeDefinition @"'
+            '\n'
             r'using System; using System.Runtime.InteropServices; '
             r'public static class LK { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); '
             r'[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'
+            '\n'
             r'"@; $id = 0; [LK]::GetWindowThreadProcessId([LK]::GetForegroundWindow(), [ref]$id) | Out-Null; '
             r'if ($id -ne 0) { (Get-Process -Id $id).ProcessName }',
       ]);
@@ -249,7 +271,12 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     'photoshop' => 'Photoshop.exe',
     'illustrator' => 'Illustrator.exe',
     'premiere' => 'Adobe Premiere Pro.exe',
-    'codex' => 'Codex.exe',
+    'codex' =>
+      app.executable.toLowerCase().contains('chatgpt')
+          ? 'ChatGPT.exe'
+          : 'Codex.exe',
+    'claude' => 'Claude.exe',
+    'cursor' => 'Cursor.exe',
     _ => app.executable,
   };
 }
@@ -259,12 +286,15 @@ class DesktopController extends ChangeNotifier {
     required this.store,
     DesktopActions? actions,
     ApplicationDiscovery? discovery,
+    this.foregroundProbe,
   }) : actions = actions ?? DesktopActions(),
        discovery = discovery ?? const PlatformApplicationDiscovery();
 
   final DesktopConfigStore store;
   final DesktopActions actions;
   final ApplicationDiscovery discovery;
+  final Future<bool> Function(RemoteApplication)? foregroundProbe;
+  bool _vibeActionRunning = false;
 
   DesktopManifest _manifest = DesktopManifest.starter();
   bool _loading = true;
@@ -538,17 +568,80 @@ class DesktopController extends ChangeNotifier {
       case RemoteActionKind.button:
         final button = _manifest.buttonById(request.buttonId ?? '');
         if (button == null) throw const FormatException('Unknown button');
-        await actions.executeButton(button, _manifest);
+        final vibeAppId = _vibeAppForButton(button.id);
+        if (vibeAppId != null) {
+          await _serializeVibe(() async {
+            final app = _manifest.applicationById(vibeAppId);
+            if (app == null) throw StateError('Vibe app is not configured');
+            if (!button.enabled) throw StateError('Shortcut is disabled');
+            if (button.targetType != RemoteTargetType.keyboardShortcut &&
+                button.targetType != RemoteTargetType.system) {
+              throw const FormatException(
+                'Vibe actions must use a Desktop-approved shortcut or system action',
+              );
+            }
+            if ((button.targetType == RemoteTargetType.keyboardShortcut ||
+                    button.targetType == RemoteTargetType.system) &&
+                !await _isLiveForeground(app)) {
+              throw StateError(
+                'Switch to ${app.name} before using this shortcut',
+              );
+            }
+            await actions.executeButton(
+              button,
+              _manifest,
+              expectedAppId: vibeAppId,
+            );
+          });
+        } else {
+          await actions.executeButton(button, _manifest);
+        }
       case RemoteActionKind.launchApplication:
         if (!_manifest.settings.autoLaunchApps) {
           throw StateError('Automatic app launching is disabled');
         }
         final app = _manifest.applicationById(request.applicationId ?? '');
         if (app == null) throw const FormatException('Unknown application');
-        await actions.launchApplication(app.executable);
+        if (_isVibeApp(app.id)) {
+          await _serializeVibe(() => actions.activateApplication(app));
+        } else {
+          await actions.launchApplication(app.executable);
+        }
       case RemoteActionKind.switchProfile:
         await switchProfile(request.profileId ?? '');
     }
+  }
+
+  Future<bool> _isLiveForeground(RemoteApplication app) async {
+    final probe = foregroundProbe;
+    if (probe != null) return probe(app);
+    final source = discovery;
+    if (source is PlatformApplicationDiscovery) {
+      return source.isForeground(app);
+    }
+    return false;
+  }
+
+  Future<void> _serializeVibe(Future<void> Function() action) async {
+    if (_vibeActionRunning) {
+      throw StateError('Another Vibe action is in progress');
+    }
+    _vibeActionRunning = true;
+    try {
+      await action();
+    } finally {
+      _vibeActionRunning = false;
+    }
+  }
+
+  static bool _isVibeApp(String id) =>
+      id == 'codex' || id == 'claude' || id == 'cursor';
+
+  static String? _vibeAppForButton(String id) {
+    for (final app in const ['codex', 'claude', 'cursor']) {
+      if (id.startsWith('vibe.$app.')) return app;
+    }
+    return null;
   }
 
   Future<void> executeLegacy(Map<String, Object?> request) =>

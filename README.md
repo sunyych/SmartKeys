@@ -267,6 +267,36 @@ every run. Synced Android actions contain only Desktop-owned identifiers;
 legacy validated `launch`, `shortcut`, and `voiceInput` requests remain
 compatible. Arbitrary shell requests are rejected.
 
+## Vibe Coding
+
+Open **Vibe Coding** before **Custom** on Home. When Desktop sync hides Custom,
+Vibe Coding appears next to **General**. It sits outside the four profile slots.
+Connect to a current LumiaKey Desktop on the same network and enable
+**Apps Sync** in Desktop → General. With **Auto Launch Apps** enabled, tapping
+an installed app in the panel launches or focuses it. Desktop checks the
+active app before running its shortcuts. Select the **Code** tab in Claude
+Desktop to use the Claude controls.
+
+Project actions and shortcut bindings are managed on Desktop under
+**Shortcut Layout → Vibe Coding**. An unassigned project action points to that
+setup screen. Codex opens its project chooser. Claude starts a new Code session
+where you can choose a project folder. Cursor opens the command palette for
+**File: Open Folder** or **File: Open Recent**. The phone sends the managed
+action ID, and you choose the project in the desktop app.
+
+The panel provides separate Start and Stop controls for the phone's existing
+Local Dictation session. Start is available when the selected Vibe app is the
+foreground app. It uses the same local model, recognition language and output
+mode as the regular dictation control.
+
+Tap **Send** for Enter or hold it for the alternate Enter chord. Tap
+**Backspace** to delete, hold it to repeat, or right-click it to delete to the
+start of the line. The dedicated **Delete to Line Start** button also works on
+touch screens. Copy, Paste, Cut, Chinese punctuation and **Screenshot Selection**
+round out the editing controls. Screenshot Selection opens the operating
+system's region picker. The editing gestures are based on
+[Vibe Shortcut](https://github.com/Scott-Du/vibe-shortcut).
+
 ## Local quick dictation
 
 Android's **Local quick dictation** microphone button is separate from the

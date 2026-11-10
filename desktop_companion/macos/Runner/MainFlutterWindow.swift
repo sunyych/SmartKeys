@@ -6,6 +6,7 @@ import Carbon
 class MainFlutterWindow: NSWindow {
   private var systemControlChannel: FlutterMethodChannel?
   private var dictationChannel: FlutterMethodChannel?
+  private var vibeSystemChannel: FlutterMethodChannel?
   private var hotKey: EventHotKeyRef?
   private var eventHandler: EventHandlerRef?
 
@@ -87,6 +88,22 @@ class MainFlutterWindow: NSWindow {
     }
     dictationChannel = dictation
 
+    let vibeSystem = FlutterMethodChannel(
+      name: "lumiakeys/vibe_system_tools",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    vibeSystem.setMethodCallHandler { call, result in
+      guard call.method == "execute",
+            let arguments = call.arguments as? [String: Any],
+            let appId = arguments["appId"] as? String,
+            let actionId = arguments["actionId"] as? String else {
+        result(["status": "rejected", "reason": "invalid_arguments"])
+        return
+      }
+      result(Self.executeVibeSystemAction(appId: appId, actionId: actionId))
+    }
+    vibeSystemChannel = vibeSystem
+
     super.awakeFromNib()
   }
 
@@ -135,13 +152,20 @@ class MainFlutterWindow: NSWindow {
     let element: AXUIElement
   }
 
-  private static func insertText(_ text: String) -> [String: String] {
+  private static func insertText(
+    _ text: String,
+    expectedAppId: String? = nil,
+    moveCaretLeft: Bool = false
+  ) -> [String: String] {
     guard AXIsProcessTrusted() else { return ["status": "rejected", "reason": "accessibility_permission_missing"] }
     guard CGPreflightPostEventAccess() else { return ["status": "rejected", "reason": "event_permission_missing"] }
     guard !text.isEmpty, text.utf16.count <= 8000 else { return ["status": "rejected", "reason": text.isEmpty ? "empty_text" : "text_too_long"] }
     guard text.unicodeScalars.allSatisfy({ !isUnsupportedControl($0) }) else { return ["status": "rejected", "reason": "unsupported_control_character"] }
     guard let target = focusedTarget(), target.pid != ProcessInfo.processInfo.processIdentifier else {
       return ["status": "rejected", "reason": "own_or_invalid_foreground"]
+    }
+    if let expectedAppId, !matchesVibeApp(expectedAppId, pid: target.pid) {
+      return ["status": "rejected", "reason": "wrong_foreground_app"]
     }
     guard !hasHeldModifier() else { return ["status": "rejected", "reason": "held_modifier"] }
     let units = Array(text.utf16)
@@ -150,6 +174,7 @@ class MainFlutterWindow: NSWindow {
     while offset < units.count {
       guard AXIsProcessTrusted(), CGPreflightPostEventAccess(),
             focusedTarget().map({ sameTarget(target, $0) }) == true,
+            expectedAppId.map({ matchesVibeApp($0, pid: target.pid) }) ?? true,
             !hasHeldModifier() else {
         return ["status": posted ? "partial" : "rejected", "reason": "target_or_permission_changed"]
       }
@@ -178,7 +203,78 @@ class MainFlutterWindow: NSWindow {
     guard focusedTarget().map({ sameTarget(target, $0) }) == true else {
       return ["status": "partial", "reason": "foreground_window_changed"]
     }
+    if moveCaretLeft {
+      guard expectedAppId.map({ matchesVibeApp($0, pid: target.pid) }) ?? true,
+            !hasHeldModifier(),
+            let down = CGEvent(keyboardEventSource: nil, virtualKey: UInt16(kVK_LeftArrow), keyDown: true),
+            let up = CGEvent(keyboardEventSource: nil, virtualKey: UInt16(kVK_LeftArrow), keyDown: false) else {
+        return ["status": "partial", "reason": "caret_move_rejected"]
+      }
+      down.flags = []
+      up.flags = []
+      down.post(tap: .cghidEventTap)
+      up.post(tap: .cghidEventTap)
+    }
     return ["status": "submitted", "reason": "all_events_posted"]
+  }
+
+  private static func executeVibeSystemAction(appId: String, actionId: String) -> [String: String] {
+    guard ["codex", "claude", "cursor"].contains(appId) else {
+      return ["status": "rejected", "reason": "unsupported_app"]
+    }
+    guard ["comma", "period", "exclamation", "quote", "screenshot"].contains(actionId) else {
+      return ["status": "rejected", "reason": "unsupported_action"]
+    }
+    guard let target = focusedTarget(), target.pid != ProcessInfo.processInfo.processIdentifier else {
+      return ["status": "rejected", "reason": "own_or_invalid_foreground"]
+    }
+    guard matchesVibeApp(appId, pid: target.pid) else {
+      return ["status": "rejected", "reason": "wrong_foreground_app"]
+    }
+    guard !hasHeldModifier() else {
+      return ["status": "rejected", "reason": "held_modifier"]
+    }
+    if actionId == "screenshot" {
+      guard focusedTarget().map({ sameTarget(target, $0) }) == true,
+            matchesVibeApp(appId, pid: target.pid),
+            !hasHeldModifier() else {
+        return ["status": "rejected", "reason": "foreground_changed_or_modifier_held"]
+      }
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+      process.arguments = ["-i", "-c"]
+      do {
+        try process.run()
+        return ["status": "launched"]
+      } catch {
+        return ["status": "rejected", "reason": "screenshot_launch_failed"]
+      }
+    }
+    let text: String
+    switch actionId {
+    case "comma": text = "，"
+    case "period": text = "。"
+    case "exclamation": text = "！"
+    default: text = "「」"
+    }
+    let insertion = insertText(text, expectedAppId: appId, moveCaretLeft: actionId == "quote")
+    if insertion["status"] == "submitted" {
+      return ["status": "delivered"]
+    }
+    return insertion
+  }
+
+  private static func matchesVibeApp(_ expectedAppId: String, pid: pid_t) -> Bool {
+    guard let app = NSRunningApplication(processIdentifier: pid),
+          let executable = app.executableURL?.deletingPathExtension().lastPathComponent.lowercased() else {
+      return false
+    }
+    switch expectedAppId {
+    case "codex": return executable == "codex" || executable == "chatgpt"
+    case "claude": return executable == "claude"
+    case "cursor": return executable == "cursor"
+    default: return false
+    }
   }
 
   private static func focusedTarget() -> FocusedTarget? {

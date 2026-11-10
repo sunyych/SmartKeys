@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_companion/main.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -18,6 +20,40 @@ void main() {
       'codex.focusInput',
     );
     expect(transfer.encode(manifest), isNot(contains('"executable"')));
+    expect(
+      layouts.firstWhere((layout) => layout.id == 'vibe.claude').buttons,
+      hasLength(19),
+    );
+  });
+
+  test('shortcut JSON keeps bounded layouts and fixed system actions', () {
+    final manifest = DesktopManifest.starter();
+    final layouts = manifest.layouts.map((layout) {
+      if (layout.id != 'keyboard') return layout.toJson();
+      final json = layout.toJson();
+      json['buttons'] = [
+        ...layout.buttons,
+        ...List.generate(16, (i) => layout.buttons[i % layout.buttons.length]),
+      ].map((button) => button.toJson()).toList();
+      return json;
+    }).toList();
+    final oversized = jsonEncode({
+      'format': DesktopShortcutTransferService.format,
+      'version': DesktopShortcutTransferService.version,
+      'layouts': layouts,
+    });
+    expect(() => transfer.decode(oversized), throwsFormatException);
+
+    final encoded =
+        jsonDecode(transfer.encode(manifest)) as Map<String, Object?>;
+    final vibeCodex = (encoded['layouts'] as List)
+        .cast<Map<String, Object?>>()
+        .firstWhere((layout) => layout['id'] == 'vibe.codex');
+    final comma = (vibeCodex['buttons'] as List)
+        .cast<Map<String, Object?>>()
+        .firstWhere((button) => button['id'] == 'vibe.codex.comma');
+    comma['target'] = 'arbitrary-script';
+    expect(() => transfer.decode(jsonEncode(encoded)), throwsFormatException);
   });
 
   test(

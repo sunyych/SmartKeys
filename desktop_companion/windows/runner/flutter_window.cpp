@@ -1,10 +1,15 @@
 #include "flutter_window.h"
 
+#include <algorithm>
 #include <optional>
 #include <string>
+#include <cwctype>
 #include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
+#include <shellapi.h>
+
+#pragma comment(lib, "Shell32.lib")
 
 namespace {
 using EncodableValue = flutter::EncodableValue;
@@ -26,7 +31,36 @@ bool ModifierHeld() {
          (GetAsyncKeyState(VK_RWIN) & 0x8000);
 }
 
-EncodableValue InsertUnicode(const EncodableMap* arguments) {
+std::wstring ForegroundExecutable(HWND target) {
+  DWORD process = 0;
+  GetWindowThreadProcessId(target, &process);
+  if (!process) return {};
+  HANDLE handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process);
+  if (!handle) return {};
+  std::wstring path(32768, L'\0');
+  DWORD length = static_cast<DWORD>(path.size());
+  const BOOL queried = QueryFullProcessImageNameW(handle, 0, path.data(), &length);
+  CloseHandle(handle);
+  if (!queried || length == 0) return {};
+  path.resize(length);
+  const size_t slash = path.find_last_of(L"\\/");
+  std::wstring name = slash == std::wstring::npos ? path : path.substr(slash + 1);
+  std::transform(name.begin(), name.end(), name.begin(),
+                 [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+  return name;
+}
+
+bool ForegroundMatchesVibeApp(HWND target, const std::string& app_id) {
+  const std::wstring executable = ForegroundExecutable(target);
+  if (app_id == "codex") return executable == L"codex.exe" || executable == L"chatgpt.exe";
+  if (app_id == "claude") return executable == L"claude.exe";
+  if (app_id == "cursor") return executable == L"cursor.exe";
+  return false;
+}
+
+EncodableValue InsertUnicode(const EncodableMap* arguments,
+                             const std::string* expected_app_id = nullptr,
+                             bool move_caret_left = false) {
   if (!arguments) return DictationResult("rejected", "invalid_arguments");
   const auto found = arguments->find(EncodableValue("text"));
   if (found == arguments->end()) return DictationResult("rejected", "missing_text");
@@ -60,9 +94,11 @@ EncodableValue InsertUnicode(const EncodableMap* arguments) {
   GetWindowThreadProcessId(target, &process);
   if (!process || process == GetCurrentProcessId())
     return DictationResult("rejected", "own_or_invalid_foreground");
+  if (expected_app_id && !ForegroundMatchesVibeApp(target, *expected_app_id))
+    return DictationResult("rejected", "wrong_foreground_app");
   if (ModifierHeld()) return DictationResult("rejected", "modifier_key_held");
   std::vector<INPUT> inputs;
-  inputs.reserve(wide.size() * 2);
+  inputs.reserve(wide.size() * 2 + (move_caret_left ? 2 : 0));
   for (const wchar_t c : wide) {
     INPUT down{};
     down.type = INPUT_KEYBOARD;
@@ -73,13 +109,63 @@ EncodableValue InsertUnicode(const EncodableMap* arguments) {
     up.ki.dwFlags |= KEYEVENTF_KEYUP;
     inputs.push_back(up);
   }
-  if (GetForegroundWindow() != target || ModifierHeld())
+  if (move_caret_left) {
+    INPUT left_down{};
+    left_down.type = INPUT_KEYBOARD;
+    left_down.ki.wVk = VK_LEFT;
+    inputs.push_back(left_down);
+    INPUT left_up = left_down;
+    left_up.ki.dwFlags = KEYEVENTF_KEYUP;
+    inputs.push_back(left_up);
+  }
+  if (GetForegroundWindow() != target || ModifierHeld() ||
+      (expected_app_id && !ForegroundMatchesVibeApp(target, *expected_app_id)))
     return DictationResult("rejected", "foreground_changed_or_modifier_held");
   const UINT requested = static_cast<UINT>(inputs.size());
   const UINT inserted = SendInput(requested, inputs.data(), sizeof(INPUT));
   if (inserted == requested) return DictationResult("delivered");
   return inserted == 0 ? DictationResult("rejected", "input_injection_blocked")
                        : DictationResult("partial", "partial_injection");
+}
+
+EncodableValue ExecuteVibeSystemAction(const EncodableMap* arguments) {
+  if (!arguments) return DictationResult("rejected", "invalid_arguments");
+  const auto app = arguments->find(EncodableValue("appId"));
+  const auto action = arguments->find(EncodableValue("actionId"));
+  if (app == arguments->end() || action == arguments->end())
+    return DictationResult("rejected", "missing_action_arguments");
+  const auto* app_id = std::get_if<std::string>(&app->second);
+  const auto* action_id = std::get_if<std::string>(&action->second);
+  if (!app_id || !action_id) return DictationResult("rejected", "invalid_action_arguments");
+  if (*app_id != "codex" && *app_id != "claude" && *app_id != "cursor")
+    return DictationResult("rejected", "unsupported_app");
+  if (*action_id != "comma" && *action_id != "period" &&
+      *action_id != "exclamation" && *action_id != "quote" &&
+      *action_id != "screenshot")
+    return DictationResult("rejected", "unsupported_action");
+  const HWND target = GetForegroundWindow();
+  if (!target || IsIconic(target)) return DictationResult("rejected", "no_foreground_window");
+  if (!ForegroundMatchesVibeApp(target, *app_id))
+    return DictationResult("rejected", "wrong_foreground_app");
+  if (ModifierHeld()) return DictationResult("rejected", "modifier_key_held");
+  if (*action_id == "screenshot") {
+    if (GetForegroundWindow() != target ||
+        !ForegroundMatchesVibeApp(target, *app_id) || ModifierHeld())
+      return DictationResult("rejected", "foreground_changed_or_modifier_held");
+    const auto launched = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, L"open", L"ms-screenclip:", nullptr, nullptr,
+                      SW_SHOWNORMAL));
+    if (launched <= 32)
+      return DictationResult("rejected", "screenshot_launch_failed");
+    return DictationResult("launched");
+  }
+  const char* text = *action_id == "comma" ? "\xEF\xBC\x8C" :
+                     *action_id == "period" ? "\xE3\x80\x82" :
+                     *action_id == "exclamation" ? "\xEF\xBC\x81" :
+                     "\xE3\x80\x8C\xE3\x80\x8D";
+  EncodableMap insert_arguments;
+  insert_arguments[EncodableValue("text")] = EncodableValue(text);
+  return InsertUnicode(&insert_arguments, app_id, *action_id == "quote");
 }
 }  // namespace
 
@@ -155,6 +241,20 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  vibe_system_channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "lumiakeys/vibe_system_tools",
+      &flutter::StandardMethodCodec::GetInstance());
+  vibe_system_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
+        if (call.method_name() == "execute") {
+          const auto* args = std::get_if<EncodableMap>(call.arguments());
+          result->Success(ExecuteVibeSystemAction(args));
+        } else {
+          result->NotImplemented();
+        }
+      });
+
   // LumiaKey starts as a tray application. Dart shows the settings window
   // only after the user selects Open Settings from the tray menu.
   flutter_controller_->ForceRedraw();
@@ -166,6 +266,7 @@ void FlutterWindow::OnDestroy() {
   if (toggle_hotkey_registered_) UnregisterHotKey(GetHandle(), kToggleHotkeyId);
   toggle_hotkey_registered_ = false;
   dictation_channel_.reset();
+  vibe_system_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

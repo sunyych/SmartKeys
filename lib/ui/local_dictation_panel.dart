@@ -51,16 +51,46 @@ class LocalDictationEntryButton extends StatefulWidget {
 
   @override
   State<LocalDictationEntryButton> createState() =>
-      _LocalDictationEntryButtonState();
+      LocalDictationEntryButtonState();
 }
 
-class _LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
+/// Public controls for the existing local dictation entry.
+///
+/// Vibe Coding can invoke quick dictation through the same consent flow and
+/// mounted panel as the regular dictation button.
+class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
     with RouteAware {
+  final GlobalKey<LocalDictationPanelState> _panelKey =
+      GlobalKey<LocalDictationPanelState>();
   LocalHistoryEntry? _historyEntry;
   PageRoute<dynamic>? _route;
   bool _opening = false;
   bool _entryVisible = false;
   bool _autoStartCurrentEntry = true;
+  int _openGeneration = 0;
+
+  bool get isEntryOpen => _entryVisible;
+  bool get isOpening => _opening;
+  bool get isDictationRunning =>
+      _panelKey.currentState?.isSessionInProgress ?? false;
+
+  Future<void> startQuickDictation() => _open(autoStart: true);
+
+  /// Stops the current quick session, or invalidates consent/start work that
+  /// has not reached microphone capture yet.
+  Future<void> stopQuickDictation() async {
+    ++_openGeneration;
+    if (_entryVisible) {
+      _autoStartCurrentEntry = false;
+      if (mounted) setState(() {});
+    }
+    final panel = _panelKey.currentState;
+    if (panel == null) {
+      if (_entryVisible) _dismissEntry();
+      return;
+    }
+    await panel.stopQuickDictation();
+  }
 
   @override
   void didChangeDependencies() {
@@ -82,9 +112,11 @@ class _LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
   Future<void> _open({required bool autoStart}) async {
     if (_opening || _entryVisible) return;
     _opening = true;
+    final generation = ++_openGeneration;
     try {
       if (!await ensureDictationEntryExplained(context) ||
           !mounted ||
+          generation != _openGeneration ||
           (_route != null && !_route!.isCurrent)) {
         return;
       }
@@ -169,6 +201,7 @@ class _LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
           child: LocalDictationPanel(
             hid: widget.hid,
             companion: widget.companion,
+            key: _panelKey,
             autoStartWhenReady: _autoStartCurrentEntry,
             autoCollapseWhileListening: true,
             modelManager: widget.modelManager,
@@ -216,10 +249,10 @@ class LocalDictationPanel extends StatefulWidget {
   final Future<void> Function()? disableWakeLock;
 
   @override
-  State<LocalDictationPanel> createState() => _LocalDictationPanelState();
+  State<LocalDictationPanel> createState() => LocalDictationPanelState();
 }
 
-class _LocalDictationPanelState extends State<LocalDictationPanel>
+class LocalDictationPanelState extends State<LocalDictationPanel>
     with WidgetsBindingObserver {
   late final ModelManager _models;
   late final LocalDictationController _dictation;
@@ -251,6 +284,31 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
   String? _desktopSessionId;
   int _desktopSequence = 0;
   String? _panelError;
+  bool _autoStartCancelled = false;
+  Future<bool>? _stopFuture;
+  Future<Object?>? _cancelFuture;
+
+  bool get isSessionInProgress => _sessionInProgress;
+
+  Future<void> stopQuickDictation() async {
+    _autoStartCancelled = true;
+    if (_stopping) {
+      final succeeded = await _stop();
+      if (mounted && succeeded) widget.onDismiss?.call();
+      return;
+    }
+    if (_starting || _dictation.busy && !_dictation.listening) {
+      final cleanupError = await _cancelCurrentSession();
+      if (cleanupError == null && mounted) widget.onDismiss?.call();
+      return;
+    }
+    if (_dictation.listening || _dictation.busy) {
+      final succeeded = await _stop();
+      if (mounted && succeeded) widget.onDismiss?.call();
+      return;
+    }
+    if (mounted) widget.onDismiss?.call();
+  }
 
   bool get _hidReady {
     final host = widget.hid.activeHost.value;
@@ -383,7 +441,11 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
         _modelReady = ready;
         _initialized = true;
       });
-      if (widget.autoStartWhenReady && ready && _outputReady && _appResumed) {
+      if (widget.autoStartWhenReady &&
+          !_autoStartCancelled &&
+          ready &&
+          _outputReady &&
+          _appResumed) {
         unawaited(_start());
       }
     } catch (error) {
@@ -662,8 +724,19 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     await _cancelCurrentSession();
   }
 
-  Future<void> _cancelCurrentSession() async {
-    if (_cancelling) return;
+  Future<Object?> _cancelCurrentSession() {
+    final current = _cancelFuture;
+    if (current != null) return current;
+    late final Future<Object?> operation;
+    operation = _performCancelCurrentSession().whenComplete(() {
+      if (identical(_cancelFuture, operation)) _cancelFuture = null;
+    });
+    _cancelFuture = operation;
+    return operation;
+  }
+
+  Future<Object?> _performCancelCurrentSession() async {
+    if (_cancelling) return null;
     ++_startGeneration;
     _starting = false;
     _cancelling = true;
@@ -672,8 +745,9 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
     _desktopSessionId = null;
     _sessionHost = null;
     _sessionCompanionHost = null;
+    Object? cleanupError;
     try {
-      final cleanupError = await _cleanupSession(
+      cleanupError = await _cleanupSession(
         session: session,
         cancelCapture: true,
       );
@@ -684,6 +758,7 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       _cancelling = false;
       if (mounted) setState(() {});
     }
+    return cleanupError;
   }
 
   Future<Object?> _cleanupSession({
@@ -830,7 +905,18 @@ class _LocalDictationPanelState extends State<LocalDictationPanel>
       _sessionOutputValid &&
       generation == _startGeneration;
 
-  Future<bool> _stop() async {
+  Future<bool> _stop() {
+    final current = _stopFuture;
+    if (current != null) return current;
+    late final Future<bool> operation;
+    operation = _performStop().whenComplete(() {
+      if (identical(_stopFuture, operation)) _stopFuture = null;
+    });
+    _stopFuture = operation;
+    return operation;
+  }
+
+  Future<bool> _performStop() async {
     var succeeded = true;
     _stopping = true;
     try {

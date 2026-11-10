@@ -99,7 +99,12 @@ void main() {
       expect(call.$2.join(' '), contains('['));
     } else if (Platform.isWindows) {
       expect(call.$1, 'powershell.exe');
-      expect(call.$2.last, '%{LEFT}');
+      expect(call.$2[3], contains(r'param($approvedProcesses, $keyStroke)'));
+      expect(
+        call.$2[3],
+        contains(r'[System.Windows.Forms.SendKeys]::SendWait($keyStroke)'),
+      );
+      expect(call.$2.last, "'%{LEFT}'");
     } else {
       expect(call.$1, 'xdotool');
       expect(call.$2, ['key', 'ALT+LEFT']);

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
+import 'vibe_system_tools.dart';
+
 abstract interface class MacSystemControl {
   Future<void> setDark(bool enabled);
 }
@@ -40,12 +42,15 @@ class DesktopActions {
   DesktopActions({
     DesktopProcessRunner? runner,
     MacSystemControl? macSystemControl,
+    VibeSystemTools? vibeSystemTools,
   }) : runner = runner ?? const SystemDesktopProcessRunner(),
        macSystemControl =
-           macSystemControl ?? const MethodChannelMacSystemControl();
+           macSystemControl ?? const MethodChannelMacSystemControl(),
+       vibeSystemTools = vibeSystemTools ?? VibeSystemTools();
 
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;
+  final VibeSystemTools vibeSystemTools;
   int? _windowsBrightnessBeforeDark;
   Future<bool> Function()? confirmVoiceInputFirstUse;
 
@@ -89,12 +94,21 @@ class DesktopActions {
 
   Future<void> executeButton(
     RemoteShortcutButton button,
-    DesktopManifest manifest,
-  ) async {
+    DesktopManifest manifest, {
+    String? expectedAppId,
+  }) async {
     if (!button.enabled) throw StateError('Shortcut is disabled');
+    if (button.id.startsWith('vibe.') && button.id.endsWith('.deleteToStart')) {
+      if (expectedAppId == null ||
+          !button.id.startsWith('vibe.$expectedAppId.')) {
+        throw StateError('Delete action requires its matching Vibe app');
+      }
+      await _deleteToLineStart(expectedAppId);
+      return;
+    }
     switch (button.targetType) {
       case RemoteTargetType.keyboardShortcut:
-        await sendShortcut(button.shortcut);
+        await sendShortcut(button.shortcut, expectedAppId: expectedAppId);
       case RemoteTargetType.launchApplication:
         if (!manifest.settings.autoLaunchApps) {
           throw StateError('Automatic app launching is disabled');
@@ -112,7 +126,22 @@ class DesktopActions {
         throw UnsupportedError(
           'Macro and Script are reserved for a future release',
         );
+      case RemoteTargetType.system:
+        final appId = expectedAppId;
+        final actionId = button.target;
+        if (appId == null || button.id != 'vibe.$appId.$actionId') {
+          throw const FormatException('invalid fixed Vibe action');
+        }
+        await vibeSystemTools.execute(appId, _requiredText(actionId));
     }
+  }
+
+  Future<void> _deleteToLineStart(String appId) async {
+    final selection = Platform.isMacOS
+        ? const ['COMMAND', 'SHIFT', 'LEFT']
+        : const ['SHIFT', 'HOME'];
+    await sendShortcut(selection, expectedAppId: appId);
+    await sendShortcut(const ['BACKSPACE'], expectedAppId: appId);
   }
 
   Future<void> executeLegacy(Map<String, Object?> action) async {
@@ -154,6 +183,104 @@ class DesktopActions {
     }
     await runner.start(validated, const []);
   }
+
+  /// Activates only the three Desktop-owned Vibe application IDs. The phone
+  /// supplies the ID; executable names and platform launch arguments stay here.
+  Future<void> activateApplication(RemoteApplication app) async {
+    final executable = switch (app.id) {
+      'codex' => 'Codex',
+      'claude' => 'Claude',
+      'cursor' => 'Cursor',
+      _ => throw const FormatException('unsupported Vibe application'),
+    };
+    final chatGpt =
+        app.id == 'codex' && app.executable.toLowerCase().contains('chatgpt');
+    final targetName = chatGpt ? 'ChatGPT' : executable;
+    if (Platform.isMacOS) {
+      await _run('/usr/bin/open', ['-a', targetName]);
+      if (chatGpt) {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        await sendShortcut(const ['CTRL', '3'], expectedAppId: 'chatgpt');
+      }
+      return;
+    }
+    if (Platform.isWindows) {
+      final processName = switch (app.id) {
+        'codex' => chatGpt ? 'ChatGPT' : 'Codex',
+        'claude' => 'Claude',
+        'cursor' => 'Cursor',
+        _ => throw const FormatException('unsupported Vibe application'),
+      };
+      final exe = '$processName.exe';
+      final startAppName = chatGpt ? 'ChatGPT' : executable;
+      final activationScript = r'''
+& {
+  param($processName, $exe, $startAppName)
+  $p = Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  if (-not $p) {
+    $app = Get-StartApps | Where-Object { $_.Name -eq $startAppName } | Select-Object -First 1
+    if ($app -and $app.AppID) { Start-Process explorer.exe -ArgumentList ("shell:AppsFolder\" + $app.AppID) }
+    else { Start-Process -FilePath $exe }
+    Start-Sleep -Milliseconds 900
+    $p = Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  }
+  if (-not $p) { throw "Could not launch the approved Vibe app." }
+  $w = New-Object -ComObject WScript.Shell
+  if (-not $w.AppActivate($p.Id)) { throw "Could not focus the approved Vibe app." }
+}
+''';
+      final result = await runner.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        activationScript.trimRight(),
+        _powershellLiteral(processName),
+        _powershellLiteral(
+          app.id == 'codex' ? _windowsExecutableName(chatGpt) : exe,
+        ),
+        _powershellLiteral(startAppName),
+      ]);
+      if (result.exitCode != 0) {
+        throw ProcessException(
+          'powershell.exe',
+          const [],
+          '${result.stderr}',
+          result.exitCode,
+        );
+      }
+      if (chatGpt) {
+        await sendShortcut(const ['ALT', '3'], expectedAppId: 'chatgpt');
+      }
+      return;
+    }
+    final process = switch (app.id) {
+      'codex' => 'codex',
+      'claude' => 'claude',
+      'cursor' => 'cursor',
+      _ => throw const FormatException('unsupported Vibe application'),
+    };
+    final window = await runner.run('xdotool', [
+      'search',
+      '--onlyvisible',
+      '--class',
+      process,
+    ]);
+    if (window.exitCode == 0 && window.stdout.toString().trim().isNotEmpty) {
+      await _run('xdotool', [
+        'windowactivate',
+        '--sync',
+        window.stdout.toString().trim().split(RegExp(r'\s+')).first,
+      ]);
+    } else {
+      await runner.start(process, const []);
+    }
+  }
+
+  static String _powershellLiteral(String value) =>
+      "'${value.replaceAll("'", "''")}'";
+
+  static String _windowsExecutableName(bool chatGpt) =>
+      chatGpt ? 'ChatGPT.exe' : 'Codex.exe';
 
   Future<void> openUrl(String rawUrl) async {
     final uri = Uri.tryParse(rawUrl);
@@ -225,7 +352,10 @@ class DesktopActions {
     return int.tryParse('${result.stdout}'.trim());
   }
 
-  Future<void> sendShortcut(List<String> rawKeys) async {
+  Future<void> sendShortcut(
+    List<String> rawKeys, {
+    String? expectedAppId,
+  }) async {
     var keys = rawKeys
         .map((key) => key.trim().toUpperCase())
         .map(
@@ -247,15 +377,23 @@ class DesktopActions {
       throw const FormatException('unsupported shortcut');
     }
     if (Platform.isWindows) {
-      await _sendWindowsShortcut(keys);
+      await _sendWindowsShortcut(keys, expectedAppId: expectedAppId);
     } else if (Platform.isMacOS) {
-      await _sendMacShortcut(keys);
+      await _sendMacShortcut(keys, expectedAppId: expectedAppId);
     } else {
+      if (expectedAppId != null && !await _foregroundMatches(expectedAppId)) {
+        throw StateError(
+          'Switch to the matching Vibe app before using this shortcut',
+        );
+      }
       await _run('xdotool', ['key', keys.join('+')]);
     }
   }
 
-  Future<void> _sendWindowsShortcut(List<String> keys) async {
+  Future<void> _sendWindowsShortcut(
+    List<String> keys, {
+    String? expectedAppId,
+  }) async {
     final modifiers = StringBuffer();
     final normal = <String>[];
     for (final key in keys) {
@@ -281,17 +419,39 @@ class DesktopActions {
     if (normal.length != 1) {
       throw const FormatException('shortcut needs one non-modifier key');
     }
+    final targetNames = _foregroundProcessNames(expectedAppId);
+    final script = r'''
+& {
+param($approvedProcesses, $keyStroke)
+if ($approvedProcesses) {
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LK { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }
+'@
+$targetProcessId = 0
+[LK]::GetWindowThreadProcessId([LK]::GetForegroundWindow(), [ref]$targetProcessId) | Out-Null
+$p = if ($targetProcessId -ne 0) { Get-Process -Id $targetProcessId -ErrorAction SilentlyContinue }
+if (-not $p -or @($approvedProcesses -split ",") -notcontains $p.ProcessName.ToLowerInvariant()) { throw "Switch to the matching Vibe app before using this shortcut." }
+}
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.SendKeys]::SendWait($keyStroke)
+}
+''';
     await _run('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      r'Add-Type -AssemblyName System.Windows.Forms; '
-          r'[System.Windows.Forms.SendKeys]::SendWait($args[0])',
-      '$modifiers${normal.single}',
+      script.trimRight(),
+      _powershellLiteral(targetNames?.join(',') ?? ''),
+      _powershellLiteral('$modifiers${normal.single}'),
     ]);
   }
 
-  Future<void> _sendMacShortcut(List<String> keys) async {
+  Future<void> _sendMacShortcut(
+    List<String> keys, {
+    String? expectedAppId,
+  }) async {
     final modifiers = <String>[];
     final normal = <String>[];
     for (final key in keys) {
@@ -315,10 +475,62 @@ class DesktopActions {
     final instruction = keyCode == null
         ? 'keystroke "${_escapeAppleScript(normal.single.toLowerCase())}"$suffix'
         : 'key code $keyCode$suffix';
+    final guard = switch (expectedAppId) {
+      'codex' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Codex" and frontName is not "ChatGPT" then error "Switch to Codex before using this shortcut."\n',
+      'chatgpt' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "ChatGPT" then error "Switch to ChatGPT before using this shortcut."\n',
+      'claude' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Claude" and frontName is not "Claude Code" then error "Switch to Claude before using this shortcut."\n',
+      'cursor' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Cursor" then error "Switch to Cursor before using this shortcut."\n',
+      _ => '',
+    };
     await _run('/usr/bin/osascript', [
       '-e',
-      'tell application "System Events" to $instruction',
+      'tell application "System Events"\n$guard$instruction\nend tell',
     ]);
+  }
+
+  static List<String>? _foregroundProcessNames(String? appId) =>
+      switch (appId) {
+        'codex' => ['codex', 'chatgpt'],
+        'chatgpt' => ['chatgpt'],
+        'claude' => ['claude'],
+        'cursor' => ['cursor'],
+        _ => null,
+      };
+
+  Future<bool> _foregroundMatches(String appId) async {
+    final processNames = _foregroundProcessNames(appId);
+    if (processNames == null) return false;
+    if (Platform.isWindows) {
+      return false; // Windows is checked atomically in SendKeys.
+    }
+    if (Platform.isMacOS) {
+      final result = await runner.run('/usr/bin/osascript', const [
+        '-e',
+        'tell application "System Events" to get name of first application process whose frontmost is true',
+      ]);
+      if (result.exitCode != 0) return false;
+      final name = result.stdout.toString().toLowerCase();
+      return switch (appId) {
+        'codex' => name == 'codex' || name == 'chatgpt',
+        'chatgpt' => name == 'chatgpt',
+        'claude' => name == 'claude' || name == 'claude code',
+        'cursor' => name == 'cursor',
+        _ => false,
+      };
+    }
+    final active = await runner.run('xdotool', const [
+      'getactivewindow',
+      'getwindowpid',
+    ]);
+    final pid = int.tryParse(active.stdout.toString().trim());
+    if (active.exitCode != 0 || pid == null) return false;
+    final process = await runner.run('ps', ['-p', '$pid', '-o', 'comm=']);
+    final name = process.stdout.toString().trim().toLowerCase();
+    return process.exitCode == 0 && processNames.any(name.contains);
   }
 
   static String _windowsSendKey(String key) => switch (key) {

@@ -142,26 +142,28 @@ void main() {
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
 
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(-600, 0),
+    await _scrollHomeBarUntilVisible(
+      tester,
+      find.byKey(const ValueKey('workspace-app-vscode')),
     );
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('workspace-app-vscode')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-app-codex')), findsNothing);
+    await _scrollHomeBarUntilVisible(
+      tester,
+      find.byKey(const ValueKey('home-tab-apps')),
+    );
     expect(find.byKey(const ValueKey('home-tab-apps')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-tab-codex')), findsOneWidget);
     expect(find.byKey(const ValueKey('desktop-profile-default')), findsNothing);
     await tester.drag(
       find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(400, 0),
+      const Offset(1000, 0),
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('workspace-app-vscode')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workspace-app-codex')), findsNothing);
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(-400, 0),
+    await _scrollHomeBarUntilVisible(
+      tester,
+      find.byKey(const ValueKey('home-tab-apps')),
     );
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-tab-apps')));
     await tester.pump();
 
@@ -289,6 +291,10 @@ void main() {
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
+    await _scrollHomeBarUntilVisible(
+      tester,
+      find.byKey(const ValueKey('home-tab-apps')),
+    );
     await tester.tap(find.byKey(const ValueKey('home-tab-apps')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('remote-app-chrome')));
@@ -1029,6 +1035,26 @@ Future<void> _disposeHarness(WidgetTester tester, TestHarness harness) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pump();
   await harness.dispose();
+}
+
+Future<void> _scrollHomeBarUntilVisible(
+  WidgetTester tester,
+  Finder item,
+) async {
+  final bar = find.byKey(const ValueKey('profile-quick-switch-bar'));
+  final scrollable = find.descendant(
+    of: bar,
+    matching: find.byType(Scrollable),
+  );
+  await tester.scrollUntilVisible(item, 100, scrollable: scrollable);
+  final barRect = tester.getRect(bar);
+  final centerX = tester.getRect(item).center.dx;
+  if (centerX > barRect.right - 12) {
+    await tester.drag(bar, Offset(-(centerX - (barRect.right - 12)), 0));
+  } else if (centerX < barRect.left + 12) {
+    await tester.drag(bar, Offset(barRect.left + 12 - centerX, 0));
+  }
+  await tester.pumpAndSettle();
 }
 
 Future<void> _waitForDashboard(WidgetTester tester) async {

@@ -19,6 +19,7 @@ import 'settings_screen.dart';
 import 'shortcut_community_screen.dart';
 import 'dictation_entry_consent.dart';
 import 'local_dictation_panel.dart';
+import 'vibe_coding_panel.dart';
 import 'wheel_editor_screen.dart';
 import 'widgets/button_face.dart';
 import 'widgets/jog_wheel.dart';
@@ -52,6 +53,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool editing = false;
   _HomeTab selectedTab = _HomeTab.keyboard;
   String? selectedApplicationId;
+  String selectedVibeApplicationId = 'codex';
+  final GlobalKey<LocalDictationEntryButtonState> _dictationEntryKey =
+      GlobalKey<LocalDictationEntryButtonState>();
+  int _homeSelectionGeneration = 0;
   bool _followForeground = true;
   String? _handledActivationToken;
   String? _lastScopeToken;
@@ -101,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       _HomeTab.keyboard => controller.genericSyncedLayout,
       _HomeTab.apps => null,
+      _HomeTab.vibeCoding => null,
     };
     final keysPerPage = boardMode
         ? controller.config.preferences.tabletKeysPerPage
@@ -200,10 +206,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           );
     Future<void> selectTab(_HomeTab tab) async {
+      final generation = ++_homeSelectionGeneration;
       if (tab != selectedTab || selectedApplicationId != null) {
         await controller.prepareForContextChange();
       }
-      if (!mounted) return;
+      if (!mounted || generation != _homeSelectionGeneration) return;
       setState(() {
         selectedTab = tab;
         selectedApplicationId = null;
@@ -214,11 +221,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     Future<void> selectApplication(RemoteApplication application) async {
+      final generation = ++_homeSelectionGeneration;
       if (selectedTab != _HomeTab.application ||
           selectedApplicationId != application.id) {
         await controller.prepareForContextChange();
       }
-      if (!mounted) return;
+      if (!mounted || generation != _homeSelectionGeneration) return;
       setState(() {
         selectedTab = _HomeTab.application;
         selectedApplicationId = application.id;
@@ -238,6 +246,15 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
       _HomeTab.codex => keyboardSurface,
+      _HomeTab.vibeCoding => VibeCodingPanel(
+        controller: controller,
+        selectedApplicationId: selectedVibeApplicationId,
+        onSelectApplication: (applicationId) =>
+            _selectVibeApplication(controller, applicationId),
+        onBeforeContextChange: _stopVibeDictation,
+        onStartDictation: () => _startVibeDictation(controller),
+        onStopDictation: _stopVibeDictation,
+      ),
     };
 
     return Theme(
@@ -262,6 +279,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       selectedApplicationId: effectiveApplication?.id,
                       onSelectTab: selectTab,
                       onSelectApplication: selectApplication,
+                      onSelectVibe: () => selectTab(_HomeTab.vibeCoding),
                     ),
                   ),
                   const Divider(height: 1),
@@ -330,6 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               Positioned.fill(
                 child: LocalDictationEntryButton(
+                  key: _dictationEntryKey,
                   hid: controller.hid,
                   companion: controller.companion,
                   modelManager: widget.dictationModelManager,
@@ -359,6 +378,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final token = '${host.token}:$sequence';
     if (_handledActivationToken == token) return;
+    if (selectedTab == _HomeTab.vibeCoding) {
+      _handledActivationToken = token;
+      return;
+    }
     final app = controller.syncedApplications
         .cast<RemoteApplication?>()
         .firstWhere(
@@ -376,14 +399,61 @@ class _HomeScreenState extends State<HomeScreen> {
     editing = false;
     _followForeground = false;
   }
+
+  Future<void> _selectVibeApplication(
+    AppController controller,
+    String applicationId,
+  ) async {
+    final generation = ++_homeSelectionGeneration;
+    await _stopVibeDictation();
+    if (!mounted || generation != _homeSelectionGeneration) return;
+    await controller.prepareForContextChange();
+    if (!mounted || generation != _homeSelectionGeneration) return;
+    setState(() {
+      selectedTab = _HomeTab.vibeCoding;
+      selectedApplicationId = null;
+      selectedVibeApplicationId = applicationId;
+      editing = false;
+      _activeBank = 0;
+      _followForeground = false;
+    });
+    await controller.launchVibeCodingApplication(applicationId);
+  }
+
+  Future<void> _startVibeDictation(AppController controller) async {
+    final manifest = controller.desktopManifest;
+    if (!controller.isDesktopSynced ||
+        manifest?.applicationById(selectedVibeApplicationId)?.foreground !=
+            true) {
+      throw StateError(
+        'Focus ${_vibeApplicationLabel(selectedVibeApplicationId)} before starting Local Dictation.',
+      );
+    }
+    final entry = _dictationEntryKey.currentState;
+    if (entry == null) {
+      throw StateError('Local Dictation is not ready yet.');
+    }
+    await entry.startQuickDictation();
+  }
+
+  Future<void> _stopVibeDictation() async {
+    await _dictationEntryKey.currentState?.stopQuickDictation();
+  }
 }
+
+String _vibeApplicationLabel(String applicationId) => switch (applicationId) {
+  'codex' => 'Codex',
+  'claude' => 'Claude',
+  'cursor' => 'Cursor',
+  _ => 'the selected app',
+};
 
 int _boardColumns(int keysPerPage, bool landscape) {
   final scale = landscape ? 1.25 : 0.8;
   return (sqrt(keysPerPage) * scale).round();
 }
 
-enum _HomeTab { keyboard, application, apps, codex }
+enum _HomeTab { keyboard, application, apps, codex, vibeCoding }
 
 extension on _HomeTab {
   String get label => switch (this) {
@@ -391,6 +461,7 @@ extension on _HomeTab {
     _HomeTab.application => 'Application',
     _HomeTab.apps => 'Apps',
     _HomeTab.codex => 'Codex',
+    _HomeTab.vibeCoding => 'Vibe Coding',
   };
 
   IconData get icon => switch (this) {
@@ -398,6 +469,7 @@ extension on _HomeTab {
     _HomeTab.application => Icons.layers_outlined,
     _HomeTab.apps => Icons.apps,
     _HomeTab.codex => Icons.auto_awesome,
+    _HomeTab.vibeCoding => Icons.terminal,
   };
 }
 
@@ -674,6 +746,7 @@ class _HomeTabBar extends StatelessWidget {
     required this.selectedApplicationId,
     required this.onSelectTab,
     required this.onSelectApplication,
+    required this.onSelectVibe,
   });
 
   final AppController controller;
@@ -681,12 +754,27 @@ class _HomeTabBar extends StatelessWidget {
   final String? selectedApplicationId;
   final ValueChanged<_HomeTab> onSelectTab;
   final ValueChanged<RemoteApplication> onSelectApplication;
+  final VoidCallback onSelectVibe;
 
   @override
   Widget build(BuildContext context) {
-    final items = <Widget>[
-      ...controller.visibleHomeProfiles.map(
-        (profile) => _HomeTabChip(
+    Widget vibeChip() => _HomeTabChip(
+      key: const ValueKey('home-tab-vibe-coding'),
+      label: _HomeTab.vibeCoding.label,
+      icon: Icon(_HomeTab.vibeCoding.icon),
+      selected: selectedTab == _HomeTab.vibeCoding,
+      onTap: onSelectVibe,
+    );
+
+    final items = <Widget>[];
+    var insertedVibe = false;
+    for (final profile in controller.visibleHomeProfiles) {
+      if (profile.id == 'profile_custom') {
+        items.add(vibeChip());
+        insertedVibe = true;
+      }
+      items.add(
+        _HomeTabChip(
           key: ValueKey('profile-quick-${profile.id}'),
           label: profile.name,
           icon: Icon(
@@ -701,8 +789,11 @@ class _HomeTabBar extends StatelessWidget {
             controller.switchProfile(profile.id);
           },
         ),
-      ),
-      ...controller.runningApplications
+      );
+    }
+    if (!insertedVibe) items.add(vibeChip());
+    items.addAll(
+      controller.runningApplications
           .where((application) => application.id != 'codex')
           .map(
             (application) => _HomeTabChip(
@@ -715,7 +806,9 @@ class _HomeTabBar extends StatelessWidget {
               onTap: () => onSelectApplication(application),
             ),
           ),
-      if (controller.hasAppsSync)
+    );
+    if (controller.hasAppsSync) {
+      items.add(
         _HomeTabChip(
           key: const ValueKey('home-tab-apps'),
           label: _HomeTab.apps.label,
@@ -723,7 +816,10 @@ class _HomeTabBar extends StatelessWidget {
           selected: selectedTab == _HomeTab.apps,
           onTap: () => onSelectTab(_HomeTab.apps),
         ),
-      if (controller.hasCodexWorkspace)
+      );
+    }
+    if (controller.hasCodexWorkspace) {
+      items.add(
         _HomeTabChip(
           key: const ValueKey('home-tab-codex'),
           label: _HomeTab.codex.label,
@@ -734,7 +830,8 @@ class _HomeTabBar extends StatelessWidget {
           selected: selectedTab == _HomeTab.codex,
           onTap: () => onSelectTab(_HomeTab.codex),
         ),
-    ];
+      );
+    }
     return SizedBox(
       key: const ValueKey('profile-quick-switch-bar'),
       height: 34,

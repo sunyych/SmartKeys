@@ -641,6 +641,7 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                 child: DropdownButtonFormField<String>(
                   key: const ValueKey('layout-selector'),
                   initialValue: selected.id,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Shortcut Layout',
                   ),
@@ -648,7 +649,11 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                       .map(
                         (layout) => DropdownMenuItem(
                           value: layout.id,
-                          child: Text('${layout.name} · ${layout.kind.name}'),
+                          child: Text(
+                            '${layout.name} · ${layout.kind.name}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       )
                       .toList(growable: false),
@@ -701,7 +706,9 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
                         key: ValueKey('desktop-button-${button.id}'),
-                        onTap: () => _editButton(context, selected, button),
+                        onTap: button.targetType == RemoteTargetType.system
+                            ? null
+                            : () => _editButton(context, selected, button),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
@@ -711,7 +718,9 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                                 children: [
                                   Icon(desktopIcon(button.icon)),
                                   const Spacer(),
-                                  const Icon(Icons.edit_outlined, size: 18),
+                                  if (button.targetType !=
+                                      RemoteTargetType.system)
+                                    const Icon(Icons.edit_outlined, size: 18),
                                 ],
                               ),
                               const Spacer(),
@@ -726,6 +735,14 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
+                              if (!button.enabled &&
+                                  button.description.isNotEmpty)
+                                Text(
+                                  button.description,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
                             ],
                           ),
                         ),
@@ -780,6 +797,15 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
     RemoteShortcutLayout layout,
     RemoteShortcutButton button,
   ) async {
+    if (button.targetType == RemoteTargetType.system ||
+        button.id.endsWith('.deleteToStart')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This Desktop action has a fixed, guarded behavior.'),
+        ),
+      );
+      return;
+    }
     final updated = await showRemoteButtonEditor(
       context,
       button: button,
@@ -1058,6 +1084,7 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
   late final TextEditingController shortcut;
   late final TextEditingController target;
   late final TextEditingController description;
+  late bool enabled;
   late RemoteTargetType type;
   String? selectedApp;
   String? validationError;
@@ -1075,6 +1102,7 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
           : '',
     );
     description = TextEditingController(text: button.description);
+    enabled = button.enabled;
     type = button.targetType;
     selectedApp = button.targetType == RemoteTargetType.launchApplication
         ? button.target
@@ -1116,14 +1144,24 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
               initialValue: type,
               decoration: const InputDecoration(labelText: 'Target Type'),
               items: RemoteTargetType.values
+                  .where(
+                    (value) =>
+                        !widget.button.id.startsWith('vibe.') ||
+                        value == RemoteTargetType.keyboardShortcut,
+                  )
                   .map(
                     (value) => DropdownMenuItem(
                       value: value,
                       enabled:
                           value != RemoteTargetType.macro &&
-                          value != RemoteTargetType.script,
+                          value != RemoteTargetType.script &&
+                          value != RemoteTargetType.system,
                       child: Text(
-                        '${_targetTypeLabel(value)}${value == RemoteTargetType.macro || value == RemoteTargetType.script ? ' · Future' : ''}',
+                        '${_targetTypeLabel(value)}${value == RemoteTargetType.macro || value == RemoteTargetType.script
+                            ? ' · Future'
+                            : value == RemoteTargetType.system
+                            ? ' · Fixed'
+                            : ''}',
                       ),
                     ),
                   )
@@ -1133,6 +1171,12 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
               },
             ),
             const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Enabled'),
+              value: enabled,
+              onChanged: (value) => setState(() => enabled = value),
+            ),
             if (type == RemoteTargetType.keyboardShortcut)
               TextField(
                 key: const ValueKey('shortcut-field'),
@@ -1208,7 +1252,9 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
       _ => null,
     };
     if (name.text.trim().isEmpty ||
-        (type == RemoteTargetType.keyboardShortcut && keys.isEmpty) ||
+        (enabled &&
+            type == RemoteTargetType.keyboardShortcut &&
+            keys.isEmpty) ||
         ((type == RemoteTargetType.launchApplication ||
                 type == RemoteTargetType.openUrl) &&
             (nextTarget == null || nextTarget.isEmpty))) {
@@ -1225,6 +1271,7 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
         target: nextTarget,
         clearTarget: nextTarget == null,
         description: description.text.trim(),
+        enabled: enabled,
       ),
     );
   }
@@ -1603,6 +1650,7 @@ String _targetTypeLabel(RemoteTargetType type) => switch (type) {
   RemoteTargetType.openUrl => 'Open URL',
   RemoteTargetType.macro => 'Macro',
   RemoteTargetType.script => 'Script',
+  RemoteTargetType.system => 'Desktop System Action',
 };
 
 String _buttonSummary(RemoteShortcutButton button) =>
@@ -1613,6 +1661,7 @@ String _buttonSummary(RemoteShortcutButton button) =>
       RemoteTargetType.openUrl => button.target ?? 'URL',
       RemoteTargetType.macro => 'Macro · Future',
       RemoteTargetType.script => 'Script · Future',
+      RemoteTargetType.system => button.name,
     };
 
 IconData desktopIcon(String id) => switch (id) {

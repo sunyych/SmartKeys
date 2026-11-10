@@ -91,6 +91,8 @@ class AppController extends ChangeNotifier {
         (layout) => layout?.kind == RemoteLayoutKind.codex,
         orElse: () => null,
       );
+  RemoteShortcutLayout? vibeCodingLayoutFor(String applicationId) =>
+      desktopManifest?.layoutById('vibe.$applicationId');
   List<RemoteApplication> get syncedApplications {
     final manifest = desktopManifest;
     if (!isDesktopSynced ||
@@ -344,6 +346,27 @@ class AppController extends ChangeNotifier {
     await companion.executeRemote(RemoteActionRequest.button(button.id));
   }
 
+  Future<void> executeVibeCodingButton(
+    String applicationId,
+    String buttonId,
+  ) async {
+    final layout = vibeCodingLayoutFor(applicationId);
+    final button = layout?.buttons.cast<RemoteShortcutButton?>().firstWhere(
+      (candidate) => candidate?.id == buttonId,
+      orElse: () => null,
+    );
+    if (!isDesktopSynced ||
+        layout == null ||
+        !desktopManifest!.settings.enableAppsSync ||
+        desktopManifest!.applicationById(applicationId)?.detected != true ||
+        button == null ||
+        !button.id.startsWith('vibe.$applicationId.') ||
+        !button.enabled) {
+      return;
+    }
+    await executeRemoteButton(button);
+  }
+
   Future<void> launchRemoteApplication(RemoteApplication application) async {
     _recordShortcutUsage(
       'desktop:app:${application.id}',
@@ -352,6 +375,19 @@ class AppController extends ChangeNotifier {
     await companion.executeRemote(
       RemoteActionRequest.launchApplication(application.id),
     );
+  }
+
+  Future<void> launchVibeCodingApplication(String applicationId) async {
+    final manifest = desktopManifest;
+    final application = manifest?.applicationById(applicationId);
+    if (!isDesktopSynced ||
+        manifest == null ||
+        !manifest.settings.enableAppsSync ||
+        vibeCodingLayoutFor(applicationId) == null ||
+        application?.detected != true) {
+      return;
+    }
+    await launchRemoteApplication(application!);
   }
 
   Future<void> switchRemoteProfile(RemoteProfile profile) =>

@@ -52,6 +52,106 @@ void main() {
     expect(restored.profiles.map((profile) => profile.id), ['default']);
   });
 
+  test('starter exposes stable Vibe app layouts and project bindings', () {
+    final manifest = DesktopManifest.fromJson(
+      DesktopManifest.starter().toJson(),
+    );
+    for (final app in const ['codex', 'claude', 'cursor']) {
+      expect(manifest.layoutById('vibe.$app'), isNotNull);
+      expect(manifest.buttonById('vibe.$app.project'), isNotNull);
+    }
+    expect(manifest.applicationById('codex')!.layoutId, 'codex');
+    expect(manifest.buttonById('vibe.codex.project')!.shortcut, [
+      'PRIMARY',
+      'ALT',
+      'SHIFT',
+      'O',
+    ]);
+    expect(manifest.buttonById('vibe.cursor.project')!.enabled, isTrue);
+    expect(
+      manifest.buttonById('vibe.claude.project')!.description,
+      contains('choose its project folder'),
+    );
+    expect(manifest.buttonById('vibe.codex.previousChat')!.shortcut, [
+      'PRIMARY',
+      'SHIFT',
+      '[',
+    ]);
+    expect(manifest.buttonById('vibe.codex.nextChat')!.shortcut, [
+      'PRIMARY',
+      'SHIFT',
+      ']',
+    ]);
+    expect(manifest.buttonById('vibe.codex.terminal')!.shortcut, ['CTRL', '`']);
+    expect(manifest.buttonById('vibe.codex.review')!.shortcut, [
+      'CTRL',
+      'SHIFT',
+      'G',
+    ]);
+    expect(manifest.buttonById('vibe.claude.previousSession')!.shortcut, [
+      'CTRL',
+      'SHIFT',
+      'TAB',
+    ]);
+    expect(manifest.buttonById('vibe.claude.nextSession')!.shortcut, [
+      'CTRL',
+      'TAB',
+    ]);
+    expect(manifest.buttonById('vibe.cursor.previousChat')!.shortcut, [
+      'PRIMARY',
+      '[',
+    ]);
+    expect(manifest.buttonById('vibe.cursor.nextChat')!.shortcut, [
+      'PRIMARY',
+      ']',
+    ]);
+    expect(manifest.buttonById('vibe.cursor.agentPanel')!.shortcut, [
+      'PRIMARY',
+      'I',
+    ]);
+    for (final app in const ['codex', 'claude', 'cursor']) {
+      for (final action in const [
+        'send',
+        'alternateSend',
+        'backspace',
+        'deleteToStart',
+        'copy',
+        'paste',
+        'cut',
+        'comma',
+        'period',
+        'exclamation',
+        'quote',
+        'screenshot',
+      ]) {
+        expect(manifest.buttonById('vibe.$app.$action'), isNotNull);
+      }
+      for (final action in const [
+        'comma',
+        'period',
+        'exclamation',
+        'quote',
+        'screenshot',
+      ]) {
+        expect(
+          manifest.buttonById('vibe.$app.$action')!.targetType,
+          RemoteTargetType.system,
+        );
+      }
+    }
+    final synced = DesktopManifest.fromJson(
+      DesktopManifest.starter()
+          .copyWith(
+            applications: DesktopManifest.starter().applications
+                .map((app) => app.copyWith(detected: app.id == 'codex'))
+                .toList(),
+          )
+          .toJson(forSync: true),
+    );
+    expect(synced.layoutById('vibe.claude'), isNotNull);
+    expect(synced.applicationById('claude'), isNull);
+  });
+
   test(
     'sync settings omit apps and icons without changing desktop storage',
     () {
