@@ -176,57 +176,148 @@ class DesktopActions {
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        r'Start-Process -FilePath $args[0]',
-        executable,
+        r'& { Start-Process -FilePath $args[0] }',
+        _powershellLiteral(executable),
       ]);
       return;
     }
     await runner.start(validated, const []);
   }
 
-  /// Activates only the three Desktop-owned Vibe application IDs. The phone
-  /// supplies the ID; executable names and platform launch arguments stay here.
+  /// Activates only Desktop-owned application IDs. Executables and native
+  /// launch arguments are resolved here rather than supplied by the phone.
   Future<void> activateApplication(RemoteApplication app) async {
     final executable = switch (app.id) {
       'codex' => 'Codex',
       'claude' => 'Claude',
       'cursor' => 'Cursor',
-      _ => throw const FormatException('unsupported Vibe application'),
+      'chrome' => 'Google Chrome',
+      'firefox' => 'Firefox',
+      'safari' => 'Safari',
+      'teams' => 'Microsoft Teams',
+      'zoom' => 'zoom.us',
+      _ => throw const FormatException('unsupported managed application'),
     };
     final chatGpt =
         app.id == 'codex' && app.executable.toLowerCase().contains('chatgpt');
     final targetName = chatGpt ? 'ChatGPT' : executable;
     if (Platform.isMacOS) {
       await _run('/usr/bin/open', ['-a', targetName]);
-      if (chatGpt) {
-        await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (chatGpt && await _waitForForeground('chatgpt')) {
         await sendShortcut(const ['CTRL', '3'], expectedAppId: 'chatgpt');
       }
       return;
     }
     if (Platform.isWindows) {
-      final processName = switch (app.id) {
+      if (app.id == 'safari') {
+        throw const FormatException('Safari is only available on Mac');
+      }
+      final processNames = switch (app.id) {
+        'codex' => chatGpt ? const ['ChatGPT'] : const ['Codex'],
+        'claude' => const ['Claude'],
+        'cursor' => const ['Cursor'],
+        'chrome' => const ['chrome'],
+        'firefox' => const ['firefox'],
+        'safari' => throw const FormatException(
+          'Safari is only available on Mac',
+        ),
+        'teams' => const ['ms-teams', 'teams'],
+        'zoom' => const ['Zoom', 'cpt-host'],
+        _ => throw const FormatException('unsupported managed application'),
+      };
+      final processNameArgument = processNames.join(',');
+      final executableNames = switch (app.id) {
+        'codex' => chatGpt ? const ['ChatGPT.exe'] : const ['Codex.exe'],
+        'claude' => const ['Claude.exe'],
+        'cursor' => const ['Cursor.exe'],
+        'chrome' => const ['chrome.exe'],
+        'firefox' => const ['firefox.exe'],
+        'teams' => const ['ms-teams.exe', 'Teams.exe'],
+        'zoom' => const ['Zoom.exe'],
+        _ => throw const FormatException('unsupported managed application'),
+      };
+      final executableNameArgument = executableNames.join(',');
+      final startAppName = switch (app.id) {
         'codex' => chatGpt ? 'ChatGPT' : 'Codex',
         'claude' => 'Claude',
         'cursor' => 'Cursor',
-        _ => throw const FormatException('unsupported Vibe application'),
+        'chrome' => 'Google Chrome',
+        'firefox' => 'Firefox,Mozilla Firefox',
+        'teams' => 'Teams,Microsoft Teams,Microsoft Teams classic',
+        'zoom' => 'Zoom,Zoom Workplace,Zoom Meetings',
+        _ => throw const FormatException('unsupported managed application'),
       };
-      final exe = '$processName.exe';
-      final startAppName = chatGpt ? 'ChatGPT' : executable;
       final activationScript = r'''
 & {
-  param($processName, $exe, $startAppName)
-  $p = Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  $processNames = $args[0] -split ','
+  $executables = $args[1] -split ','
+  $startAppNames = $args[2] -split ','
+  $running = @(Get-Process -Name $processNames -ErrorAction SilentlyContinue)
+  $p = $running | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
   if (-not $p) {
-    $app = Get-StartApps | Where-Object { $_.Name -eq $startAppName } | Select-Object -First 1
-    if ($app -and $app.AppID) { Start-Process explorer.exe -ArgumentList ("shell:AppsFolder\" + $app.AppID) }
-    else { Start-Process -FilePath $exe }
-    Start-Sleep -Milliseconds 900
-    $p = Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+    $app = Get-StartApps | Where-Object { $startAppNames -contains $_.Name } | Select-Object -First 1
+    if ($app -and $app.AppID) {
+      Start-Process explorer.exe -ArgumentList ("shell:AppsFolder\" + $app.AppID)
+    } elseif (-not $running) {
+      $uninstallPaths = @(
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+      )
+      $installLocations = @()
+      foreach ($installedApp in (Get-ItemProperty $uninstallPaths -ErrorAction SilentlyContinue)) {
+        $displayName = [string]$installedApp.DisplayName
+        foreach ($alias in $startAppNames) {
+          if ($displayName -like ("*" + $alias + "*") -and $installedApp.InstallLocation) {
+            $installLocations += [string]$installedApp.InstallLocation
+            break
+          }
+        }
+      }
+      $executablePath = $null
+      foreach ($exe in $executables) {
+        $appPathKeys = @(
+          "HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\$exe",
+          "HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\$exe",
+          "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\$exe"
+        )
+        foreach ($key in $appPathKeys) {
+          if (Test-Path $key) {
+            $registeredPath = (Get-Item $key).GetValue('')
+            if ($registeredPath -and (Test-Path $registeredPath)) {
+              $executablePath = $registeredPath
+              break
+            }
+          }
+        }
+        if (-not $executablePath) {
+          foreach ($location in $installLocations) {
+            $candidatePath = Join-Path $location $exe
+            if (Test-Path $candidatePath) { $executablePath = $candidatePath; break }
+          }
+        }
+        if (-not $executablePath) {
+          $command = Get-Command $exe -ErrorAction SilentlyContinue
+          if ($command) { $executablePath = $command.Source }
+        }
+        if ($executablePath) { break }
+      }
+      if ($executablePath) { Start-Process -FilePath $executablePath }
+      else { throw "The selected app is installed but its launch entry is unavailable." }
+    }
   }
-  if (-not $p) { throw "Could not launch the approved Vibe app." }
+  if (-not $p) {
+    $focusDeadline = [DateTime]::UtcNow.AddMilliseconds(2750)
+    do {
+      $p = Get-Process -Name $processNames -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+      if ($p) { break }
+      Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $focusDeadline)
+  }
+  if (-not $p) { Write-Output 'STARTING'; return }
   $w = New-Object -ComObject WScript.Shell
-  if (-not $w.AppActivate($p.Id)) { throw "Could not focus the approved Vibe app." }
+  if ($w.AppActivate($p.Id)) { Write-Output 'FOCUSED' }
+  else { Write-Output 'STARTING' }
 }
 ''';
       final result = await runner.run('powershell.exe', [
@@ -234,10 +325,8 @@ class DesktopActions {
         '-NonInteractive',
         '-Command',
         activationScript.trimRight(),
-        _powershellLiteral(processName),
-        _powershellLiteral(
-          app.id == 'codex' ? _windowsExecutableName(chatGpt) : exe,
-        ),
+        _powershellLiteral(processNameArgument),
+        _powershellLiteral(executableNameArgument),
         _powershellLiteral(startAppName),
       ]);
       if (result.exitCode != 0) {
@@ -248,7 +337,7 @@ class DesktopActions {
           result.exitCode,
         );
       }
-      if (chatGpt) {
+      if (chatGpt && result.stdout.toString().contains('FOCUSED')) {
         await sendShortcut(const ['ALT', '3'], expectedAppId: 'chatgpt');
       }
       return;
@@ -257,7 +346,14 @@ class DesktopActions {
       'codex' => 'codex',
       'claude' => 'claude',
       'cursor' => 'cursor',
-      _ => throw const FormatException('unsupported Vibe application'),
+      'chrome' => 'google-chrome',
+      'firefox' => 'firefox',
+      'safari' => throw const FormatException(
+        'Safari is only available on Mac',
+      ),
+      'teams' => 'teams-for-linux',
+      'zoom' => 'zoom',
+      _ => throw const FormatException('unsupported managed application'),
     };
     final window = await runner.run('xdotool', [
       'search',
@@ -278,9 +374,6 @@ class DesktopActions {
 
   static String _powershellLiteral(String value) =>
       "'${value.replaceAll("'", "''")}'";
-
-  static String _windowsExecutableName(bool chatGpt) =>
-      chatGpt ? 'ChatGPT.exe' : 'Codex.exe';
 
   Future<void> openUrl(String rawUrl) async {
     final uri = Uri.tryParse(rawUrl);
@@ -478,6 +571,12 @@ Add-Type -AssemblyName System.Windows.Forms
     final guard = switch (expectedAppId) {
       'codex' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "Codex" and frontName is not "ChatGPT" then error "Switch to Codex before using this shortcut."\n',
+      'chrome' || 'firefox' || 'safari' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "${_macApplicationName(expectedAppId!)}" then error "Switch to the selected app before using this shortcut."\n',
+      'teams' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Microsoft Teams" and frontName is not "Microsoft Teams classic" then error "Switch to the selected app before using this shortcut."\n',
+      'zoom' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "zoom.us" and frontName is not "Zoom Workplace" then error "Switch to the selected app before using this shortcut."\n',
       'chatgpt' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "ChatGPT" then error "Switch to ChatGPT before using this shortcut."\n',
       'claude' =>
@@ -498,6 +597,11 @@ Add-Type -AssemblyName System.Windows.Forms
         'chatgpt' => ['chatgpt'],
         'claude' => ['claude'],
         'cursor' => ['cursor'],
+        'chrome' => ['chrome', 'google chrome'],
+        'firefox' => ['firefox'],
+        'safari' => ['safari'],
+        'teams' => ['ms-teams', 'teams'],
+        'zoom' => ['zoom', 'cpt-host'],
         _ => null,
       };
 
@@ -519,6 +623,12 @@ Add-Type -AssemblyName System.Windows.Forms
         'chatgpt' => name == 'chatgpt',
         'claude' => name == 'claude' || name == 'claude code',
         'cursor' => name == 'cursor',
+        'chrome' => name == 'google chrome' || name == 'chrome',
+        'firefox' => name == 'firefox',
+        'safari' => name == 'safari',
+        'teams' =>
+          name == 'microsoft teams' || name == 'microsoft teams classic',
+        'zoom' => name == 'zoom.us' || name == 'zoom workplace',
         _ => false,
       };
     }
@@ -531,6 +641,14 @@ Add-Type -AssemblyName System.Windows.Forms
     final process = await runner.run('ps', ['-p', '$pid', '-o', 'comm=']);
     final name = process.stdout.toString().trim().toLowerCase();
     return process.exitCode == 0 && processNames.any(name.contains);
+  }
+
+  Future<bool> _waitForForeground(String appId) async {
+    for (var attempt = 0; attempt < 16; attempt++) {
+      if (await _foregroundMatches(appId)) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    return false;
   }
 
   static String _windowsSendKey(String key) => switch (key) {
@@ -580,6 +698,13 @@ Add-Type -AssemblyName System.Windows.Forms
     'F11' => 103,
     'F12' => 111,
     _ => null,
+  };
+
+  static String _macApplicationName(String id) => switch (id) {
+    'chrome' => 'Google Chrome',
+    'firefox' => 'Firefox',
+    'safari' => 'Safari',
+    _ => throw const FormatException('unsupported Mac application'),
   };
 
   static String _windowsExecutableAlias(String target) =>

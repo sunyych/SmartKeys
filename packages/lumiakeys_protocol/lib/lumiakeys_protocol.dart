@@ -275,6 +275,7 @@ class DesktopManifest {
     required this.layouts,
     required this.applications,
     required this.profiles,
+    this.computerId,
     this.schemaVersion = 1,
     this.applicationActivationSequence = 0,
     this.activatedApplicationId,
@@ -287,6 +288,10 @@ class DesktopManifest {
   final List<RemoteShortcutLayout> layouts;
   final List<RemoteApplication> applications;
   final List<RemoteProfile> profiles;
+
+  /// Stable local Desktop identity used to keep phone preferences associated
+  /// with this machine. It never carries the auth token or network address.
+  final String? computerId;
   final int applicationActivationSequence;
   final String? activatedApplicationId;
 
@@ -323,6 +328,7 @@ class DesktopManifest {
     List<RemoteShortcutLayout>? layouts,
     List<RemoteApplication>? applications,
     List<RemoteProfile>? profiles,
+    String? computerId,
     int? applicationActivationSequence,
     String? activatedApplicationId,
   }) => DesktopManifest(
@@ -333,6 +339,7 @@ class DesktopManifest {
     layouts: layouts ?? this.layouts,
     applications: applications ?? this.applications,
     profiles: profiles ?? this.profiles,
+    computerId: computerId ?? this.computerId,
     applicationActivationSequence:
         applicationActivationSequence ?? this.applicationActivationSequence,
     activatedApplicationId:
@@ -357,6 +364,7 @@ class DesktopManifest {
       'schemaVersion': schemaVersion,
       'revision': revision,
       'currentProfileId': currentProfileId,
+      'computerId': computerId,
       'settings': settings.toJson(),
       'layouts': layouts
           .map((layout) => layout.toJson(includeIcons: includeIcons))
@@ -379,6 +387,7 @@ class DesktopManifest {
       schemaVersion: schemaVersion! as int,
       revision: json['revision'] is int ? json['revision']! as int : 1,
       currentProfileId: _requiredString(json, 'currentProfileId'),
+      computerId: _nullableString(json['computerId']),
       settings: RemoteSettings.fromJson(_requiredMap(json, 'settings')),
       layouts: _mapList(
         json['layouts'],
@@ -534,6 +543,60 @@ class DesktopManifest {
       shortcut('chrome.refresh', 'Refresh', 'refresh', ['PRIMARY', 'R']),
       shortcut('chrome.address', 'Address', 'link', ['PRIMARY', 'L']),
     ]);
+    RemoteShortcutLayout browserLayout(String appId, String name) =>
+        appLayout('app.$appId', name, [
+          shortcut('$appId.newTab', 'New Tab', 'add', ['PRIMARY', 'T']),
+          shortcut('$appId.closeTab', 'Close Tab', 'close', ['PRIMARY', 'W']),
+          shortcut('$appId.previousTab', 'Previous Tab', 'arrow_back', [
+            'CTRL',
+            'SHIFT',
+            'TAB',
+          ]),
+          shortcut('$appId.nextTab', 'Next Tab', 'arrow_forward', [
+            'CTRL',
+            'TAB',
+          ]),
+          shortcut('$appId.address', 'Address', 'link', ['PRIMARY', 'L']),
+          shortcut('$appId.find', 'Find on Page', 'search', ['PRIMARY', 'F']),
+          shortcut('$appId.back', 'Go Back', 'arrow_back', ['ALT', 'LEFT']),
+          shortcut('$appId.forward', 'Go Forward', 'arrow_forward', [
+            'ALT',
+            'RIGHT',
+          ]),
+          shortcut('$appId.refresh', 'Refresh', 'refresh', ['PRIMARY', 'R']),
+          shortcut('$appId.bookmark', 'Bookmark', 'bookmark', ['PRIMARY', 'D']),
+        ]);
+    final firefox = browserLayout('firefox', 'Firefox');
+    final safari = browserLayout('safari', 'Safari');
+    RemoteShortcutLayout meetingLayout(
+      String appId,
+      String name,
+      List<String> mute,
+      List<String> video,
+      List<String> hand,
+      List<String>? chat,
+    ) => appLayout('app.$appId', name, [
+      shortcut('$appId.mute', 'Mute / Unmute', 'mic_off', mute),
+      shortcut('$appId.video', 'Camera On / Off', 'videocam', video),
+      shortcut('$appId.hand', 'Raise / Lower Hand', 'pan_tool', hand),
+      if (chat != null) shortcut('$appId.chat', 'Meeting Chat', 'chat', chat),
+    ]);
+    final teams = meetingLayout(
+      'teams',
+      'Microsoft Teams',
+      ['PRIMARY', 'SHIFT', 'M'],
+      ['PRIMARY', 'SHIFT', 'O'],
+      ['PRIMARY', 'SHIFT', 'K'],
+      null,
+    );
+    final zoom = meetingLayout(
+      'zoom',
+      'Zoom',
+      ['ALT', 'A'],
+      ['ALT', 'V'],
+      ['ALT', 'Y'],
+      ['ALT', 'H'],
+    );
     final illustrator = appLayout('app.illustrator', 'Illustrator', [
       shortcut('illustrator.open', 'Open', 'folder_open', ['PRIMARY', 'O']),
       shortcut('illustrator.save', 'Save', 'save', ['PRIMARY', 'S']),
@@ -840,6 +903,10 @@ class DesktopManifest {
         vibeCodex,
         vibeClaude,
         vibeCursor,
+        firefox,
+        safari,
+        teams,
+        zoom,
         appleMusic,
         finder,
       ],
@@ -906,6 +973,34 @@ class DesktopManifest {
           icon: 'language',
           executable: 'Google Chrome',
           layoutId: 'app.chrome',
+        ),
+        RemoteApplication(
+          id: 'firefox',
+          name: 'Firefox',
+          icon: 'language',
+          executable: 'firefox',
+          layoutId: 'app.firefox',
+        ),
+        RemoteApplication(
+          id: 'safari',
+          name: 'Safari',
+          icon: 'language',
+          executable: 'Safari',
+          layoutId: 'app.safari',
+        ),
+        RemoteApplication(
+          id: 'teams',
+          name: 'Microsoft Teams',
+          icon: 'groups',
+          executable: 'Microsoft Teams',
+          layoutId: 'app.teams',
+        ),
+        RemoteApplication(
+          id: 'zoom',
+          name: 'Zoom',
+          icon: 'videocam',
+          executable: 'zoom.us',
+          layoutId: 'app.zoom',
         ),
         RemoteApplication(
           id: 'appleMusic',

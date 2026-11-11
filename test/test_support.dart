@@ -6,6 +6,7 @@ import 'package:smart_keys/data/private_image_store.dart';
 import 'package:smart_keys/data/profile_template_repository.dart';
 import 'package:smart_keys/data/shortcut_usage_repository.dart';
 import 'package:smart_keys/models/config.dart';
+import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/orientation_service.dart';
@@ -122,6 +123,7 @@ class TestHarness {
     AppConfig? config,
     bool? pluggedIn = false,
     ShortcutUsageRepository? shortcutUsage,
+    bool seedComputerSetup = true,
   }) async {
     final directory = Directory.systemTemp.createTempSync('smart_keys_test_');
     final repository = MemoryConfigRepository(config ?? testConfig());
@@ -141,6 +143,15 @@ class TestHarness {
       shortcutUsage: usageRepository,
     );
     await controller.initialize();
+    final initialComputer = controller.activeComputer;
+    if (seedComputerSetup &&
+        initialComputer?.mode == ComputerMode.standalone &&
+        controller.activeComputerSetup == null) {
+      await controller.saveComputerSetup(
+        initialComputer!,
+        ComputerSetup(applicationIds: const []),
+      );
+    }
     return TestHarness(
       controller: controller,
       repository: repository,

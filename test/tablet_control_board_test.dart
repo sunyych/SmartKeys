@@ -9,6 +9,7 @@ import 'package:smart_keys/data/private_image_store.dart';
 import 'package:smart_keys/data/profile_template_repository.dart';
 import 'package:smart_keys/data/shortcut_usage_repository.dart';
 import 'package:smart_keys/models/config.dart';
+import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/ios_companion_hid_service.dart';
 import 'package:smart_keys/services/orientation_service.dart';
@@ -205,59 +206,23 @@ void main() {
     );
 
     expect(
-      find.byKey(const ValueKey('status-mode-desktop-offline')),
+      find.byKey(const ValueKey('ios-desktop-pairing-gate')),
       findsOneWidget,
     );
-    expect(find.byTooltip('LumiaKey Desktop · Not connected'), findsWidgets);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('status-mode-desktop-offline')),
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is Icon && widget.icon == Icons.desktop_windows_outlined,
-        ),
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Desktop'), findsWidgets);
-    expect(find.byKey(const ValueKey('shortcut-board-layout')), findsOneWidget);
+    expect(find.byType(DesktopConnectionPanel), findsOneWidget);
+    expect(find.byKey(const ValueKey('shortcut-board-layout')), findsNothing);
+    expect(find.byKey(const ValueKey('control-menu')), findsNothing);
+    expect(find.byKey(const ValueKey('local-quick-output')), findsNothing);
+    expect(find.byType(MouseTouchpad), findsNothing);
 
     await shots.capture(
       id: 'ipad-desktop-offline-home',
-      title: 'iPad Desktop offline · Home shortcut board',
+      title: 'iPad Desktop pairing gate',
       orientation: 'portrait',
       notes:
-          'Default tablet board with an injected iPad companion HID adapter and manual fake companion; widget-rendered view, not a physical iPad capture.',
+          'The iPad requires an authenticated Desktop companion before showing controls or dictation; widget-rendered view, not a physical iPad capture.',
       boundaryKey: boundaryKey,
     );
-
-    await fixture.controller.updateControlSurfaceLayout(
-      ControlSurfaceLayout.phone,
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(MouseTouchpad), findsNothing);
-    expect(
-      find.byKey(const ValueKey('desktop-keyboard-only-hint')),
-      findsOneWidget,
-    );
-    await fixture.controller.updateControlSurfaceLayout(
-      ControlSurfaceLayout.automatic,
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('control-menu')));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('menu-desktop-connection')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('menu-bluetooth-connection')),
-      findsNothing,
-    );
-    expect(find.textContaining('Bluetooth ·'), findsNothing);
-    await tester.tap(find.text('Desktop connection'));
-    await tester.pumpAndSettle();
     expect(find.byType(DesktopConnectionPanel), findsOneWidget);
     expect(find.text('Desktop connection code'), findsOneWidget);
     await shots.capture(
@@ -284,6 +249,22 @@ void main() {
     await tester.tap(connectButton);
     await tester.pumpAndSettle();
     expect(fixture.companion.lastConnectionCode, '192.168.1.2:45832 token');
+
+    fixture.companion.host.value = connectedCompanionHost;
+    fixture.companion.syncedManifest.value = desktopManifest().copyWith(
+      computerId: 'ipad-test-desktop-001',
+    );
+    fixture.companion.status.value = CompanionSyncStatus.ready;
+    await tester.pumpAndSettle();
+    expect(fixture.controller.isDesktopSynced, isTrue);
+    final target = fixture.controller.activeComputer!;
+    await fixture.controller.saveComputerSetup(
+      target,
+      ComputerSetup(applicationIds: const []),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('shortcut-board-layout')), findsOneWidget);
+    expect(find.byType(MouseTouchpad), findsNothing);
   });
 }
 

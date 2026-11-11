@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math' show sqrt;
+
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/material.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
@@ -8,17 +10,20 @@ import '../app.dart';
 import '../controllers/app_controller.dart';
 import '../icons/icon_catalog.dart';
 import '../models/config.dart';
+import '../models/computer_setup.dart';
 import '../models/control_surface_status.dart';
 import '../services/hid_service.dart';
 import '../services/ios_companion_hid_service.dart';
 import 'button_editor_screen.dart';
 import 'bluetooth_connection_sheet.dart';
 import 'desktop_connection_panel.dart';
+import 'computer_setup_wizard.dart';
 import 'profile_management_screen.dart';
 import 'settings_screen.dart';
 import 'shortcut_community_screen.dart';
 import 'dictation_entry_consent.dart';
 import 'local_dictation_panel.dart';
+import 'standalone_app_panel.dart';
 import 'vibe_coding_panel.dart';
 import 'wheel_editor_screen.dart';
 import 'widgets/button_face.dart';
@@ -53,18 +58,22 @@ class _HomeScreenState extends State<HomeScreen> {
   bool editing = false;
   _HomeTab selectedTab = _HomeTab.keyboard;
   String? selectedApplicationId;
-  String selectedVibeApplicationId = 'codex';
   final GlobalKey<LocalDictationEntryButtonState> _dictationEntryKey =
       GlobalKey<LocalDictationEntryButtonState>();
   int _homeSelectionGeneration = 0;
+  int _computerTransitionGeneration = 0;
   bool _followForeground = true;
+  bool _targetResetPending = false;
   String? _handledActivationToken;
   String? _lastScopeToken;
+  String? _lastComputerId;
   int _activeBank = 0;
 
   @override
   Widget build(BuildContext context) {
     final controller = SmartKeysScope.of(context);
+    final computer = controller.activeComputer;
+    _trackComputerTarget(controller, computer);
     _consumeDesktopActivation(controller);
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -80,34 +89,71 @@ class _HomeScreenState extends State<HomeScreen> {
     final accent = controller.activeProfile.accentColor == null
         ? Theme.of(context).colorScheme.primary
         : Color(controller.activeProfile.accentColor!);
-    final selectedApplication = controller.syncedApplications
-        .cast<RemoteApplication?>()
+    final iosPairingGate =
+        controller.hid is IosCompanionHidService ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+    final desktopReconnecting =
+        computer?.mode == ComputerMode.advanced && !controller.isDesktopSynced;
+    final showFirstSetup =
+        computer != null &&
+        !controller.isActiveComputerSetupComplete &&
+        (computer.mode == ComputerMode.standalone ||
+            controller.isDesktopSynced);
+    final availableApps = controller.availableComputerApplications;
+    final selectedApplication = availableApps
+        .cast<ComputerApplication?>()
         .firstWhere(
           (application) => application?.id == selectedApplicationId,
           orElse: () => null,
         );
+    final applicationIsAvailable = selectedApplication != null;
+    final foreground = controller.isDesktopSynced
+        ? controller.foregroundApplication
+        : null;
+    final foregroundIsSelected =
+        foreground != null &&
+        availableApps.any((application) => application.id == foreground.id);
     var effectiveTab =
-        selectedTab == _HomeTab.application && selectedApplication == null
-        ? _HomeTab.keyboard
-        : selectedTab == _HomeTab.apps && !controller.hasAppsSync
+        selectedTab == _HomeTab.application &&
+            selectedApplicationId != null &&
+            !applicationIsAvailable
         ? _HomeTab.keyboard
         : selectedTab;
     if (_followForeground &&
         effectiveTab == _HomeTab.keyboard &&
-        controller.foregroundApplicationLayout != null) {
-      effectiveTab = _HomeTab.application;
+        foregroundIsSelected) {
+      selectedApplicationId = foreground.id;
+      effectiveTab = _applicationTabFor(foreground.id);
     }
-    final effectiveApplication =
-        selectedApplication ?? controller.foregroundApplication;
-    final remoteLayout = switch (effectiveTab) {
-      _HomeTab.codex => controller.remoteCodexLayout,
-      _HomeTab.application => controller.layoutForApplication(
-        effectiveApplication!,
-      ),
-      _HomeTab.keyboard => controller.genericSyncedLayout,
-      _HomeTab.apps => null,
-      _HomeTab.vibeCoding => null,
-    };
+    final effectiveApplication = applicationIsAvailable
+        ? selectedApplication
+        : effectiveTab == _HomeTab.application && foregroundIsSelected
+        ? availableApps.cast<ComputerApplication?>().firstWhere(
+            (application) => application?.id == foreground.id,
+            orElse: () => null,
+          )
+        : null;
+    final selectedVibeApplicationId =
+        selectedApplication?.category == ComputerAppCategory.vibeCoding &&
+            applicationIsAvailable
+        ? selectedApplication.id
+        : _firstConfiguredVibeId(availableApps);
+    final remoteApplication = effectiveApplication == null
+        ? null
+        : controller.desktopManifest?.applicationById(effectiveApplication.id);
+    final remoteLayout =
+        effectiveTab == _HomeTab.application &&
+            computer?.mode == ComputerMode.advanced &&
+            controller.isDesktopSynced &&
+            effectiveApplication != null
+        ? remoteApplication == null
+              ? null
+              : controller.layoutForApplication(remoteApplication)
+        : effectiveTab == _HomeTab.keyboard &&
+              controller.isDesktopSynced &&
+              !desktopReconnecting
+        ? controller.genericSyncedLayout
+        : null;
     final keysPerPage = boardMode
         ? controller.config.preferences.tabletKeysPerPage
         : controlButtonCount;
@@ -206,56 +252,172 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           );
     Future<void> selectTab(_HomeTab tab) async {
+      final selectedVibe = tab == _HomeTab.vibeCoding
+          ? (selectedApplication?.category == ComputerAppCategory.vibeCoding &&
+                    applicationIsAvailable
+                ? selectedApplication.id
+                : _firstConfiguredVibeId(availableApps))
+          : null;
       final generation = ++_homeSelectionGeneration;
-      if (tab != selectedTab || selectedApplicationId != null) {
+      if (tab != selectedTab ||
+          selectedApplicationId != selectedVibe ||
+          tab == _HomeTab.vibeCoding) {
+        await _stopVibeDictation();
         await controller.prepareForContextChange();
       }
       if (!mounted || generation != _homeSelectionGeneration) return;
       setState(() {
         selectedTab = tab;
-        selectedApplicationId = null;
+        selectedApplicationId = selectedVibe;
         editing = false;
         _activeBank = 0;
         _followForeground = false;
       });
     }
 
-    Future<void> selectApplication(RemoteApplication application) async {
+    Future<void> selectApplication(ComputerApplication application) async {
+      final target = computer;
+      if (target == null) return;
+      final messenger = ScaffoldMessenger.of(context);
       final generation = ++_homeSelectionGeneration;
-      if (selectedTab != _HomeTab.application ||
-          selectedApplicationId != application.id) {
-        await controller.prepareForContextChange();
+      await _stopVibeDictation();
+      final afterStop = controller.activeComputer;
+      if (!mounted ||
+          generation != _homeSelectionGeneration ||
+          afterStop?.id != target.id ||
+          afterStop?.mode != target.mode ||
+          target.mode == ComputerMode.advanced && !controller.isDesktopSynced) {
+        return;
       }
+      await controller.prepareForContextChange();
       if (!mounted || generation != _homeSelectionGeneration) return;
+      final afterRelease = controller.activeComputer;
+      if (afterRelease?.id != target.id ||
+          afterRelease?.mode != target.mode ||
+          target.mode == ComputerMode.advanced && !controller.isDesktopSynced) {
+        return;
+      }
       setState(() {
-        selectedTab = _HomeTab.application;
+        selectedTab = _applicationTabFor(application.id);
         selectedApplicationId = application.id;
         editing = false;
         _activeBank = 0;
         _followForeground = false;
       });
+      try {
+        if (target.mode == ComputerMode.standalone) {
+          await controller.executeStandaloneShortcut(
+            target,
+            application.id,
+            'launch',
+          );
+        } else if (target.mode == ComputerMode.advanced) {
+          final remote = controller.desktopManifest?.applicationById(
+            application.id,
+          );
+          if (remote == null) {
+            throw StateError('${application.name} is unavailable in Desktop.');
+          }
+          await controller.launchRemoteApplication(remote);
+        }
+      } catch (error) {
+        if (mounted) messenger.showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+
+    Future<void> editComputerSetup() async {
+      if (computer == null) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (routeContext) => Scaffold(
+            body: ComputerSetupWizard(
+              controller: controller,
+              target: computer,
+              initialSetup: controller.activeComputerSetup,
+              onSaved: () => Navigator.of(routeContext).pop(),
+              onCancel: () => Navigator.of(routeContext).pop(),
+            ),
+          ),
+        ),
+      );
     }
 
     final content = switch (effectiveTab) {
-      _HomeTab.keyboard || _HomeTab.application => keyboardSurface,
-      _HomeTab.apps => _SyncedAppsPage(
-        controller: controller,
-        onOpenApplication: (application) async {
-          await selectApplication(application);
-          await controller.launchRemoteApplication(application);
-        },
-      ),
-      _HomeTab.codex => keyboardSurface,
+      _HomeTab.keyboard => keyboardSurface,
+      _HomeTab.application =>
+        computer == null || effectiveApplication == null
+            ? keyboardSurface
+            : computer.mode == ComputerMode.standalone
+            ? StandaloneAppPanel(
+                controller: controller,
+                target: computer,
+                application: effectiveApplication,
+                onConfigure: editComputerSetup,
+              )
+            : remoteLayout == null
+            ? _NoManagedAppLayout(
+                applicationName: effectiveApplication.name,
+                onManage: editComputerSetup,
+              )
+            : keyboardSurface,
       _HomeTab.vibeCoding => VibeCodingPanel(
         controller: controller,
+        target: computer,
         selectedApplicationId: selectedVibeApplicationId,
-        onSelectApplication: (applicationId) =>
-            _selectVibeApplication(controller, applicationId),
+        onConfigure: computer == null ? null : editComputerSetup,
         onBeforeContextChange: _stopVibeDictation,
-        onStartDictation: () => _startVibeDictation(controller),
+        onStartDictation: () =>
+            _startVibeDictation(controller, selectedVibeApplicationId),
         onStopDictation: _stopVibeDictation,
       ),
     };
+    final iOSGateContent =
+        iosPairingGate && computer?.mode != ComputerMode.advanced
+        ? ListView(
+            key: const ValueKey('ios-desktop-pairing-gate'),
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                'Connect LumiaKey Desktop',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'On iPhone and iPad, LumiaKey needs its paired Desktop app to choose apps and send shortcuts.',
+              ),
+              const SizedBox(height: 16),
+              DesktopConnectionPanel(companion: controller.companion),
+            ],
+          )
+        : null;
+    final setupContent = showFirstSetup
+        ? ComputerSetupWizard(
+            key: ValueKey('first-computer-setup-${computer.id}'),
+            controller: controller,
+            target: computer,
+            initialSetup: null,
+            onSaved: () => setState(() {
+              selectedTab = _HomeTab.keyboard;
+              selectedApplicationId = null;
+              _followForeground = false;
+            }),
+          )
+        : null;
+    final safeContent = desktopReconnecting && !showFirstSetup
+        ? _DesktopReconnectState(onManage: editComputerSetup)
+        : setupContent ?? content;
+    final visibleProfiles = controller.visibleHomeProfiles
+        .where(
+          (profile) =>
+              computer == null ||
+              profile.id != 'profile_web' && profile.id != 'profile_meetings',
+        )
+        .toList(growable: false);
+    final showComputerAppBar =
+        !showFirstSetup &&
+        computer != null &&
+        controller.isActiveComputerSetupComplete &&
+        iOSGateContent == null;
 
     return Theme(
       data: Theme.of(context).copyWith(
@@ -271,93 +433,110 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 190, 6),
-                    child: _HomeTabBar(
-                      controller: controller,
-                      selectedTab: effectiveTab,
-                      selectedApplicationId: effectiveApplication?.id,
-                      onSelectTab: selectTab,
-                      onSelectApplication: selectApplication,
-                      onSelectVibe: () => selectTab(_HomeTab.vibeCoding),
+                  if (iOSGateContent != null)
+                    Expanded(child: iOSGateContent)
+                  else if (showFirstSetup)
+                    Expanded(child: safeContent)
+                  else ...[
+                    if (showComputerAppBar)
+                      _ComputerApplicationBar(
+                        applications: availableApps,
+                        selectedApplicationId: applicationIsAvailable
+                            ? selectedApplicationId
+                            : null,
+                        onSelectApplication: selectApplication,
+                        onManage: editComputerSetup,
+                      ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(10, 10, 190, 6),
+                      child: _HomeTabBar(
+                        controller: controller,
+                        profiles: visibleProfiles,
+                        activeProfileId: controller.activeProfile.id,
+                        selectedTab: effectiveTab,
+                        onSelectTab: selectTab,
+                      ),
                     ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: ValueListenableBuilder<String?>(
-                      valueListenable: controller.hid.errorMessage,
-                      builder: (context, error, _) => Column(
-                        children: [
-                          if (error != null)
-                            Material(
-                              key: const ValueKey('control-surface-error'),
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.errorContainer,
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 5,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.error_outline,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onErrorContainer,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Tooltip(
-                                          message: error,
-                                          child: Text(
-                                            error,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.onErrorContainer,
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ValueListenableBuilder<String?>(
+                        valueListenable: controller.hid.errorMessage,
+                        builder: (context, error, _) => Column(
+                          children: [
+                            if (error != null)
+                              Material(
+                                key: const ValueKey('control-surface-error'),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.errorContainer,
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 5,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onErrorContainer,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Tooltip(
+                                            message: error,
+                                            child: Text(
+                                              error,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onErrorContainer,
+                                              ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          Expanded(child: content),
-                        ],
+                            Expanded(child: safeContent),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
-              Positioned(
-                top: 7,
-                right: 10,
-                child: _CompactControlMenu(
-                  controller: controller,
-                  editing: editing,
-                  onToggleEditing: () => setState(() => editing = !editing),
+              if (iOSGateContent == null && !showFirstSetup)
+                Positioned(
+                  top: showComputerAppBar ? 47 : 7,
+                  right: 10,
+                  child: _CompactControlMenu(
+                    controller: controller,
+                    editing: editing,
+                    onToggleEditing: () => setState(() => editing = !editing),
+                  ),
                 ),
-              ),
-              Positioned.fill(
-                child: LocalDictationEntryButton(
-                  key: _dictationEntryKey,
-                  hid: controller.hid,
-                  companion: controller.companion,
-                  modelManager: widget.dictationModelManager,
-                  capture: widget.dictationCapture,
-                  recognizerFactory: widget.dictationRecognizerFactory,
-                  enableWakeLock: widget.enableDictationWakeLock,
-                  disableWakeLock: widget.disableDictationWakeLock,
+              if (iOSGateContent == null && !showFirstSetup)
+                Positioned.fill(
+                  child: LocalDictationEntryButton(
+                    key: _dictationEntryKey,
+                    hid: controller.hid,
+                    topOffset: showComputerAppBar ? 47 : 7,
+                    companion: controller.companion,
+                    modelManager: widget.dictationModelManager,
+                    capture: widget.dictationCapture,
+                    recognizerFactory: widget.dictationRecognizerFactory,
+                    enableWakeLock: widget.enableDictationWakeLock,
+                    disableWakeLock: widget.disableDictationWakeLock,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -366,6 +545,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _consumeDesktopActivation(AppController controller) {
+    if (_targetResetPending) return;
     final manifest = controller.desktopManifest;
     final host = controller.companion.activeHost.value;
     final appId = manifest?.activatedApplicationId;
@@ -378,8 +558,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final token = '${host.token}:$sequence';
     if (_handledActivationToken == token) return;
-    if (selectedTab == _HomeTab.vibeCoding) {
-      _handledActivationToken = token;
+    if (!controller.availableComputerApplications.any(
+      (application) => application.id == appId,
+    )) {
       return;
     }
     final app = controller.syncedApplications
@@ -394,46 +575,64 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     _handledActivationToken = token;
-    selectedTab = app.id == 'codex' ? _HomeTab.codex : _HomeTab.application;
+    selectedTab = _applicationTabFor(app.id);
     selectedApplicationId = app.id;
     editing = false;
     _followForeground = false;
   }
 
-  Future<void> _selectVibeApplication(
+  void _trackComputerTarget(AppController controller, ComputerTarget? target) {
+    if (_lastComputerId == target?.id) return;
+    final oldId = _lastComputerId;
+    final wasResetPending = _targetResetPending;
+    _lastComputerId = target?.id;
+    ++_homeSelectionGeneration;
+    final transitionGeneration = ++_computerTransitionGeneration;
+    if (oldId != null || wasResetPending) {
+      _targetResetPending = true;
+      selectedTab = _HomeTab.keyboard;
+      selectedApplicationId = null;
+      _activeBank = 0;
+      _followForeground = false;
+    } else {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _stopVibeDictation();
+      if (!mounted ||
+          transitionGeneration != _computerTransitionGeneration ||
+          _lastComputerId != target?.id) {
+        return;
+      }
+      await controller.prepareForContextChange();
+      if (!mounted ||
+          transitionGeneration != _computerTransitionGeneration ||
+          _lastComputerId != target?.id) {
+        return;
+      }
+      setState(() {
+        _targetResetPending = false;
+      });
+    });
+  }
+
+  Future<void> _startVibeDictation(
     AppController controller,
     String applicationId,
   ) async {
-    final generation = ++_homeSelectionGeneration;
-    await _stopVibeDictation();
-    if (!mounted || generation != _homeSelectionGeneration) return;
-    await controller.prepareForContextChange();
-    if (!mounted || generation != _homeSelectionGeneration) return;
-    setState(() {
-      selectedTab = _HomeTab.vibeCoding;
-      selectedApplicationId = null;
-      selectedVibeApplicationId = applicationId;
-      editing = false;
-      _activeBank = 0;
-      _followForeground = false;
-    });
-    await controller.launchVibeCodingApplication(applicationId);
-  }
-
-  Future<void> _startVibeDictation(AppController controller) async {
     final manifest = controller.desktopManifest;
-    if (!controller.isDesktopSynced ||
-        manifest?.applicationById(selectedVibeApplicationId)?.foreground !=
-            true) {
+    if (controller.computerMode != ComputerMode.advanced ||
+        !controller.isDesktopSynced ||
+        manifest?.applicationById(applicationId)?.foreground != true) {
       throw StateError(
-        'Focus ${_vibeApplicationLabel(selectedVibeApplicationId)} before starting Local Dictation.',
+        'Focus ${_vibeApplicationLabel(applicationId)} before starting Local Dictation.',
       );
     }
     final entry = _dictationEntryKey.currentState;
     if (entry == null) {
       throw StateError('Local Dictation is not ready yet.');
     }
-    await entry.startQuickDictation();
+    await entry.startQuickDictation(forceDesktopOutput: true);
   }
 
   Future<void> _stopVibeDictation() async {
@@ -448,27 +647,38 @@ String _vibeApplicationLabel(String applicationId) => switch (applicationId) {
   _ => 'the selected app',
 };
 
+_HomeTab _applicationTabFor(String applicationId) =>
+    computerApplicationById(applicationId)?.category ==
+        ComputerAppCategory.vibeCoding
+    ? _HomeTab.vibeCoding
+    : _HomeTab.application;
+
+String _firstConfiguredVibeId(List<ComputerApplication> applications) {
+  for (final application in applications) {
+    if (application.category == ComputerAppCategory.vibeCoding) {
+      return application.id;
+    }
+  }
+  return '';
+}
+
 int _boardColumns(int keysPerPage, bool landscape) {
   final scale = landscape ? 1.25 : 0.8;
   return (sqrt(keysPerPage) * scale).round();
 }
 
-enum _HomeTab { keyboard, application, apps, codex, vibeCoding }
+enum _HomeTab { keyboard, application, vibeCoding }
 
 extension on _HomeTab {
   String get label => switch (this) {
     _HomeTab.keyboard => 'Keyboard',
     _HomeTab.application => 'Application',
-    _HomeTab.apps => 'Apps',
-    _HomeTab.codex => 'Codex',
     _HomeTab.vibeCoding => 'Vibe Coding',
   };
 
   IconData get icon => switch (this) {
     _HomeTab.keyboard => Icons.keyboard_alt_outlined,
     _HomeTab.application => Icons.layers_outlined,
-    _HomeTab.apps => Icons.apps,
-    _HomeTab.codex => Icons.auto_awesome,
     _HomeTab.vibeCoding => Icons.terminal,
   };
 }
@@ -742,19 +952,17 @@ class _LandscapePanel extends StatelessWidget {
 class _HomeTabBar extends StatelessWidget {
   const _HomeTabBar({
     required this.controller,
+    required this.profiles,
+    required this.activeProfileId,
     required this.selectedTab,
-    required this.selectedApplicationId,
     required this.onSelectTab,
-    required this.onSelectApplication,
-    required this.onSelectVibe,
   });
 
   final AppController controller;
+  final List<ProfileConfig> profiles;
+  final String activeProfileId;
   final _HomeTab selectedTab;
-  final String? selectedApplicationId;
   final ValueChanged<_HomeTab> onSelectTab;
-  final ValueChanged<RemoteApplication> onSelectApplication;
-  final VoidCallback onSelectVibe;
 
   @override
   Widget build(BuildContext context) {
@@ -763,12 +971,12 @@ class _HomeTabBar extends StatelessWidget {
       label: _HomeTab.vibeCoding.label,
       icon: Icon(_HomeTab.vibeCoding.icon),
       selected: selectedTab == _HomeTab.vibeCoding,
-      onTap: onSelectVibe,
+      onTap: () => onSelectTab(_HomeTab.vibeCoding),
     );
 
     final items = <Widget>[];
     var insertedVibe = false;
-    for (final profile in controller.visibleHomeProfiles) {
+    for (final profile in profiles) {
       if (profile.id == 'profile_custom') {
         items.add(vibeChip());
         insertedVibe = true;
@@ -782,8 +990,7 @@ class _HomeTabBar extends StatelessWidget {
                 Icons.dashboard_outlined,
           ),
           selected:
-              selectedTab == _HomeTab.keyboard &&
-              profile.id == controller.activeProfile.id,
+              selectedTab == _HomeTab.keyboard && profile.id == activeProfileId,
           onTap: () {
             onSelectTab(_HomeTab.keyboard);
             controller.switchProfile(profile.id);
@@ -792,46 +999,6 @@ class _HomeTabBar extends StatelessWidget {
       );
     }
     if (!insertedVibe) items.add(vibeChip());
-    items.addAll(
-      controller.runningApplications
-          .where((application) => application.id != 'codex')
-          .map(
-            (application) => _HomeTabChip(
-              key: ValueKey('workspace-app-${application.id}'),
-              label: application.name,
-              icon: _RemoteApplicationIcon(application: application),
-              selected:
-                  selectedTab == _HomeTab.application &&
-                  selectedApplicationId == application.id,
-              onTap: () => onSelectApplication(application),
-            ),
-          ),
-    );
-    if (controller.hasAppsSync) {
-      items.add(
-        _HomeTabChip(
-          key: const ValueKey('home-tab-apps'),
-          label: _HomeTab.apps.label,
-          icon: Icon(_HomeTab.apps.icon),
-          selected: selectedTab == _HomeTab.apps,
-          onTap: () => onSelectTab(_HomeTab.apps),
-        ),
-      );
-    }
-    if (controller.hasCodexWorkspace) {
-      items.add(
-        _HomeTabChip(
-          key: const ValueKey('home-tab-codex'),
-          label: _HomeTab.codex.label,
-          icon: const _BrandedAppIcon(
-            applicationId: 'codex',
-            fallback: Icons.auto_awesome,
-          ),
-          selected: selectedTab == _HomeTab.codex,
-          onTap: () => onSelectTab(_HomeTab.codex),
-        ),
-      );
-    }
     return SizedBox(
       key: const ValueKey('profile-quick-switch-bar'),
       height: 34,
@@ -844,6 +1011,66 @@ class _HomeTabBar extends StatelessWidget {
     );
   }
 }
+
+class _ComputerApplicationBar extends StatelessWidget {
+  const _ComputerApplicationBar({
+    required this.applications,
+    required this.selectedApplicationId,
+    required this.onSelectApplication,
+    required this.onManage,
+  });
+
+  final List<ComputerApplication> applications;
+  final String? selectedApplicationId;
+  final ValueChanged<ComputerApplication> onSelectApplication;
+  final VoidCallback onManage;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    key: const ValueKey('computer-app-row'),
+    height: 42,
+    child: Row(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            itemCount: applications.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 6),
+            itemBuilder: (context, index) {
+              final application = applications[index];
+              final remote = computerApplicationById(application.id);
+              final selected = application.id == selectedApplicationId;
+              final icon = _computerApplicationIcon(application.id);
+              return _HomeTabChip(
+                key: ValueKey('workspace-app-${application.id}'),
+                label: remote?.name ?? application.name,
+                icon: Icon(icon),
+                selected: selected,
+                onTap: () => onSelectApplication(application),
+              );
+            },
+          ),
+        ),
+        IconButton(
+          key: const ValueKey('computer-app-manage'),
+          tooltip: 'Choose computer apps and set up shortcuts',
+          onPressed: onManage,
+          icon: const Icon(Icons.tune),
+        ),
+      ],
+    ),
+  );
+}
+
+IconData _computerApplicationIcon(String id) => switch (id) {
+  'chrome' || 'firefox' || 'safari' => Icons.language,
+  'teams' || 'zoom' => Icons.video_call_outlined,
+  'codex' => Icons.auto_awesome,
+  'claude' => Icons.psychology_outlined,
+  'cursor' => Icons.code,
+  _ => Icons.apps,
+};
 
 class _HomeTabChip extends StatelessWidget {
   const _HomeTabChip({
@@ -908,6 +1135,74 @@ class _HomeTabChip extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DesktopReconnectState extends StatelessWidget {
+  const _DesktopReconnectState({required this.onManage});
+
+  final VoidCallback onManage;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.sync, size: 38),
+          const SizedBox(height: 12),
+          Text(
+            'Reconnect to LumiaKey Desktop',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'This computer uses the Desktop mode saved for it. Check the pairing connection to continue.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            key: const ValueKey('desktop-reconnect-manage'),
+            onPressed: onManage,
+            icon: const Icon(Icons.tune),
+            label: const Text('Connection and app settings'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _NoManagedAppLayout extends StatelessWidget {
+  const _NoManagedAppLayout({
+    required this.applicationName,
+    required this.onManage,
+  });
+
+  final String applicationName;
+  final VoidCallback onManage;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$applicationName is not ready in LumiaKey Desktop.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: onManage,
+            icon: const Icon(Icons.tune),
+            label: const Text('App settings'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _RemoteButtonGrid extends StatelessWidget {
@@ -988,38 +1283,93 @@ class _RemoteButtonGrid extends StatelessWidget {
                             await controller.executeRemoteButton(button);
                           }
                         : null,
-                    child: Padding(
-                      padding: const EdgeInsets.all(9),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            appVoiceInput
-                                ? Icons.graphic_eq
-                                : remoteIcon(button.icon),
-                            size: 25,
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            appVoiceInput ? 'App voice input' : button.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          if (button.targetType ==
-                              RemoteTargetType.keyboardShortcut)
-                            Text(
-                              formatShortcut(button.shortcut),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Colors.white54,
-                              ),
-                            ),
-                        ],
-                      ),
+                    child: LayoutBuilder(
+                      builder: (context, cellConstraints) {
+                        final compact = cellConstraints.maxHeight < 64;
+                        final title = appVoiceInput
+                            ? 'App voice input'
+                            : button.name;
+                        final shortcut =
+                            button.targetType ==
+                                RemoteTargetType.keyboardShortcut
+                            ? formatShortcut(button.shortcut)
+                            : null;
+                        return Padding(
+                          padding: EdgeInsets.all(compact ? 4 : 9),
+                          child: compact
+                              ? Row(
+                                  children: [
+                                    Icon(
+                                      appVoiceInput
+                                          ? Icons.graphic_eq
+                                          : remoteIcon(button.icon),
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          if (shortcut != null)
+                                            Text(
+                                              shortcut,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 9,
+                                                color: Colors.white54,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      appVoiceInput
+                                          ? Icons.graphic_eq
+                                          : remoteIcon(button.icon),
+                                      size: 25,
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (shortcut != null)
+                                      Text(
+                                        shortcut,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.white54,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -1030,177 +1380,6 @@ class _RemoteButtonGrid extends StatelessWidget {
       },
     );
   }
-}
-
-class _SyncedAppsPage extends StatelessWidget {
-  const _SyncedAppsPage({
-    required this.controller,
-    required this.onOpenApplication,
-  });
-
-  final AppController controller;
-  final ValueChanged<RemoteApplication> onOpenApplication;
-
-  @override
-  Widget build(BuildContext context) {
-    final apps = controller.syncedApplications;
-    if (apps.isEmpty) {
-      return const _DesktopRequired(
-        message: 'Enable Apps Sync in LumiaKey Desktop to show applications.',
-      );
-    }
-    final columns = MediaQuery.orientationOf(context) == Orientation.landscape
-        ? 5
-        : 3;
-    final landscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    return SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final gridWidth = landscape
-              ? constraints.maxWidth * 2 / 3
-              : constraints.maxWidth;
-          final gridHeight = landscape
-              ? constraints.maxHeight
-              : constraints.maxHeight * 62 / 95;
-          final rows = (controlButtonCount / columns).ceil();
-          const horizontalSpacing = 4.0;
-          const verticalSpacing = 8.0;
-          const horizontalPadding = 10.0;
-          const verticalPadding = 10.0;
-          final width =
-              (gridWidth -
-                  horizontalPadding * 2 -
-                  horizontalSpacing * (columns - 1)) /
-              columns;
-          final height =
-              (gridHeight -
-                  verticalPadding * 2 -
-                  verticalSpacing * (rows - 1)) /
-              rows;
-          return Align(
-            alignment: Alignment.topLeft,
-            child: SizedBox(
-              width: gridWidth,
-              height: gridHeight,
-              child: GridView.builder(
-                key: const ValueKey('apps-grid'),
-                physics: const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(10),
-                itemCount: apps.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: horizontalSpacing,
-                  mainAxisSpacing: verticalSpacing,
-                  childAspectRatio: width / height,
-                ),
-                itemBuilder: (context, index) {
-                  final app = apps[index];
-                  return Material(
-                    color: const Color(0xFF151C26),
-                    borderRadius: BorderRadius.circular(14),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      key: ValueKey('remote-app-${app.id}'),
-                      onTap: () => onOpenApplication(app),
-                      child: Padding(
-                        padding: const EdgeInsets.all(9),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox.square(
-                              dimension: 34,
-                              child: _RemoteApplicationIcon(application: app),
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              app.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              app.running ? 'Running' : 'Open',
-                              maxLines: 1,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Colors.white54,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _RemoteApplicationIcon extends StatelessWidget {
-  const _RemoteApplicationIcon({required this.application});
-
-  final RemoteApplication application;
-
-  @override
-  Widget build(BuildContext context) => _BrandedAppIcon(
-    applicationId: application.icon.isEmpty ? '' : application.id,
-    fallback: remoteIcon(application.icon),
-  );
-}
-
-class _BrandedAppIcon extends StatelessWidget {
-  const _BrandedAppIcon({required this.applicationId, required this.fallback});
-
-  final String applicationId;
-  final IconData fallback;
-
-  @override
-  Widget build(BuildContext context) {
-    final asset = _appIconAssets[applicationId];
-    return asset == null
-        ? Icon(fallback)
-        : Image.asset(asset, fit: BoxFit.contain);
-  }
-}
-
-const _appIconAssets = <String, String>{
-  'codex': 'assets/app_icons/openai.png',
-  'chrome': 'assets/app_icons/chrome.png',
-  'vscode': 'assets/app_icons/vscode.png',
-  'photoshop': 'assets/app_icons/photoshop.png',
-  'illustrator': 'assets/app_icons/illustrator.png',
-  'premiere': 'assets/app_icons/premiere.png',
-  'solidworks': 'assets/app_icons/solidworks.png',
-};
-
-class _DesktopRequired extends StatelessWidget {
-  const _DesktopRequired({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.desktop_access_disabled, size: 54),
-          const SizedBox(height: 16),
-          Text(message, textAlign: TextAlign.center),
-        ],
-      ),
-    ),
-  );
 }
 
 IconData remoteIcon(String id) => switch (id) {
@@ -1559,7 +1738,9 @@ class _CompactControlMenu extends StatelessWidget {
       builder: (context, status, _) => ValueListenableBuilder<bool?>(
         valueListenable: controller.powerBrightnessService.isPluggedIn,
         builder: (context, pluggedIn, _) {
-          final desktopKeyboardOnly = controller.hid is IosCompanionHidService;
+          final desktopKeyboardOnly =
+              controller.hid is IosCompanionHidService ||
+              defaultTargetPlatform == TargetPlatform.iOS;
           final display = _statusDisplay(
             controller.controlSurfaceStatus,
             status,
@@ -1582,27 +1763,36 @@ class _CompactControlMenu extends StatelessWidget {
                     title: Text('Profiles · ${controller.activeProfile.name}'),
                   ),
                 ),
-                PopupMenuItem(
-                  key: ValueKey(
-                    desktopKeyboardOnly
-                        ? 'menu-desktop-connection'
-                        : 'menu-bluetooth-connection',
-                  ),
-                  value: desktopKeyboardOnly
-                      ? _ControlMenuAction.desktopConnection
-                      : _ControlMenuAction.bluetooth,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: desktopKeyboardOnly
-                        ? const Icon(Icons.desktop_windows_outlined)
-                        : Icon(_connectionIcon(status)),
-                    title: Text(
-                      desktopKeyboardOnly
-                          ? 'Desktop connection'
-                          : 'Bluetooth · ${_connectionLabel(status)}',
+                if (desktopKeyboardOnly)
+                  const PopupMenuItem(
+                    key: ValueKey('menu-desktop-connection'),
+                    value: _ControlMenuAction.desktopConnection,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.desktop_windows_outlined),
+                      title: Text('Desktop connection'),
+                    ),
+                  )
+                else ...[
+                  PopupMenuItem(
+                    key: const ValueKey('menu-bluetooth-connection'),
+                    value: _ControlMenuAction.bluetooth,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(_connectionIcon(status)),
+                      title: Text('Bluetooth · ${_connectionLabel(status)}'),
                     ),
                   ),
-                ),
+                  const PopupMenuItem(
+                    key: ValueKey('menu-desktop-connection'),
+                    value: _ControlMenuAction.desktopConnection,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.desktop_windows_outlined),
+                      title: Text('LumiaKey Desktop'),
+                    ),
+                  ),
+                ],
                 PopupMenuItem(
                   value: _ControlMenuAction.toggleEditing,
                   child: ListTile(

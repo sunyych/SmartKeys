@@ -465,6 +465,7 @@ class LanCompanionService
           previous.address != address ||
           previous.port != port ||
           previous.token != token;
+      final recoverSession = _status.value == CompanionSyncStatus.error;
       if (hostChanged) {
         ++_selectionEpoch;
         _clearPendingManifestRefresh();
@@ -484,7 +485,10 @@ class LanCompanionService
       _host.value = host;
       _error.value = null;
       if (host.supportsManifest) {
-        if (hostChanged || revisionChanged || _manifest.value == null) {
+        if (hostChanged ||
+            revisionChanged ||
+            _manifest.value == null ||
+            recoverSession) {
           _pendingRevision = revision;
           unawaited(refreshManifest());
         }

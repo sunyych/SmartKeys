@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
 
@@ -42,7 +43,7 @@ void main() {
     },
   );
 
-  testWidgets('homepage quick output and app voice input both gate first use', (
+  testWidgets('homepage quick output and Vibe Local Dictation stay separate', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -58,6 +59,12 @@ void main() {
       installed: const {'codex'},
       running: const {'codex'},
       foreground: 'codex',
+    );
+    final target = harness.controller.activeComputer;
+    expect(target, isNotNull);
+    await harness.controller.saveComputerSetup(
+      target!,
+      ComputerSetup(applicationIds: const ['codex']),
     );
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pumpAndSettle();
@@ -75,55 +82,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(harness.companion.remoteActions, isEmpty);
 
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(-700, 0),
-    );
+    await tester.tap(find.byKey(const ValueKey('home-tab-vibe-coding')));
     await tester.pumpAndSettle();
-    final codexTab = find.byKey(const ValueKey('home-tab-codex'));
-    if (codexTab.evaluate().isEmpty) {
-      await tester.drag(
-        find.byKey(const ValueKey('profile-quick-switch-bar')),
-        const Offset(-700, 0),
-      );
-      await tester.pumpAndSettle();
-    }
-    await tester.tap(find.byKey(const ValueKey('home-tab-codex')));
-    await tester.pumpAndSettle();
-    final voiceButton = find.byKey(const ValueKey('remote-button-codex.voice'));
-    expect(voiceButton, findsOneWidget);
-    final semanticsNodes = tester.widgetList<Semantics>(
-      find.ancestor(of: voiceButton, matching: find.byType(Semantics)),
-    );
-    expect(
-      semanticsNodes.any(
-        (node) =>
-            node.properties.label ==
-            'Application voice input, starts the selected app voice shortcut',
-      ),
-      isTrue,
-    );
-    expect(
-      find.descendant(of: voiceButton, matching: find.byIcon(Icons.graphic_eq)),
-      findsOneWidget,
-    );
-
-    await tester.tap(voiceButton);
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('dictation-entry-explanation')),
-      findsOneWidget,
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('dictation-explanation-accept')),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      (await SharedPreferences.getInstance()).getBool(
-        dictationConsentPreferenceKey,
-      ),
-      isTrue,
-    );
-    expect(harness.companion.remoteActions.single.buttonId, 'codex.voice');
+    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-tab-codex')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
+    expect(harness.companion.remoteActions, isEmpty);
   });
 }

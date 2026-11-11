@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/data/profile_template_repository.dart';
 import 'package:smart_keys/models/config.dart';
+import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/ui/home_screen.dart';
 
@@ -41,9 +42,13 @@ void main() {
         harness.companion.syncedManifest.value = desktopManifest(
           installed: const {'codex', 'chrome', 'vscode'},
           running: const {'codex'},
-        );
+        ).copyWith(computerId: 'manual-desktop');
         harness.companion.host.value = connectedCompanionHost;
         harness.companion.status.value = CompanionSyncStatus.ready;
+        await harness.controller.saveComputerSetup(
+          harness.controller.activeComputer!,
+          ComputerSetup(applicationIds: const ['codex', 'chrome', 'vscode']),
+        );
       }
       final key = GlobalKey();
       await tester.pumpWidget(
@@ -139,59 +144,31 @@ void main() {
     await shots.unmount();
 
     key = await mountHome(const Size(844, 390), desktop: true);
-    final tabs = find.byKey(const ValueKey('profile-quick-switch-bar'));
-    await tester.drag(tabs, const Offset(-900, 0));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('home-tab-apps')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('home-tab-apps')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('apps-grid')), findsOneWidget);
-    expect(find.byKey(const ValueKey('remote-app-codex')), findsOneWidget);
-    final appIconContext = tester.element(
-      find.byKey(const ValueKey('apps-grid')),
-    );
-    await tester.runAsync(() async {
-      await Future.wait<void>([
-        for (final asset in [
-          'assets/app_icons/openai.png',
-          'assets/app_icons/chrome.png',
-          'assets/app_icons/vscode.png',
-        ])
-          precacheImage(AssetImage(asset), appIconContext),
-      ]);
-    });
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('computer-app-row')), findsOneWidget);
     for (final id in ['codex', 'vscode', 'chrome']) {
-      final rawIcon = tester.widget<RawImage>(
-        find.descendant(
-          of: find.byKey(ValueKey('remote-app-$id')),
-          matching: find.byType(RawImage),
-        ),
-      );
-      expect(rawIcon.image, isNotNull, reason: '$id brand icon must decode');
+      expect(find.byKey(ValueKey('workspace-app-$id')), findsOneWidget);
     }
     await shots.capture(
-      id: 'manual-apps',
-      title: 'Desktop Apps workspace',
+      id: 'manual-desktop-apps',
+      title: 'Desktop app quick launch',
       orientation: 'landscape',
       notes:
-          'Real HomeScreen with a fixture manifest advertising installed Codex, Chrome, and VSCode; no live Desktop connection.',
+          'Real HomeScreen with a fixture manifest and per-computer selected apps in the quick-launch row; no live Desktop connection.',
       boundaryKey: key,
     );
 
-    await tester.drag(tabs, const Offset(-900, 0));
+    final vibeTab = find.byKey(const ValueKey('home-tab-vibe-coding'));
+    await tester.ensureVisible(vibeTab);
+    await tester.tap(vibeTab);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('home-tab-codex')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('home-tab-codex')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('remote-layout-codex')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
     await shots.capture(
-      id: 'manual-codex',
-      title: 'Codex workspace',
+      id: 'manual-vibe-coding',
+      title: 'Vibe Coding controls',
       orientation: 'landscape',
       notes:
-          'Real HomeScreen and bundled Codex shortcut layout with a fixture Desktop manifest; actions are not sent to a host.',
+          'Unified Vibe Coding tab with selected Codex available in the top app row and Desktop-managed controls; actions are not sent to a host.',
       boundaryKey: key,
     );
   });

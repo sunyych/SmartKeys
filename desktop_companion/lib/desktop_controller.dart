@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -57,7 +58,7 @@ abstract interface class ApplicationDiscovery {
 class PlatformApplicationDiscovery implements ApplicationDiscovery {
   const PlatformApplicationDiscovery();
 
-  static const _macOnlyApplicationIds = {'appleMusic', 'finder'};
+  static const _macOnlyApplicationIds = {'appleMusic', 'finder', 'safari'};
   @override
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async {
     final installedMacApps = Platform.isMacOS
@@ -135,7 +136,14 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
                 : app.executable,
           );
         }
-        final result = await Process.run('which', [app.executable]);
+        if (app.id == 'safari') {
+          return app.copyWith(
+            detected: false,
+            running: false,
+            foreground: false,
+          );
+        }
+        final result = await Process.run('which', [_linuxExecutable(app)]);
         return app.copyWith(
           detected: result.exitCode == 0 || running,
           running: running,
@@ -174,6 +182,12 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
       if (app.id == 'premiere') 'premiere pro',
       if (app.id == 'vscode') 'code.exe',
       if (app.id == 'chrome') 'chrome.exe',
+      if (app.id == 'firefox') 'firefox.exe',
+      if (app.id == 'teams') 'ms-teams.exe',
+      if (app.id == 'teams') 'teams.exe',
+      if (app.id == 'zoom') 'zoom.exe',
+      if (app.id == 'zoom') 'cpt-host.exe',
+      if (app.id == 'safari') 'safari.app',
       if (app.id == 'photoshop') 'photoshop.exe',
       if (app.id == 'illustrator') 'illustrator.exe',
       if (app.id == 'premiere') 'adobe premiere pro.exe',
@@ -277,6 +291,16 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
           : 'Codex.exe',
     'claude' => 'Claude.exe',
     'cursor' => 'Cursor.exe',
+    'firefox' => 'firefox.exe',
+    'teams' => 'ms-teams.exe',
+    'zoom' => 'Zoom.exe',
+    _ => app.executable,
+  };
+
+  static String _linuxExecutable(RemoteApplication app) => switch (app.id) {
+    'firefox' => 'firefox',
+    'teams' => 'teams-for-linux',
+    'zoom' => 'zoom',
     _ => app.executable,
   };
 }
@@ -294,7 +318,7 @@ class DesktopController extends ChangeNotifier {
   final DesktopActions actions;
   final ApplicationDiscovery discovery;
   final Future<bool> Function(RemoteApplication)? foregroundProbe;
-  bool _vibeActionRunning = false;
+  bool _managedActionRunning = false;
 
   DesktopManifest _manifest = DesktopManifest.starter();
   bool _loading = true;
@@ -322,6 +346,10 @@ class DesktopController extends ChangeNotifier {
     try {
       final loaded = await store.load() ?? DesktopManifest.starter();
       _manifest = _upgradeManifest(loaded);
+      if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(_manifest.computerId ?? '')) {
+        _manifest = _manifest.copyWith(computerId: _newComputerId());
+      }
+      _manifest = _applyPlatformDefaults(_manifest, loaded);
       final apps = await discovery.refresh(_manifest.applications);
       _manifest = _withApplications(apps);
       if (jsonEncode(_manifest.toJson()) != jsonEncode(loaded.toJson())) {
@@ -556,6 +584,46 @@ class DesktopController extends ChangeNotifier {
     );
   }
 
+  static DesktopManifest _applyPlatformDefaults(
+    DesktopManifest manifest,
+    DesktopManifest original,
+  ) {
+    if (!Platform.isMacOS) return manifest;
+    const layoutsWithMacDefaults = {'app.firefox', 'app.safari', 'app.zoom'};
+    final layouts = manifest.layouts
+        .map((layout) {
+          if (!layoutsWithMacDefaults.contains(layout.id) ||
+              original.layoutById(layout.id) != null) {
+            return layout;
+          }
+          return layout.copyWith(
+            buttons: layout.buttons
+                .map((button) {
+                  final keys = switch (button.id) {
+                    'firefox.back' || 'safari.back' => const ['PRIMARY', '['],
+                    'firefox.forward' ||
+                    'safari.forward' => const ['PRIMARY', ']'],
+                    'zoom.mute' => const ['PRIMARY', 'SHIFT', 'A'],
+                    'zoom.video' => const ['PRIMARY', 'SHIFT', 'V'],
+                    'zoom.hand' => const ['ALT', 'Y'],
+                    'zoom.chat' => const ['PRIMARY', 'SHIFT', 'H'],
+                    _ => button.shortcut,
+                  };
+                  return button.copyWith(shortcut: keys);
+                })
+                .toList(growable: false),
+          );
+        })
+        .toList(growable: false);
+    return manifest.copyWith(layouts: layouts);
+  }
+
+  static String _newComputerId() {
+    final random = Random.secure();
+    const hex = '0123456789abcdef';
+    return List.generate(32, (_) => hex[random.nextInt(hex.length)]).join();
+  }
+
   Future<void> switchProfile(String profileId) async {
     if (!_manifest.profiles.any((profile) => profile.id == profileId)) {
       throw const FormatException('Unknown shortcut profile');
@@ -569,20 +637,26 @@ class DesktopController extends ChangeNotifier {
         final button = _manifest.buttonById(request.buttonId ?? '');
         if (button == null) throw const FormatException('Unknown button');
         final vibeAppId = _vibeAppForButton(button.id);
-        if (vibeAppId != null) {
-          await _serializeVibe(() async {
-            final app = _manifest.applicationById(vibeAppId);
-            if (app == null) throw StateError('Vibe app is not configured');
+        final managedAppId =
+            vibeAppId ?? _managedAppForButton(button, _manifest);
+        if (managedAppId != null) {
+          await _serializeManagedAction(() async {
+            final app = _manifest.applicationById(managedAppId);
+            if (app == null) throw StateError('The app is not configured');
             if (!button.enabled) throw StateError('Shortcut is disabled');
+            final allowedPasswordManager =
+                managedAppId == 'chrome' &&
+                button.id == 'chrome.passwordManager' &&
+                button.targetType == RemoteTargetType.openUrl &&
+                button.target == 'https://passwords.google.com/';
             if (button.targetType != RemoteTargetType.keyboardShortcut &&
-                button.targetType != RemoteTargetType.system) {
+                button.targetType != RemoteTargetType.system &&
+                !allowedPasswordManager) {
               throw const FormatException(
-                'Vibe actions must use a Desktop-approved shortcut or system action',
+                'Managed app actions must use a Desktop-approved action',
               );
             }
-            if ((button.targetType == RemoteTargetType.keyboardShortcut ||
-                    button.targetType == RemoteTargetType.system) &&
-                !await _isLiveForeground(app)) {
+            if (!await _isLiveForeground(app)) {
               throw StateError(
                 'Switch to ${app.name} before using this shortcut',
               );
@@ -590,7 +664,7 @@ class DesktopController extends ChangeNotifier {
             await actions.executeButton(
               button,
               _manifest,
-              expectedAppId: vibeAppId,
+              expectedAppId: managedAppId,
             );
           });
         } else {
@@ -602,8 +676,11 @@ class DesktopController extends ChangeNotifier {
         }
         final app = _manifest.applicationById(request.applicationId ?? '');
         if (app == null) throw const FormatException('Unknown application');
-        if (_isVibeApp(app.id)) {
-          await _serializeVibe(() => actions.activateApplication(app));
+        if (_isManagedLaunchApp(app.id)) {
+          if (!app.detected) {
+            throw StateError('${app.name} is not installed on this computer');
+          }
+          await _serializeManagedAction(() => actions.activateApplication(app));
         } else {
           await actions.launchApplication(app.executable);
         }
@@ -622,24 +699,47 @@ class DesktopController extends ChangeNotifier {
     return false;
   }
 
-  Future<void> _serializeVibe(Future<void> Function() action) async {
-    if (_vibeActionRunning) {
-      throw StateError('Another Vibe action is in progress');
+  Future<void> _serializeManagedAction(Future<void> Function() action) async {
+    if (_managedActionRunning) {
+      throw StateError('Another app action is in progress');
     }
-    _vibeActionRunning = true;
+    _managedActionRunning = true;
     try {
       await action();
     } finally {
-      _vibeActionRunning = false;
+      _managedActionRunning = false;
     }
   }
 
-  static bool _isVibeApp(String id) =>
-      id == 'codex' || id == 'claude' || id == 'cursor';
+  static const _managedApps = {'chrome', 'firefox', 'safari', 'teams', 'zoom'};
+
+  static const _managedLaunchApps = {
+    ..._managedApps,
+    'codex',
+    'claude',
+    'cursor',
+  };
+
+  static bool _isManagedLaunchApp(String id) => _managedLaunchApps.contains(id);
 
   static String? _vibeAppForButton(String id) {
     for (final app in const ['codex', 'claude', 'cursor']) {
       if (id.startsWith('vibe.$app.')) return app;
+    }
+    return null;
+  }
+
+  static String? _managedAppForButton(
+    RemoteShortcutButton button,
+    DesktopManifest manifest,
+  ) {
+    for (final app in manifest.applications) {
+      if (!_managedApps.contains(app.id)) continue;
+      final layout = manifest.layoutById(app.layoutId);
+      if (layout != null &&
+          layout.buttons.any((item) => item.id == button.id)) {
+        return app.id;
+      }
     }
     return null;
   }

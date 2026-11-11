@@ -5,22 +5,26 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/config.dart';
+import '../models/computer_setup.dart';
 import '../services/companion_service.dart';
+import 'standalone_app_panel.dart';
 
 class VibeCodingPanel extends StatefulWidget {
   const VibeCodingPanel({
     super.key,
     required this.controller,
+    required this.target,
     required this.selectedApplicationId,
-    required this.onSelectApplication,
+    this.onConfigure,
     required this.onBeforeContextChange,
     required this.onStartDictation,
     required this.onStopDictation,
   });
 
   final AppController controller;
+  final ComputerTarget? target;
   final String selectedApplicationId;
-  final Future<void> Function(String applicationId) onSelectApplication;
+  final VoidCallback? onConfigure;
   final Future<void> Function() onBeforeContextChange;
   final Future<void> Function() onStartDictation;
   final Future<void> Function() onStopDictation;
@@ -30,12 +34,6 @@ class VibeCodingPanel extends StatefulWidget {
 }
 
 class _VibeCodingPanelState extends State<VibeCodingPanel> {
-  static const _applications = [
-    (id: 'codex', label: 'Codex', icon: Icons.auto_awesome),
-    (id: 'claude', label: 'Claude', icon: Icons.psychology_outlined),
-    (id: 'cursor', label: 'Cursor', icon: Icons.code),
-  ];
-
   String? _pendingOperation;
   String? _operationError;
   bool _dictationBusy = false;
@@ -59,6 +57,24 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final target = widget.target;
+    final basicApplication = computerApplicationById(
+      widget.selectedApplicationId,
+    );
+    if (target?.mode == ComputerMode.standalone && basicApplication != null) {
+      return StandaloneAppPanel(
+        controller: widget.controller,
+        target: target!,
+        application: basicApplication,
+        onConfigure: widget.onConfigure,
+      );
+    }
+    if (widget.selectedApplicationId.isEmpty) {
+      return _VibeApplicationRequired(
+        mode: target?.mode ?? ComputerMode.disconnected,
+        onConfigure: widget.onConfigure,
+      );
+    }
     final companion = widget.controller.companion;
     return AnimatedBuilder(
       animation: Listenable.merge([
@@ -96,36 +112,18 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(
-              height: 48,
-              child: ListView.separated(
-                key: const ValueKey('vibe-app-choices'),
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                itemCount: _applications.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final app = _applications[index];
-                  final selected = app.id == appId;
-                  final pending = _pendingOperation == 'app:${app.id}';
-                  return ChoiceChip(
-                    key: ValueKey('vibe-app-${app.id}'),
-                    selected: selected,
-                    onSelected: busy
-                        ? null
-                        : (_) => _runOperation('app:${app.id}', () async {
-                            await _stopBackspaceRepeat();
-                            await widget.onSelectApplication(app.id);
-                          }),
-                    avatar: pending
-                        ? const SizedBox.square(
-                            dimension: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(app.icon, size: 17),
-                    label: Text(app.label),
-                  );
-                },
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Row(
+                children: [
+                  Icon(_vibeApplicationIcon(appId), size: 19),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Vibe Coding · ${_vibeApplicationLabel(appId)}',
+                    key: const ValueKey('vibe-coding-title'),
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ],
               ),
             ),
             Padding(
@@ -194,11 +192,6 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      layout.name,
-                      key: const ValueKey('vibe-layout-name'),
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
                     if (appId == 'claude')
                       Text(
                         'In Claude Desktop, select the Code tab.',
@@ -517,6 +510,66 @@ class _VibeAvailability {
   final bool ready;
   final String? error;
 }
+
+class _VibeApplicationRequired extends StatelessWidget {
+  const _VibeApplicationRequired({required this.mode, this.onConfigure});
+
+  final ComputerMode mode;
+  final VoidCallback? onConfigure;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = switch (mode) {
+      ComputerMode.standalone =>
+        'Choose Codex, Claude or Cursor in computer app settings to set up Vibe Coding.',
+      ComputerMode.advanced =>
+        'Install or enable app sync for Codex, Claude or Cursor on LumiaKey Desktop.',
+      ComputerMode.disconnected =>
+        'Connect to a computer to use Vibe Coding shortcuts.',
+    };
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.terminal, size: 38),
+            const SizedBox(height: 12),
+            const Text(
+              'Choose an app for Vibe Coding',
+              key: ValueKey('vibe-app-required-title'),
+            ),
+            const SizedBox(height: 6),
+            Text(message, textAlign: TextAlign.center),
+            if (onConfigure != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const ValueKey('vibe-app-required-configure'),
+                onPressed: onConfigure,
+                icon: const Icon(Icons.tune),
+                label: const Text('Computer app settings'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _vibeApplicationLabel(String applicationId) => switch (applicationId) {
+  'codex' => 'Codex',
+  'claude' => 'Claude',
+  'cursor' => 'Cursor',
+  _ => 'App',
+};
+
+IconData _vibeApplicationIcon(String applicationId) => switch (applicationId) {
+  'codex' => Icons.auto_awesome,
+  'claude' => Icons.psychology_outlined,
+  'cursor' => Icons.code,
+  _ => Icons.terminal,
+};
 
 class _VibeStatusCard extends StatelessWidget {
   const _VibeStatusCard({

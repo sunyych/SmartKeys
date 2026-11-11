@@ -8,6 +8,7 @@ import 'package:path/path.dart' as path;
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/data/private_image_store.dart';
 import 'package:smart_keys/models/config.dart';
+import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/ui/widgets/button_face.dart';
@@ -81,6 +82,10 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       final harness = await TestHarness.create();
       addTearDown(() => _disposeHarness(tester, harness));
+      await harness.controller.saveComputerSetup(
+        harness.controller.activeComputer!,
+        ComputerSetup(applicationIds: const []),
+      );
 
       await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
       await tester.pump();
@@ -92,6 +97,10 @@ void main() {
       );
       harness.companion.host.value = connectedCompanionHost;
       harness.companion.status.value = CompanionSyncStatus.ready;
+      await harness.controller.saveComputerSetup(
+        harness.controller.activeComputer!,
+        ComputerSetup(applicationIds: const ['vscode']),
+      );
       await tester.pump();
 
       expect(find.byKey(const ValueKey('status-mode-desktop')), findsOneWidget);
@@ -104,8 +113,10 @@ void main() {
         installed: const {'vscode'},
         running: const {'vscode'},
         foreground: 'vscode',
+        activationSequence: 1,
+        activatedApplicationId: 'vscode',
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('status-mode-app')), findsOneWidget);
       expect(find.text('VSCode'), findsWidgets);
@@ -123,9 +134,7 @@ void main() {
     },
   );
 
-  testWidgets('desktop manifest reveals Apps and executes synced ids', (
-    tester,
-  ) async {
+  testWidgets('selected Desktop apps launch from the top row', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -138,51 +147,22 @@ void main() {
     );
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
+    await harness.controller.saveComputerSetup(
+      harness.controller.activeComputer!,
+      ComputerSetup(applicationIds: const ['vscode', 'codex']),
+    );
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
 
-    await _scrollHomeBarUntilVisible(
-      tester,
+    await tester.ensureVisible(
       find.byKey(const ValueKey('workspace-app-vscode')),
     );
     expect(find.byKey(const ValueKey('workspace-app-vscode')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workspace-app-codex')), findsNothing);
-    await _scrollHomeBarUntilVisible(
-      tester,
-      find.byKey(const ValueKey('home-tab-apps')),
-    );
-    expect(find.byKey(const ValueKey('home-tab-apps')), findsOneWidget);
-    expect(find.byKey(const ValueKey('home-tab-codex')), findsOneWidget);
-    expect(find.byKey(const ValueKey('desktop-profile-default')), findsNothing);
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(1000, 0),
-    );
+    expect(find.byKey(const ValueKey('workspace-app-codex')), findsOneWidget);
+    expect(find.byKey(const ValueKey('computer-app-row')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('workspace-app-vscode')));
     await tester.pumpAndSettle();
-    await _scrollHomeBarUntilVisible(
-      tester,
-      find.byKey(const ValueKey('home-tab-apps')),
-    );
-    await tester.tap(find.byKey(const ValueKey('home-tab-apps')));
-    await tester.pump();
-
-    expect(find.byKey(const ValueKey('remote-app-vscode')), findsOneWidget);
-    final appButtonSize = tester.getSize(
-      find.byKey(const ValueKey('remote-app-vscode')),
-    );
-    final appIcon = tester.widget<Image>(
-      find.descendant(
-        of: find.byKey(const ValueKey('remote-app-vscode')),
-        matching: find.byType(Image),
-      ),
-    );
-    expect(
-      (appIcon.image as AssetImage).assetName,
-      'assets/app_icons/vscode.png',
-    );
-    await tester.tap(find.byKey(const ValueKey('remote-app-vscode')));
-    await tester.pump();
 
     expect(harness.companion.remoteActions.single.applicationId, 'vscode');
     expect(find.byKey(const ValueKey('apps-grid')), findsNothing);
@@ -190,26 +170,17 @@ void main() {
       find.byKey(const ValueKey('remote-layout-app.vscode')),
       findsOneWidget,
     );
-    final shortcutButtonSize = tester.getSize(
-      find.byKey(const ValueKey('remote-button-vscode.save')),
-    );
-    expect(appButtonSize.width, closeTo(shortcutButtonSize.width, 1));
-    expect(appButtonSize.height, closeTo(shortcutButtonSize.height, 1));
-
     expect(find.byKey(const ValueKey('wheel-region')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('remote-button-vscode.save')));
     await tester.pump();
     expect(harness.companion.remoteActions.last.buttonId, 'vscode.save');
 
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(-120, 0),
-    );
+    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-tab-codex')));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('remote-layout-codex')), findsOneWidget);
-    expect(find.byKey(const ValueKey('wheel-region')), findsOneWidget);
+    expect(harness.companion.remoteActions.last.applicationId, 'codex');
+    expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
   });
 
   testWidgets('consumes each Desktop app activation only once', (tester) async {
@@ -227,6 +198,10 @@ void main() {
       foreground: 'chrome',
       activationSequence: 1,
       activatedApplicationId: 'chrome',
+    );
+    await harness.controller.saveComputerSetup(
+      harness.controller.activeComputer!,
+      ComputerSetup(applicationIds: const ['chrome', 'vscode']),
     );
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
@@ -288,17 +263,15 @@ void main() {
     );
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
+    await harness.controller.saveComputerSetup(
+      harness.controller.activeComputer!,
+      ComputerSetup(applicationIds: const ['chrome']),
+    );
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
-    await _scrollHomeBarUntilVisible(
-      tester,
-      find.byKey(const ValueKey('home-tab-apps')),
-    );
-    await tester.tap(find.byKey(const ValueKey('home-tab-apps')));
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('remote-app-chrome')));
-    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('workspace-app-chrome')));
+    await tester.pumpAndSettle();
 
     expect(harness.companion.remoteActions.single.applicationId, 'chrome');
     expect(
@@ -336,6 +309,7 @@ void main() {
       ),
     );
     addTearDown(() => _disposeHarness(tester, harness));
+    harness.hid.status.value = HidConnectionStatus.disconnected;
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
@@ -369,6 +343,10 @@ void main() {
     );
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
+    await harness.controller.saveComputerSetup(
+      harness.controller.activeComputer!,
+      ComputerSetup(applicationIds: const ['codex']),
+    );
     await tester.pump();
     expect(
       find.descendant(of: navigation, matching: find.text('Web')),
@@ -378,11 +356,12 @@ void main() {
       find.descendant(of: navigation, matching: find.text('Teams')),
       findsNothing,
     );
-    await tester.tap(find.byKey(const ValueKey('home-tab-codex')));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('remote-layout-codex')), findsOneWidget);
-    expect(find.byKey(const ValueKey('landscape-layout')), findsOneWidget);
-    expect(find.byKey(const ValueKey('wheel-region')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await tester.pumpAndSettle();
+    expect(harness.companion.remoteActions.last.applicationId, 'codex');
+    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey('profile-quick-profile_general')),
     );
@@ -407,6 +386,7 @@ void main() {
       ),
     );
     addTearDown(() => _disposeHarness(tester, harness));
+    harness.hid.status.value = HidConnectionStatus.disconnected;
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pumpAndSettle();
 
@@ -831,6 +811,10 @@ void main() {
       address: 'AA:BB',
     );
     addTearDown(() => _disposeHarness(tester, harness));
+    await harness.controller.saveComputerSetup(
+      harness.controller.activeComputer!,
+      ComputerSetup(applicationIds: const []),
+    );
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
 
@@ -1035,26 +1019,6 @@ Future<void> _disposeHarness(WidgetTester tester, TestHarness harness) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pump();
   await harness.dispose();
-}
-
-Future<void> _scrollHomeBarUntilVisible(
-  WidgetTester tester,
-  Finder item,
-) async {
-  final bar = find.byKey(const ValueKey('profile-quick-switch-bar'));
-  final scrollable = find.descendant(
-    of: bar,
-    matching: find.byType(Scrollable),
-  );
-  await tester.scrollUntilVisible(item, 100, scrollable: scrollable);
-  final barRect = tester.getRect(bar);
-  final centerX = tester.getRect(item).center.dx;
-  if (centerX > barRect.right - 12) {
-    await tester.drag(bar, Offset(-(centerX - (barRect.right - 12)), 0));
-  } else if (centerX < barRect.left + 12) {
-    await tester.drag(bar, Offset(barRect.left + 12 - centerX, 0));
-  }
-  await tester.pumpAndSettle();
 }
 
 Future<void> _waitForDashboard(WidgetTester tester) async {

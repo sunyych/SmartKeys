@@ -152,6 +152,58 @@ void main() {
     expect(synced.applicationById('claude'), isNull);
   });
 
+  test('browser and meeting apps ship with stable keyboard-only layouts', () {
+    final manifest = DesktopManifest.starter();
+    for (final app in const ['chrome', 'firefox', 'safari', 'teams', 'zoom']) {
+      final application = manifest.applicationById(app)!;
+      expect(manifest.layoutById(application.layoutId), isNotNull);
+      expect(manifest.layoutById(application.layoutId)!.buttons, isNotEmpty);
+      expect(
+        manifest
+            .layoutById(application.layoutId)!
+            .buttons
+            .every(
+              (button) =>
+                  button.targetType == RemoteTargetType.keyboardShortcut ||
+                  (app == 'chrome' &&
+                      button.targetType == RemoteTargetType.openUrl),
+            ),
+        isTrue,
+      );
+    }
+    expect(manifest.buttonById('teams.mute')!.shortcut, [
+      'PRIMARY',
+      'SHIFT',
+      'M',
+    ]);
+    expect(manifest.buttonById('teams.video')!.shortcut, [
+      'PRIMARY',
+      'SHIFT',
+      'O',
+    ]);
+    expect(manifest.buttonById('teams.hand')!.shortcut, [
+      'PRIMARY',
+      'SHIFT',
+      'K',
+    ]);
+    expect(manifest.buttonById('zoom.mute')!.shortcut, ['ALT', 'A']);
+    expect(manifest.buttonById('zoom.video')!.shortcut, ['ALT', 'V']);
+    expect(manifest.buttonById('zoom.hand')!.shortcut, ['ALT', 'Y']);
+  });
+
+  test(
+    'computer identity stays optional for old manifests and syncs when set',
+    () {
+      final legacy = DesktopManifest.starter().toJson()..remove('computerId');
+      final restoredLegacy = DesktopManifest.fromJson(legacy);
+      expect(restoredLegacy.computerId, isNull);
+
+      final identified = restoredLegacy.copyWith(computerId: 'a' * 32);
+      final synced = DesktopManifest.fromJson(identified.toJson(forSync: true));
+      expect(synced.computerId, 'a' * 32);
+    },
+  );
+
   test(
     'sync settings omit apps and icons without changing desktop storage',
     () {

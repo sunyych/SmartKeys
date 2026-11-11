@@ -541,12 +541,12 @@ class _TabletPairingCardState extends State<_TabletPairingCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Connect an iPad',
+            'Connect an iPhone or iPad',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 6),
           const Text(
-            'Join the same Wi-Fi, then paste this private connection code into LumiaKey on the iPad.',
+            'Join the same Wi-Fi, then paste this private connection code into LumiaKey on your iPhone or iPad.',
           ),
           const SizedBox(height: 12),
           if (_addresses.isEmpty)
@@ -570,7 +570,7 @@ class _TabletPairingCardState extends State<_TabletPairingCard> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Choose the Wi-Fi address reachable by your iPad. Avoid VPN or virtual adapter addresses.',
+              'Choose the Wi-Fi address reachable by your iPhone or iPad. Avoid VPN or virtual adapter addresses.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -597,7 +597,7 @@ class _TabletPairingCardState extends State<_TabletPairingCard> {
                     );
                   },
             icon: const Icon(Icons.copy),
-            label: const Text('Copy iPad connection code'),
+            label: const Text('Copy iPhone / iPad connection code'),
           ),
         ],
       ),

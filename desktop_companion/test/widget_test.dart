@@ -60,6 +60,20 @@ class _RecordingRunner implements DesktopProcessRunner {
       throw UnsupportedError('The dark action only uses run');
 }
 
+class _SuccessfulRecordingRunner implements DesktopProcessRunner {
+  final List<(String, List<String>)> calls = [];
+
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async {
+    calls.add((executable, arguments));
+    return ProcessResult(0, 0, '', '');
+  }
+
+  @override
+  Future<Process> start(String executable, List<String> arguments) =>
+      throw UnsupportedError('This test only uses run');
+}
+
 class _RecordingMacSystemControl implements MacSystemControl {
   final List<bool> values = [];
 
@@ -68,6 +82,21 @@ class _RecordingMacSystemControl implements MacSystemControl {
 }
 
 void main() {
+  test('quotes generic Windows app launch arguments', () async {
+    if (!Platform.isWindows) return;
+    final runner = _SuccessfulRecordingRunner();
+    await DesktopActions(
+      runner: runner,
+    ).launchApplication('Visual Studio Code');
+    expect(runner.calls, hasLength(1));
+    expect(runner.calls.single.$1, 'powershell.exe');
+    expect(
+      runner.calls.single.$2[3],
+      r'& { Start-Process -FilePath $args[0] }',
+    );
+    expect(runner.calls.single.$2[4], "'Code.exe'");
+  });
+
   test('rejects unknown desktop action kinds', () async {
     await expectLater(
       DesktopActions().executeLegacy({'kind': 'shell', 'command': 'anything'}),

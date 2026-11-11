@@ -75,8 +75,14 @@ void main() {
 
   test('Vibe app requests activate only manifest-owned app IDs', () async {
     final actions = _RecordingActions();
+    final starter = DesktopManifest.starter();
     final controller = DesktopController(
-      store: MemoryDesktopConfigStore(),
+      store: MemoryDesktopConfigStore()
+        ..value = starter.copyWith(
+          applications: starter.applications
+              .map((app) => app.copyWith(detected: app.id == 'claude'))
+              .toList(growable: false),
+        ),
       actions: actions,
       discovery: _NoopDiscovery(),
     );

@@ -29,6 +29,7 @@ class LocalDictationEntryButton extends StatefulWidget {
   const LocalDictationEntryButton({
     super.key,
     required this.hid,
+    this.topOffset = 7,
     this.companion,
     this.modelManager,
     this.capture,
@@ -38,6 +39,7 @@ class LocalDictationEntryButton extends StatefulWidget {
   });
 
   final HidService hid;
+  final double topOffset;
   final CompanionService? companion;
   final ModelManager? modelManager;
   final DictationCapture? capture;
@@ -67,6 +69,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
   bool _opening = false;
   bool _entryVisible = false;
   bool _autoStartCurrentEntry = true;
+  bool _forceDesktopOutputForCurrentEntry = false;
   int _openGeneration = 0;
 
   bool get isEntryOpen => _entryVisible;
@@ -74,7 +77,8 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
   bool get isDictationRunning =>
       _panelKey.currentState?.isSessionInProgress ?? false;
 
-  Future<void> startQuickDictation() => _open(autoStart: true);
+  Future<void> startQuickDictation({bool forceDesktopOutput = false}) =>
+      _open(autoStart: true, forceDesktopOutput: forceDesktopOutput);
 
   /// Stops the current quick session, or invalidates consent/start work that
   /// has not reached microphone capture yet.
@@ -109,7 +113,10 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
     _removeEntry();
   }
 
-  Future<void> _open({required bool autoStart}) async {
+  Future<void> _open({
+    required bool autoStart,
+    bool forceDesktopOutput = false,
+  }) async {
     if (_opening || _entryVisible) return;
     _opening = true;
     final generation = ++_openGeneration;
@@ -132,6 +139,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
       setState(() {
         _entryVisible = true;
         _autoStartCurrentEntry = autoStart;
+        _forceDesktopOutputForCurrentEntry = forceDesktopOutput;
       });
     } finally {
       _opening = false;
@@ -174,7 +182,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
     fit: StackFit.expand,
     children: [
       Positioned(
-        top: 7,
+        top: widget.topOffset,
         right: 142,
         child: Tooltip(
           triggerMode: TooltipTriggerMode.manual,
@@ -203,6 +211,8 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
             companion: widget.companion,
             key: _panelKey,
             autoStartWhenReady: _autoStartCurrentEntry,
+            forceDesktopOutput: _forceDesktopOutputForCurrentEntry,
+            liveChipTopOffset: widget.topOffset,
             autoCollapseWhileListening: true,
             modelManager: widget.modelManager,
             capture: widget.capture,
@@ -223,6 +233,8 @@ class LocalDictationPanel extends StatefulWidget {
     this.companion,
     this.autoStartWhenReady = false,
     this.autoCollapseWhileListening = false,
+    this.forceDesktopOutput = false,
+    this.liveChipTopOffset = 7,
     this.onDismiss,
     this.modelManager,
     this.capture,
@@ -236,6 +248,8 @@ class LocalDictationPanel extends StatefulWidget {
   final CompanionService? companion;
   final bool autoStartWhenReady;
   final bool autoCollapseWhileListening;
+  final bool forceDesktopOutput;
+  final double liveChipTopOffset;
   final VoidCallback? onDismiss;
   final ModelManager? modelManager;
   final DictationCapture? capture;
@@ -411,7 +425,7 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
         (value) => value.name == outputModeName,
         orElse: () => DictationOutputMode.bluetoothEnglish,
       );
-      final effectiveOutputMode = Platform.isIOS
+      final effectiveOutputMode = widget.forceDesktopOutput || Platform.isIOS
           ? DictationOutputMode.desktopMultilingual
           : outputMode;
       final language =
@@ -425,10 +439,12 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
         _desktopLanguagePreferenceKey,
         desktopLanguage.name,
       );
-      await preferences.setString(
-        _outputModePreferenceKey,
-        effectiveOutputMode.name,
-      );
+      if (!widget.forceDesktopOutput) {
+        await preferences.setString(
+          _outputModePreferenceKey,
+          effectiveOutputMode.name,
+        );
+      }
       final permission = await _capture.hasPermission();
       final ready = await _models.areModelsAvailable(model: model);
       if (!mounted) return;
@@ -1031,6 +1047,10 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
     if (mode == null || mode == _outputMode || _controlsBusy || _downloading) {
       return;
     }
+    if (widget.forceDesktopOutput &&
+        mode != DictationOutputMode.desktopMultilingual) {
+      return;
+    }
     setState(() => _configuring = true);
     final language = mode == DictationOutputMode.bluetoothEnglish
         ? DictationLanguage.english
@@ -1257,7 +1277,8 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
                                 labelText: 'Output mode',
                               ),
                               items: [
-                                if (!Platform.isIOS)
+                                if (!Platform.isIOS &&
+                                    !widget.forceDesktopOutput)
                                   DropdownMenuItem(
                                     key: ValueKey(
                                       'dictation-output-bluetoothEnglish',
@@ -1282,7 +1303,10 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
                                   ),
                                 ),
                               ],
-                              onChanged: _controlsBusy || _downloading
+                              onChanged:
+                                  widget.forceDesktopOutput ||
+                                      _controlsBusy ||
+                                      _downloading
                                   ? null
                                   : _selectOutputMode,
                             ),
@@ -1485,7 +1509,7 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
         key: const ValueKey('dictation-live-overlay'),
         children: [
           Positioned(
-            top: MediaQuery.paddingOf(context).top + 7,
+            top: widget.liveChipTopOffset,
             right: MediaQuery.paddingOf(context).right + 142,
             child: _buildLiveLevelStopChip(),
           ),

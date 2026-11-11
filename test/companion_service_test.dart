@@ -261,6 +261,58 @@ void main() {
     },
   );
 
+  test('rediscovery retries the same manifest after an action error', () async {
+    final discoveryPort = await _unusedUdpPort();
+    final manifest = DesktopManifest.starter().copyWith(revision: 30);
+    final server = await _ManifestServer.start(manifest);
+    final sender = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
+    final companion = LanCompanionService(discoveryPort: discoveryPort);
+    addTearDown(() async {
+      companion.dispose();
+      sender.close();
+      await server.close();
+    });
+
+    await companion.start();
+    _advertise(
+      sender,
+      discoveryPort: discoveryPort,
+      name: 'Desktop A',
+      port: server.port,
+      token: 'token-a',
+      revision: manifest.revision,
+    );
+    await _waitUntil(
+      () => companion.syncStatus.value == CompanionSyncStatus.ready,
+    );
+
+    server.rejectActions = true;
+    await companion.executeRemote(
+      const RemoteActionRequest.switchProfile('profile_general'),
+    );
+    expect(companion.syncStatus.value, CompanionSyncStatus.error);
+    expect(server.manifestRequests, 1);
+
+    server.rejectActions = false;
+    _advertise(
+      sender,
+      discoveryPort: discoveryPort,
+      name: 'Desktop A',
+      port: server.port,
+      token: 'token-a',
+      revision: manifest.revision,
+    );
+    await _waitUntil(
+      () =>
+          server.manifestRequests == 2 &&
+          companion.syncStatus.value == CompanionSyncStatus.ready,
+    );
+    expect(companion.manifest.value?.revision, manifest.revision);
+  });
+
   test('discovery timeout retains the last valid Desktop manifest', () async {
     final discoveryPort = await _unusedUdpPort();
     final manifest = DesktopManifest.starter().copyWith(revision: 30);
@@ -430,6 +482,7 @@ class _ManifestServer {
   final Completer<void>? firstManifestGate;
   final Completer<void> firstManifestRequestReceived = Completer<void>();
   int manifestRequests = 0;
+  bool rejectActions = false;
 
   int get port => _server.port;
 
@@ -446,6 +499,19 @@ class _ManifestServer {
     );
     helper._subscription = server.listen((request) async {
       request.response.headers.contentType = ContentType.json;
+      if (request.uri.path == '/action') {
+        request.response.statusCode = helper.rejectActions
+            ? 409
+            : HttpStatus.notFound;
+        request.response.write(jsonEncode({'error': 'action response'}));
+        await request.response.close();
+        return;
+      }
+      if (request.uri.path != '/manifest') {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+        return;
+      }
       helper.manifestRequests++;
       final requestNumber = helper.manifestRequests;
       if (!helper.firstManifestRequestReceived.isCompleted) {

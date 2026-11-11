@@ -25,6 +25,46 @@ Future<void> _tapVisible(WidgetTester tester, Finder target) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('Vibe Local Dictation is forced to Desktop per entry', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'dictation.output_mode.v1': 'bluetoothEnglish',
+    });
+    final hid = _readyHid();
+    addTearDown(hid.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LocalDictationPanel(
+            hid: hid,
+            modelManager: _FakeModelManager(),
+            capture: _FakeCapture(),
+            recognizerFactory: (_, _) async => _FakeRecognizer(),
+            enableWakeLock: () async {},
+            disableWakeLock: () async {},
+            forceDesktopOutput: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('LumiaKey Desktop · multilingual'), findsOneWidget);
+    final mode = tester.widget<DropdownButtonFormField<DictationOutputMode>>(
+      find.byKey(const ValueKey('dictation-output-mode')),
+    );
+    expect(find.text('LumiaKey Desktop · multilingual'), findsOneWidget);
+    expect(mode.onChanged, isNull);
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        'dictation.output_mode.v1',
+      ),
+      'bluetoothEnglish',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'first use explains both entries and does not open the microphone',
     (tester) async {

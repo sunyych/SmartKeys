@@ -1,3 +1,5 @@
+import 'computer_setup.dart';
+
 enum OrientationMode { auto, portrait, landscape }
 
 enum ShortcutPlatform { automatic, apple, windowsLinux }
@@ -549,7 +551,7 @@ class AppPreferences {
 }
 
 class AppConfig {
-  static const currentSchemaVersion = 7;
+  static const currentSchemaVersion = 8;
 
   const AppConfig({
     this.schemaVersion = currentSchemaVersion,
@@ -559,6 +561,7 @@ class AppConfig {
     required this.profiles,
     this.device = const DeviceConfig(),
     this.preferences = const AppPreferences(),
+    this.computerSetups = const {},
   });
 
   final int schemaVersion;
@@ -568,6 +571,7 @@ class AppConfig {
   final List<ProfileConfig> profiles;
   final DeviceConfig device;
   final AppPreferences preferences;
+  final Map<String, ComputerSetup> computerSetups;
 
   ProfileConfig get activeProfile => profiles.firstWhere(
     (profile) => profile.id == activeProfileId,
@@ -616,6 +620,18 @@ class AppConfig {
       preferences: AppPreferences.fromJson(
         json['preferences'] as Map<String, dynamic>?,
       ),
+      computerSetups: {
+        for (final entry
+            in (json['computerSetups'] as Map? ?? const {}).entries)
+          if (entry.key is String &&
+              (entry.key as String).length <= 160 &&
+              entry.value is Map)
+            entry.key as String: ComputerSetup.fromJson(
+              (entry.value as Map).map(
+                (key, value) => MapEntry(key.toString(), value),
+              ),
+            ),
+      },
     );
   }
 
@@ -626,6 +642,10 @@ class AppConfig {
     'profileOrder': profileOrder,
     'device': device.toJson(),
     'preferences': preferences.toJson(),
+    'computerSetups': {
+      for (final entry in computerSetups.entries)
+        entry.key: entry.value.toJson(),
+    },
     'profiles': profiles.map((profile) => profile.toJson()).toList(),
   };
 
@@ -636,6 +656,7 @@ class AppConfig {
     List<ProfileConfig>? profiles,
     DeviceConfig? device,
     AppPreferences? preferences,
+    Map<String, ComputerSetup>? computerSetups,
   }) => AppConfig(
     activeProfileId: activeProfileId ?? this.activeProfileId,
     defaultProfileId: defaultProfileId ?? this.defaultProfileId,
@@ -643,6 +664,7 @@ class AppConfig {
     profiles: profiles ?? this.profiles,
     device: device ?? this.device,
     preferences: preferences ?? this.preferences,
+    computerSetups: computerSetups ?? this.computerSetups,
   );
 }
 
