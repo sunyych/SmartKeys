@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "reviewedProductCommit": "2469b3af6b2abad6a5ff5a8976d83e33f8ae0a04",
-  "documentationDate": "2026-10-28",
-  "screenshotType": "Flutter widget render with fixture hardware and network services; not a physical-device capture",
+  "reviewedProductCommit": "d01db294eaefc2a104f972738398fc7411caf21f",
+  "documentationDate": "2026-11-10",
+  "screenshotType": "Current Flutter product widgets rendered with example devices, apps and connection states",
   "textFont": "Microsoft YaHei via SMARTKEYS_SCREENSHOT_FONT",
   "symbolFont": "Segoe UI Symbol",
   "images": [
     {
       "file": "manual-home-landscape.png",
       "sourceTest": "test/manual_screenshot_test.dart",
-      "sha256": "1ddf53f0094eae20f972be0408ce59a14c32c987cbf0f3cbe4766be9ede723ed",
+      "sha256": "98086e97fe9c0db1974f3df247a565d0145e9a06dc1f5605537253f306be11c4",
       "capture": {
         "id": "manual-home-landscape",
         "title": "LumiaKey home · landscape",
@@ -52,9 +52,69 @@
       }
     },
     {
+      "file": "manual-computer-setup-choose.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "e0d87d2614909ac63625b50a57efcccaab08bc8fcedab6ece8b564e6f36df16a",
+      "capture": {
+        "id": "manual-computer-setup-choose",
+        "title": "Choose computer apps",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/manual-computer-setup-choose.png",
+        "notes": "Real first-connection ComputerSetupWizard with Codex, Claude, and Cursor selected on the standalone Android fixture. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "manual-computer-setup-shortcuts.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "5577f864037ec665a840eb128951d92382f12bec8821acc0ab21dbacf2206d9a",
+      "capture": {
+        "id": "manual-computer-setup-shortcuts",
+        "title": "Configure Codex shortcuts",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/manual-computer-setup-shortcuts.png",
+        "notes": "Real standalone setup wizard with Codex selected and separate voice-mode, voice-input, cancel, chat navigation, and project shortcuts configured in the fixture. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "manual-computer-setup-test-launch.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "123e78714ea65415812becc3d81895ccc737e74152399c27c90f6f8a66b21e84",
+      "capture": {
+        "id": "manual-computer-setup-test-launch",
+        "title": "Test and confirm app launch",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/manual-computer-setup-test-launch.png",
+        "notes": "Wizard state after the fixture sends the launch shortcut and the user confirms seeing Codex open; no real computer was controlled. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "ipad-desktop-offline-home.png",
+      "sourceTest": "test/tablet_control_board_test.dart",
+      "sha256": "72fa91b14a9430f6b5da2ec3651c3ec0831b0ac7f8b926644fb4f734178d24a3",
+      "capture": {
+        "id": "ipad-desktop-offline-home",
+        "title": "iPad Desktop pairing gate",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 768,
+        "height": 1024,
+        "fileName": "phone/ipad-desktop-offline-home.png",
+        "notes": "The iPad requires an authenticated Desktop companion before showing controls or dictation; widget-rendered view, not a physical iPad capture. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
       "file": "manual-tablet-board.png",
       "sourceTest": "test/manual_screenshot_test.dart",
-      "sha256": "2346d32449705cf0171fccbd6629ccf1e4114f7aad347a8a7fc9e87077ef9901",
+      "sha256": "063848242ce96de712d7ddb863189c2cd1dfd7bb806bd3e89a387a87c5e0c149",
       "capture": {
         "id": "manual-tablet-board",
         "title": "LumiaKey shortcut board · 40 keys",
@@ -127,39 +187,54 @@
       }
     },
     {
-      "file": "manual-apps.png",
+      "file": "manual-desktop-apps.png",
       "sourceTest": "test/manual_screenshot_test.dart",
-      "sha256": "8d23ffa77996d509e4ad0da29e7d87763437a8150b1a40ebe38a37868f62a05f",
+      "sha256": "75eb6d72d0fdea72624ea2ee43624fdf252ffdfb78c5bc9c2ba758630512e8cd",
       "capture": {
-        "id": "manual-apps",
-        "title": "Desktop Apps workspace",
+        "id": "manual-desktop-apps",
+        "title": "Desktop app quick launch",
         "platform": "Android widget",
         "orientation": "landscape",
         "width": 844,
         "height": 390,
-        "fileName": "phone/manual-apps.png",
-        "notes": "Real HomeScreen with a fixture manifest advertising installed Codex, Chrome, and VSCode; no live Desktop connection. Fixed Flutter test viewport; this is not a physical-device screenshot."
+        "fileName": "phone/manual-desktop-apps.png",
+        "notes": "Real HomeScreen with a fixture manifest and per-computer selected apps in the quick-launch row; no live Desktop connection. Fixed Flutter test viewport; this is not a physical-device screenshot."
       }
     },
     {
-      "file": "manual-codex.png",
+      "file": "manual-standalone-vibe.png",
       "sourceTest": "test/manual_screenshot_test.dart",
-      "sha256": "388de7bcd565eb985a3ce522b902dbdaf545e7aed77798598c9a97a52a3e6020",
+      "sha256": "adea975284a1a1bf154b476bcea8be727e30306f670532cbec02a292f54186ee",
       "capture": {
-        "id": "manual-codex",
-        "title": "Codex workspace",
+        "id": "manual-standalone-vibe",
+        "title": "Standalone Vibe shortcuts",
         "platform": "Android widget",
-        "orientation": "landscape",
-        "width": 844,
-        "height": 390,
-        "fileName": "phone/manual-codex.png",
-        "notes": "Real HomeScreen and bundled Codex shortcut layout with a fixture Desktop manifest; actions are not sent to a host. Fixed Flutter test viewport; this is not a physical-device screenshot."
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/manual-standalone-vibe.png",
+        "notes": "Real standalone Codex shortcut panel with separate voice-mode and voice-input actions; generated from the first-connection setup fixture. Fixed Flutter test viewport; this is not a physical-device screenshot."
+      }
+    },
+    {
+      "file": "manual-vibe-coding.png",
+      "sourceTest": "test/manual_screenshot_test.dart",
+      "sha256": "dc74014df958ed8282c64c3aa27b2e36c79504abc6a30b0d8478850dc31245f1",
+      "capture": {
+        "id": "manual-vibe-coding",
+        "title": "Vibe Coding controls",
+        "platform": "Android widget",
+        "orientation": "portrait",
+        "width": 412,
+        "height": 915,
+        "fileName": "phone/manual-vibe-coding.png",
+        "notes": "Portrait Advanced-mode fixture with Codex in the foreground, Codex/Claude/Cursor in the top app row, and separate local dictation controls; no live Desktop connection. Fixed Flutter test viewport; this is not a physical-device screenshot."
       }
     },
     {
       "file": "desktop-general-normal.png",
       "sourceTest": "desktop_companion/test/ui_screenshot_test.dart",
-      "sha256": "1b0de74aadbf0d81831821ce4b241da5c3cc5ac20868572133cc5cd696220eea",
+      "sha256": "bc2fd2edee200d3e01010601f6edee6d483dcb801c901fcaba8b07e081a42682",
       "capture": {
         "id": "desktop-general-normal",
         "title": "General settings · normal",
@@ -204,7 +279,7 @@
     {
       "file": "phone-dictation-live-chip-portrait.png",
       "sourceTest": "test/ui_screenshot_test.dart",
-      "sha256": "c89735755a2098eaa5d0b9ef3a4ef489159ebec92d57e9a31c385d48901dab1a",
+      "sha256": "9ddbd8b9465e0cda21005686312c980d204e154f8698b34b15224977e6b464c1",
       "capture": {
         "id": "phone-dictation-live-chip-portrait",
         "title": "Local dictation · compact live chip in portrait",
@@ -234,7 +309,7 @@
     {
       "file": "usage-dashboard-phone.png",
       "sourceTest": "test/usage_dashboard_screen_test.dart",
-      "sha256": "05da29b1b54cb56715b68aa97fa3e2cd99b6489ff40c5bbca2f581cea13f1585",
+      "sha256": "11b4c717445851b1f6af388fbbc19056d85cc5fb605fda342ee2673e8d9b1bc3",
       "capture": {
         "id": "usage-dashboard-phone",
         "title": "Shortcut usage Dashboard · phone",

@@ -1,69 +1,37 @@
 # Functional guide validation
 
-Review date: 2026-10-28 (America/Los_Angeles).
-Reviewed product version: 1.3.0+5.
-Reviewed product commit: `2469b3af6b2abad6a5ff5a8976d83e33f8ae0a04`.
+The reviewed product is LumiaKey 1.3.0+5 at commit
+`d01db294eaefc2a104f972738398fc7411caf21f`. The guide review took place on
+2026-11-10 in America/Los_Angeles.
 
-## Content and captures
+## Content and screenshots
 
-The Chinese and English documents cover the same mobile/tablet and Desktop
-features. Each contains 20 embedded screenshots. Both versions explain that
-the captures render real Flutter widgets with fixture device/network state,
-and distinguish interface language from recognition language.
+Each reader PDF contains 17 pages and 25 screenshots. The Chinese and English
+guides cover the same sections, including the two computer modes, app selection
+and shortcut setup, iPhone/iPad pairing, the app row, and Vibe Coding. The guides
+identify the launch and voice chords shown in the screenshots as examples.
 
-The following scoped suites passed, for a total of 24 tests:
-
-| Suite | Tests |
+| Flutter capture suites | Tests passed |
 | --- | ---: |
-| `test/ui_screenshot_test.dart` | 7 |
-| `test/usage_dashboard_screen_test.dart` | 7 |
-| `test/community_setup_screen_test.dart` | 7 |
-| `test/desktop_installer_screenshot_test.dart` | 1 |
-| `desktop_companion/test/ui_screenshot_test.dart` | 1 |
-| `test/manual_screenshot_test.dart` | 1 |
+| Mobile UI, usage, community, installers, and tablet pairing | 25 |
+| Manual Home, setup, launch confirmation, and Vibe Coding | 1 |
+| Desktop UI | 1 |
 
-The added documentation capture loads shipped Profile templates and uses the
-actual HomeScreen. Its Apps capture waits for brand image decoding and asserts
-that the three displayed application icons have non-null decoded images.
-Captures use a CJK text font and a symbol fallback so Chinese language names
-and keyboard symbols are readable. Retained PNG hashes match the screenshot
-manifest.
+The screenshots render the current product widgets with fixture services. The
+mobile pairing field is empty. The screenshot manifest records each source test,
+rendered viewport, fixture notes and SHA-256. The retained PNGs match the
+manifest and the bilingual content references.
 
-## Document checks
+## PDF checks
 
-- Each document has 13 pages, 13 document/section headings and 20 embedded images.
-- Both DOCX ZIP integrity checks pass.
-- The generator passes Python syntax compilation; `git diff --check` passes.
-- All 26 pages were rendered and inspected at full image size. A crowded
-  Chinese figure caption was shortened, and spacing was added between the
-  comparison table and its screenshot. The final render was checked again.
-- The packaged `render_docx.py` was attempted. This Windows bundle does not
-  provide LibreOffice, and the renderer reports `soffice.exe` unavailable.
-  Final layout verification therefore used Microsoft Word 16 to open the
-  generated DOCX files read-only and export temporary PDFs, followed by the
-  bundled Poppler rasterizer at 120 dpi. The final artifacts remain DOCX.
+- Exported the reader editions from temporary documents and rendered all 34 PDF
+  pages with Poppler at 120 dpi.
+- Inspected the page renders in both languages. Checked that headings, captions,
+  page numbers and screenshots fit and appear in the intended order.
+- Verified each page's section heading, figure captions and embedded image count
+  against `manual_content.json`. Verified the delivered file hashes against the
+  reviewed exports.
 
-Temporary PDFs, page PNGs and test logs are under ignored `build/manual-qa/`.
-Product behavior was not modified. UI wording findings and suggested changes
-are recorded separately in [UI_REVIEW.md](UI_REVIEW.md).
-
-## Acceptance boundary
-
-This work validates the documented implementation and rendered example states.
-It does not validate physical Android HID transmission, real-model speech
-accuracy or latency, operating-system microphone/injection permissions,
-target-app input, production community/OAuth deployment, or signed iPad
-installation and physical-device use.
-
-## PDF delivery update — 2026-10-29
-
-The bilingual content and reviewed product source are unchanged. Each PDF
-reader edition is 13 pages and contains 20 screenshots. The PDFs were produced
-from the previous final Microsoft Word render; the DOCX files remain the
-editable sources, while the PDFs are the reading and delivery versions.
-
-Both delivered PDFs were re-rasterized with bundled Poppler at 120 dpi. SHA-256
-comparisons confirmed that all 26 pages exactly match the existing, visually
-reviewed `final-ZH` and `final-EN` page renders. PDF structure checks also
-confirmed 13 pages and 20 embedded images per document. The product source
-audit date above remains 2026-10-28.
+The fixtures verify UI and documented behavior. Physical Bluetooth input,
+iPhone/iPad installation and pairing, and speech recognition or text delivery
+on a connected device require separate device checks.

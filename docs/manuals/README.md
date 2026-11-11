@@ -1,18 +1,16 @@
 # LumiaKey functional guides
 
-The Chinese and English guides cover the mobile/tablet app and LumiaKey Desktop
-at version **1.3.0+5**. The reviewed product source is commit
-`2469b3af6b2abad6a5ff5a8976d83e33f8ae0a04`, dated for this documentation review on
-2026-10-28 in America/Los_Angeles.
+The Chinese and English guides cover the mobile app and LumiaKey Desktop at
+version **1.3.0+5** with the computer modes update. The reviewed product source
+is commit `d01db294eaefc2a104f972738398fc7411caf21f` as of 2026-11-10 in
+America/Los_Angeles.
 
-- PDF reader editions: [中文软件功能说明书](LumiaKey_Functional_Guide_ZH.pdf) ·
-  [English functional guide](LumiaKey_Functional_Guide_EN.pdf)
-- Editable DOCX sources: [中文 DOCX](LumiaKey_Functional_Guide_ZH.docx) ·
-  [English DOCX](LumiaKey_Functional_Guide_EN.docx). DOCX files are for
-  editing; the PDFs are the reading and delivery versions.
+- [中文软件功能说明书 PDF](LumiaKey_Functional_Guide_ZH.pdf)
+- [English functional guide PDF](LumiaKey_Functional_Guide_EN.pdf)
 
-Each guide includes 20 screenshots and the same functional coverage. The app UI
-is primarily English; the Chinese guide retains visible English control names.
+Both guides cover Bluetooth-only and Desktop advanced modes, first-connection
+setup, iPhone/iPad pairing and Vibe Coding. The Chinese guide retains visible
+English control names. The DOCX files in this folder are from the October edition.
 
 ## Screenshot provenance
 
@@ -26,9 +24,9 @@ published release metadata.
 
 `screenshot_manifest.json` records the source test, viewport, original sidecar,
 reviewed source commit and SHA-256 of each retained image. The curated home and
-tablet captures use the shipped `assets/profiles/` templates. Apps and Codex use
-the real HomeScreen with a fixture Desktop manifest. Other page captures use
-the existing screenshot suites and their example configuration.
+tablet captures use the shipped `assets/profiles/` templates. The setup wizard,
+app row, Vibe Coding screens and iOS pairing gate render the product widgets
+with fixture services. The pairing field is empty.
 
 ## Rebuild screenshots
 
@@ -43,6 +41,7 @@ flutter test --no-pub test/ui_screenshot_test.dart
 flutter test --no-pub test/usage_dashboard_screen_test.dart test/community_setup_screen_test.dart
 flutter test --no-pub test/desktop_installer_screenshot_test.dart
 flutter test --no-pub test/manual_screenshot_test.dart
+flutter test --no-pub test/tablet_control_board_test.dart
 Push-Location desktop_companion
 flutter test --no-pub test/ui_screenshot_test.dart
 Pop-Location
@@ -60,14 +59,13 @@ language names and keyboard symbols readable without changing product assets.
 `scripts/build_feature_manuals.py` uses Python with `python-docx` and Pillow:
 
 ```powershell
-python scripts/build_feature_manuals.py
+python scripts/build_feature_manuals.py --output-dir build/manual-qa/source
 ```
 
-Use the Codex bundled Python when working in Codex. The script writes the two
-editable DOCX source files in this folder. Export reader PDFs from those DOCX
-files, then inspect **every page** after any content, image, font or layout
-change. Rendering outputs and test logs belong in ignored `build/manual-qa/`,
-not in the deliverable directory.
+Use the Codex bundled Python when working in Codex. Export the generated
+documents to PDF and inspect **every page** after changes to the content,
+images, fonts or layout. Put the final PDFs in `docs/manuals/` and keep
+intermediate files and logs in ignored `build/manual-qa/`.
 
 ## Source references
 
@@ -76,7 +74,7 @@ not in the deliverable directory.
 - [Usage and sharing](../SHORTCUT_USAGE.md)
 - [Google account backup](../GOOGLE_BACKUP.md)
 - [Local dictation](../../README.md#local-quick-dictation)
-- [UI review findings](UI_REVIEW.md)
+- [October UI review](UI_REVIEW.md)
 
 These guides describe implementation and UI states. They do not replace
 Android HID hardware acceptance, live speech quality/latency checks, native

@@ -6,6 +6,7 @@ import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/ui/home_screen.dart';
+import 'package:smart_keys/ui/computer_setup_wizard.dart';
 
 import 'screenshot_support.dart';
 import 'test_support.dart';
@@ -40,14 +41,15 @@ void main() {
       await shots.setViewport(size);
       if (desktop) {
         harness.companion.syncedManifest.value = desktopManifest(
-          installed: const {'codex', 'chrome', 'vscode'},
+          installed: const {'codex', 'claude', 'cursor'},
           running: const {'codex'},
+          foreground: 'codex',
         ).copyWith(computerId: 'manual-desktop');
         harness.companion.host.value = connectedCompanionHost;
         harness.companion.status.value = CompanionSyncStatus.ready;
         await harness.controller.saveComputerSetup(
           harness.controller.activeComputer!,
-          ComputerSetup(applicationIds: const ['codex', 'chrome', 'vscode']),
+          ComputerSetup(applicationIds: const ['codex', 'claude', 'cursor']),
         );
       }
       final key = GlobalKey();
@@ -145,9 +147,14 @@ void main() {
 
     key = await mountHome(const Size(844, 390), desktop: true);
     expect(find.byKey(const ValueKey('computer-app-row')), findsOneWidget);
-    for (final id in ['codex', 'vscode', 'chrome']) {
+    for (final id in ['codex', 'claude', 'cursor']) {
       expect(find.byKey(ValueKey('workspace-app-$id')), findsOneWidget);
     }
+    await tester.tap(
+      find.byKey(const ValueKey('profile-quick-profile_general')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('remote-layout-keyboard')), findsOneWidget);
     await shots.capture(
       id: 'manual-desktop-apps',
       title: 'Desktop app quick launch',
@@ -157,19 +164,264 @@ void main() {
       boundaryKey: key,
     );
 
+    await shots.setViewport(const Size(412, 915));
+    await tester.pumpAndSettle();
     final vibeTab = find.byKey(const ValueKey('home-tab-vibe-coding'));
     await tester.ensureVisible(vibeTab);
     await tester.tap(vibeTab);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('vibe-dictation-start')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    await tester.pumpAndSettle();
     await shots.capture(
       id: 'manual-vibe-coding',
       title: 'Vibe Coding controls',
-      orientation: 'landscape',
+      orientation: 'portrait',
       notes:
-          'Unified Vibe Coding tab with selected Codex available in the top app row and Desktop-managed controls; actions are not sent to a host.',
+          'Portrait Advanced-mode fixture with Codex in the foreground, Codex/Claude/Cursor in the top app row, and separate local dictation controls; no live Desktop connection.',
+      boundaryKey: key,
+    );
+
+    // Capture the Android standalone first-connection wizard using its real
+    // HomeScreen child and fake HID transport. These screenshots are widget
+    // fixtures, not captures from a physical Android device.
+    final standalone = await TestHarness.create(
+      config: phoneConfig,
+      seedComputerSetup: false,
+    );
+    addTearDown(standalone.dispose);
+    await shots.setViewport(const Size(412, 915));
+    final wizardKey = GlobalKey();
+    await tester.pumpWidget(
+      screenshotBoundary(
+        wizardKey,
+        SmartKeysScope(
+          controller: standalone.controller,
+          child: MaterialApp(
+            title: 'LumiaKey',
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              brightness: Brightness.dark,
+              fontFamilyFallback: ScreenshotSupport.fontFamilyFallback,
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF67E8F9),
+                brightness: Brightness.dark,
+                surface: const Color(0xFF10151D),
+              ),
+              scaffoldBackgroundColor: const Color(0xFF090D12),
+              useMaterial3: true,
+            ),
+            home: Scaffold(
+              body: ComputerSetupWizard(
+                controller: standalone.controller,
+                target: standalone.controller.activeComputer!,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Future<void> selectApp(String id, {required bool selected}) async {
+      final checkbox = find.byKey(ValueKey('computer-app-select-$id'));
+      await _scrollWizardTo(tester, checkbox);
+      final tile = tester.widget<CheckboxListTile>(checkbox);
+      if (tile.value != selected) {
+        await tester.tap(checkbox);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    for (final id in ['codex', 'claude', 'cursor']) {
+      await selectApp(id, selected: true);
+    }
+    await _scrollWizardToTop(tester);
+    await shots.capture(
+      id: 'manual-computer-setup-choose',
+      title: 'Choose computer apps',
+      orientation: 'portrait',
+      notes:
+          'Real first-connection ComputerSetupWizard with Codex, Claude, and Cursor selected on the standalone Android fixture.',
+      boundaryKey: wizardKey,
+    );
+
+    await selectApp('claude', selected: false);
+    await selectApp('cursor', selected: false);
+    for (final action in [
+      'launch',
+      'voiceMode',
+      'voiceInput',
+      'cancelClear',
+      'previousChat',
+      'nextChat',
+      'nextProject',
+    ]) {
+      final field = find.byKey(ValueKey('computer-key-codex-$action'));
+      await _scrollWizardTo(tester, field);
+      await tester.enterText(field, _manualChord(action));
+      await tester.pump();
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await _alignWizardItem(
+      tester,
+      find.byKey(const ValueKey('computer-key-codex-launch')),
+      190,
+    );
+    expect(
+      find.byKey(const ValueKey('computer-key-codex-voiceMode')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('computer-key-codex-voiceInput')).hitTestable(),
+      findsOneWidget,
+    );
+    await shots.capture(
+      id: 'manual-computer-setup-shortcuts',
+      title: 'Configure Codex shortcuts',
+      orientation: 'portrait',
+      notes:
+          'Real standalone setup wizard with Codex selected and separate voice-mode, voice-input, cancel, chat navigation, and project shortcuts configured in the fixture.',
+      boundaryKey: wizardKey,
+    );
+
+    final launchTest = find.byKey(const ValueKey('computer-test-launch-codex'));
+    await _scrollWizardToBottom(tester);
+    expect(launchTest, findsOneWidget);
+    expect(launchTest.hitTestable(), findsOneWidget);
+    await tester.tap(launchTest);
+    await tester.pumpAndSettle();
+    final launchConfirmation = find.byKey(
+      const ValueKey('computer-confirm-launch-codex'),
+    );
+    await _scrollWizardToBottom(tester);
+    expect(launchConfirmation.hitTestable(), findsOneWidget);
+    await tester.tap(launchConfirmation);
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'manual-computer-setup-test-launch',
+      title: 'Test and confirm app launch',
+      orientation: 'portrait',
+      notes:
+          'Wizard state after the fixture sends the launch shortcut and the user confirms seeing Codex open; no real computer was controlled.',
+      boundaryKey: wizardKey,
+    );
+
+    final saveButton = find.byKey(const ValueKey('computer-wizard-save'));
+    await _scrollWizardToBottom(tester);
+    expect(saveButton.hitTestable(), findsOneWidget);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+    await shots.unmount();
+    key = GlobalKey();
+    await tester.pumpWidget(
+      screenshotBoundary(
+        key,
+        SmartKeysScope(
+          controller: standalone.controller,
+          child: MaterialApp(
+            title: 'LumiaKey',
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              brightness: Brightness.dark,
+              fontFamilyFallback: ScreenshotSupport.fontFamilyFallback,
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF67E8F9),
+                brightness: Brightness.dark,
+                surface: const Color(0xFF10151D),
+              ),
+              scaffoldBackgroundColor: const Color(0xFF090D12),
+              useMaterial3: true,
+            ),
+            home: const HomeScreen(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final codexApp = find.byKey(const ValueKey('workspace-app-codex'));
+    await tester.ensureVisible(codexApp);
+    await tester.tap(codexApp);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('standalone-app-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
+    await shots.capture(
+      id: 'manual-standalone-vibe',
+      title: 'Standalone Vibe shortcuts',
+      orientation: 'portrait',
+      notes:
+          'Real standalone Codex shortcut panel with separate voice-mode and voice-input actions; generated from the first-connection setup fixture.',
       boundaryKey: key,
     );
   });
 }
+
+String _manualChord(String action) => switch (action) {
+  'launch' => 'Ctrl+Alt+1',
+  'voiceMode' => 'Ctrl+Shift+Alt+1',
+  'voiceInput' => 'Ctrl+Shift+Alt+2',
+  'cancelClear' => 'Escape',
+  'previousChat' => 'Ctrl+Alt+Left',
+  'nextChat' => 'Ctrl+Alt+Right',
+  'nextProject' => 'Ctrl+Alt+P',
+  _ => throw ArgumentError.value(action),
+};
+
+Future<void> _scrollWizardTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    220,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const ValueKey('computer-wizard-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
+}
+
+Future<void> _scrollWizardToTop(WidgetTester tester) async {
+  final scrollable = _wizardScrollable(tester);
+  scrollable.position.jumpTo(0);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _scrollWizardToBottom(WidgetTester tester) async {
+  final scrollable = _wizardScrollable(tester);
+  scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _alignWizardItem(
+  WidgetTester tester,
+  Finder finder,
+  double targetY,
+) async {
+  final scrollable = _wizardScrollable(tester);
+  final currentY = tester.getTopLeft(finder).dy;
+  final nextOffset = (scrollable.position.pixels + currentY - targetY)
+      .clamp(0.0, scrollable.position.maxScrollExtent)
+      .toDouble();
+  scrollable.position.jumpTo(nextOffset);
+  await tester.pumpAndSettle();
+}
+
+ScrollableState _wizardScrollable(WidgetTester tester) =>
+    tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('computer-wizard-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
