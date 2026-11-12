@@ -567,6 +567,7 @@ class DesktopManifest {
           shortcut('$appId.bookmark', 'Bookmark', 'bookmark', ['PRIMARY', 'D']),
         ]);
     final firefox = browserLayout('firefox', 'Firefox');
+    final edge = browserLayout('edge', 'Microsoft Edge');
     final safari = browserLayout('safari', 'Safari');
     RemoteShortcutLayout meetingLayout(
       String appId,
@@ -903,6 +904,7 @@ class DesktopManifest {
         vibeCodex,
         vibeClaude,
         vibeCursor,
+        edge,
         firefox,
         safari,
         teams,
@@ -980,6 +982,13 @@ class DesktopManifest {
           icon: 'language',
           executable: 'firefox',
           layoutId: 'app.firefox',
+        ),
+        RemoteApplication(
+          id: 'edge',
+          name: 'Microsoft Edge',
+          icon: 'language',
+          executable: 'microsoft-edge',
+          layoutId: 'app.edge',
         ),
         RemoteApplication(
           id: 'safari',

@@ -154,7 +154,14 @@ void main() {
 
   test('browser and meeting apps ship with stable keyboard-only layouts', () {
     final manifest = DesktopManifest.starter();
-    for (final app in const ['chrome', 'firefox', 'safari', 'teams', 'zoom']) {
+    for (final app in const [
+      'chrome',
+      'edge',
+      'firefox',
+      'safari',
+      'teams',
+      'zoom',
+    ]) {
       final application = manifest.applicationById(app)!;
       expect(manifest.layoutById(application.layoutId), isNotNull);
       expect(manifest.layoutById(application.layoutId)!.buttons, isNotEmpty);
@@ -189,6 +196,8 @@ void main() {
     expect(manifest.buttonById('zoom.mute')!.shortcut, ['ALT', 'A']);
     expect(manifest.buttonById('zoom.video')!.shortcut, ['ALT', 'V']);
     expect(manifest.buttonById('zoom.hand')!.shortcut, ['ALT', 'Y']);
+    expect(manifest.applicationById('edge')!.name, 'Microsoft Edge');
+    expect(manifest.buttonById('edge.newTab')!.shortcut, ['PRIMARY', 'T']);
   });
 
   test(

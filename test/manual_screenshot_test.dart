@@ -154,7 +154,10 @@ void main() {
       find.byKey(const ValueKey('profile-quick-profile_general')),
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('remote-layout-keyboard')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('remote-layout-keyboard')),
+      findsOneWidget,
+    );
     await shots.capture(
       id: 'manual-desktop-apps',
       title: 'Desktop app quick launch',
@@ -304,7 +307,7 @@ void main() {
     );
 
     final launchTest = find.byKey(const ValueKey('computer-test-launch-codex'));
-    await _scrollWizardToBottom(tester);
+    await _scrollWizardTo(tester, launchTest);
     expect(launchTest, findsOneWidget);
     expect(launchTest.hitTestable(), findsOneWidget);
     await tester.tap(launchTest);
@@ -312,7 +315,7 @@ void main() {
     final launchConfirmation = find.byKey(
       const ValueKey('computer-confirm-launch-codex'),
     );
-    await _scrollWizardToBottom(tester);
+    await _scrollWizardTo(tester, launchConfirmation);
     expect(launchConfirmation.hitTestable(), findsOneWidget);
     await tester.tap(launchConfirmation);
     await tester.pumpAndSettle();

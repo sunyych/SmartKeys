@@ -71,10 +71,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     final foregroundProcess = await _foregroundProcessName();
     return Future.wait(
       apps.map((app) async {
-        if ((Platform.isWindows && _macOnlyApplicationIds.contains(app.id)) ||
-            (!Platform.isMacOS &&
-                !Platform.isWindows &&
-                _macOnlyApplicationIds.contains(app.id))) {
+        if (!Platform.isMacOS && _macOnlyApplicationIds.contains(app.id)) {
           return app.copyWith(
             detected: false,
             running: false,
@@ -143,9 +140,16 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             foreground: false,
           );
         }
-        final result = await Process.run('which', [_linuxExecutable(app)]);
+        var linuxExecutableFound = false;
+        for (final executable in _linuxExecutables(app)) {
+          final result = await Process.run('which', [executable]);
+          if (result.exitCode == 0) {
+            linuxExecutableFound = true;
+            break;
+          }
+        }
         return app.copyWith(
-          detected: result.exitCode == 0 || running,
+          detected: linuxExecutableFound || running,
           running: running,
           foreground: foreground,
         );
@@ -182,6 +186,9 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
       if (app.id == 'premiere') 'premiere pro',
       if (app.id == 'vscode') 'code.exe',
       if (app.id == 'chrome') 'chrome.exe',
+      if (app.id == 'edge') 'msedge.exe',
+      if (app.id == 'edge') 'msedge',
+      if (app.id == 'edge') 'microsoft-edge-stable',
       if (app.id == 'firefox') 'firefox.exe',
       if (app.id == 'teams') 'ms-teams.exe',
       if (app.id == 'teams') 'teams.exe',
@@ -291,13 +298,21 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
           : 'Codex.exe',
     'claude' => 'Claude.exe',
     'cursor' => 'Cursor.exe',
+    'edge' => 'msedge.exe',
     'firefox' => 'firefox.exe',
     'teams' => 'ms-teams.exe',
     'zoom' => 'Zoom.exe',
     _ => app.executable,
   };
 
+  static List<String> _linuxExecutables(RemoteApplication app) =>
+      switch (app.id) {
+        'edge' => const ['microsoft-edge', 'microsoft-edge-stable'],
+        _ => [_linuxExecutable(app)],
+      };
+
   static String _linuxExecutable(RemoteApplication app) => switch (app.id) {
+    'edge' => 'microsoft-edge',
     'firefox' => 'firefox',
     'teams' => 'teams-for-linux',
     'zoom' => 'zoom',
@@ -330,6 +345,10 @@ class DesktopController extends ChangeNotifier {
   Timer? _applicationMonitor;
 
   DesktopManifest get manifest => _manifest;
+  List<RemoteApplication> get applicationsForCurrentPlatform => _manifest
+      .applications
+      .where((app) => Platform.isMacOS || app.id != 'safari')
+      .toList(growable: false);
   bool get loading => _loading;
   String? get error => _error;
   String? get connectedPhone => _connectedPhone;
@@ -589,19 +608,30 @@ class DesktopController extends ChangeNotifier {
     DesktopManifest original,
   ) {
     if (!Platform.isMacOS) return manifest;
-    const layoutsWithMacDefaults = {'app.firefox', 'app.safari', 'app.zoom'};
+    const layoutsWithMacDefaults = {
+      'app.edge',
+      'app.firefox',
+      'app.safari',
+      'app.zoom',
+    };
     final layouts = manifest.layouts
         .map((layout) {
+          final originalLayout = original.layoutById(layout.id);
+          final defaultEdgeLayoutNeedsMacKeys =
+              layout.id == 'app.edge' && _hasDefaultEdgeNavigation(layout);
           if (!layoutsWithMacDefaults.contains(layout.id) ||
-              original.layoutById(layout.id) != null) {
+              (originalLayout != null && !defaultEdgeLayoutNeedsMacKeys)) {
             return layout;
           }
           return layout.copyWith(
             buttons: layout.buttons
                 .map((button) {
                   final keys = switch (button.id) {
-                    'firefox.back' || 'safari.back' => const ['PRIMARY', '['],
+                    'edge.back' ||
+                    'firefox.back' ||
+                    'safari.back' => const ['PRIMARY', '['],
                     'firefox.forward' ||
+                    'edge.forward' ||
                     'safari.forward' => const ['PRIMARY', ']'],
                     'zoom.mute' => const ['PRIMARY', 'SHIFT', 'A'],
                     'zoom.video' => const ['PRIMARY', 'SHIFT', 'V'],
@@ -616,6 +646,19 @@ class DesktopController extends ChangeNotifier {
         })
         .toList(growable: false);
     return manifest.copyWith(layouts: layouts);
+  }
+
+  static bool _hasDefaultEdgeNavigation(RemoteShortcutLayout layout) {
+    final back = layout.buttons
+        .where((button) => button.id == 'edge.back')
+        .toList(growable: false);
+    final forward = layout.buttons
+        .where((button) => button.id == 'edge.forward')
+        .toList(growable: false);
+    return back.length == 1 &&
+        forward.length == 1 &&
+        back.single.shortcut.join(',') == 'ALT,LEFT' &&
+        forward.single.shortcut.join(',') == 'ALT,RIGHT';
   }
 
   static String _newComputerId() {
@@ -711,7 +754,14 @@ class DesktopController extends ChangeNotifier {
     }
   }
 
-  static const _managedApps = {'chrome', 'firefox', 'safari', 'teams', 'zoom'};
+  static const _managedApps = {
+    'chrome',
+    'edge',
+    'firefox',
+    'safari',
+    'teams',
+    'zoom',
+  };
 
   static const _managedLaunchApps = {
     ..._managedApps,

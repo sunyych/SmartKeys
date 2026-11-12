@@ -71,6 +71,36 @@ void main() {
       }
     });
 
+    test('browser choices include Edge and show Safari only on macOS', () {
+      final macApplications = computerApplicationsForOperatingSystem(
+        ComputerOperatingSystem.macos,
+      );
+      final windowsApplications = computerApplicationsForOperatingSystem(
+        ComputerOperatingSystem.windows,
+      );
+      final unknownApplications = computerApplicationsForOperatingSystem(null);
+
+      expect(macApplications.map((app) => app.id), contains('safari'));
+      expect(macApplications.map((app) => app.id), contains('edge'));
+      expect(windowsApplications.map((app) => app.id), contains('edge'));
+      expect(
+        windowsApplications.map((app) => app.id),
+        isNot(contains('safari')),
+      );
+      expect(unknownApplications.map((app) => app.id), contains('edge'));
+      expect(
+        unknownApplications.map((app) => app.id),
+        isNot(contains('safari')),
+      );
+      expect(
+        isComputerApplicationSupportedOn(
+          computerApplicationById('safari')!,
+          ComputerOperatingSystem.linux,
+        ),
+        isFalse,
+      );
+    });
+
     test('round-trips host setups and ignores invalid legacy data', () {
       final original = ComputerSetup(
         applicationIds: ['chrome', 'chrome', 'unknown app'],
@@ -87,6 +117,7 @@ void main() {
       final decoded = ComputerSetup.fromJson(original.toJson());
       expect(decoded.applicationIds, ['chrome']);
       expect(decoded.operatingSystem, ComputerOperatingSystem.linux);
+      expect(decoded.setupComplete, isTrue);
       expect(decoded.bindingFor('chrome', 'launch'), 'Ctrl+Alt+1');
       expect(
         ComputerSetup.fromJson({
@@ -95,6 +126,119 @@ void main() {
         }).applicationIds,
         isEmpty,
       );
+      expect(
+        ComputerSetup.fromJson({
+          'applicationIds': const [],
+          'bindings': const {},
+          'operatingSystem': 'windows',
+          'setupComplete': false,
+        }).setupComplete,
+        isFalse,
+      );
+    });
+
+    test(
+      'OS-only setup persists per Bluetooth address and stays incomplete',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final harness = await TestHarness.create(seedComputerSetup: false);
+        addTearDown(harness.dispose);
+        final controller = harness.controller;
+        final firstTarget = controller.activeComputer!;
+
+        await controller.saveComputerOperatingSystem(
+          firstTarget,
+          ComputerOperatingSystem.macos,
+        );
+        expect(
+          controller.activeComputerSetup?.operatingSystem,
+          ComputerOperatingSystem.macos,
+        );
+        expect(controller.activeComputerSetup?.setupComplete, isFalse);
+        expect(controller.isActiveComputerSetupComplete, isFalse);
+
+        harness.hid.selectedHost.value = const HidHost(
+          id: 'secondary',
+          name: 'Windows Computer',
+          address: 'AA:BB:CC:DD:EE:FF',
+        );
+        final secondTarget = controller.activeComputer!;
+        await controller.saveComputerOperatingSystem(
+          secondTarget,
+          ComputerOperatingSystem.windows,
+        );
+        expect(
+          controller.activeComputerSetup?.operatingSystem,
+          ComputerOperatingSystem.windows,
+        );
+
+        harness.hid.selectedHost.value = const HidHost(
+          id: 'test-host',
+          name: 'Test Computer',
+          address: '00:11:22:33:44:55',
+        );
+        expect(controller.activeComputer!.id, firstTarget.id);
+        expect(
+          controller.activeComputerSetup?.operatingSystem,
+          ComputerOperatingSystem.macos,
+        );
+        expect(controller.activeComputerSetup?.setupComplete, isFalse);
+        expect(
+          controller.config.computerSetups[secondTarget.id]?.operatingSystem,
+          ComputerOperatingSystem.windows,
+        );
+      },
+    );
+
+    test('non-macOS filters but preserves an existing Safari setup', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final existingSafari = ComputerSetup(
+        applicationIds: const ['safari'],
+        operatingSystem: ComputerOperatingSystem.macos,
+        bindings: const {
+          'safari': {'launch': 'Command+Option+1'},
+        },
+      );
+      final harness = await TestHarness.create(
+        seedComputerSetup: false,
+        config: testConfig().copyWith(
+          computerSetups: {'bluetooth:00:11:22:33:44:55': existingSafari},
+        ),
+      );
+      addTearDown(harness.dispose);
+      final controller = harness.controller;
+      await controller.saveComputerOperatingSystem(
+        controller.activeComputer!,
+        ComputerOperatingSystem.windows,
+      );
+      expect(controller.activeComputerSetup?.setupComplete, isTrue);
+      expect(
+        controller.computerApplicationsOnActiveComputer.map((app) => app.id),
+        isNot(contains('safari')),
+      );
+      expect(controller.availableComputerApplications, isEmpty);
+
+      await controller.saveComputerSetup(
+        controller.activeComputer!,
+        ComputerSetup(
+          applicationIds: const ['edge'],
+          operatingSystem: ComputerOperatingSystem.windows,
+          bindings: const {
+            'edge': {'launch': 'Ctrl+Alt+2'},
+          },
+        ),
+      );
+      expect(
+        controller.activeComputerSetup?.applicationIds,
+        containsAll(['edge', 'safari']),
+      );
+      expect(
+        controller.activeComputerSetup?.bindingFor('safari', 'launch'),
+        'Command+Option+1',
+      );
+      expect(controller.availableComputerApplications.map((app) => app.id), [
+        'edge',
+      ]);
     });
 
     test('new configuration preserves per-computer shortcut setup', () {
@@ -412,9 +556,16 @@ void main() {
 
         await controller.saveComputerSetup(
           target,
-          ComputerSetup(applicationIds: const ['codex', 'vscode']),
+          ComputerSetup(
+            applicationIds: const ['codex', 'vscode'],
+            operatingSystem: ComputerOperatingSystem.windows,
+          ),
         );
         expect(controller.isActiveComputerSetupComplete, isTrue);
+        expect(
+          controller.activeComputerSetup?.operatingSystem,
+          ComputerOperatingSystem.macos,
+        );
         expect(controller.availableComputerApplications.map((app) => app.id), [
           'codex',
           'vscode',

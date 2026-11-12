@@ -86,6 +86,11 @@ const computerApplications = <ComputerApplication>[
     category: ComputerAppCategory.browser,
   ),
   ComputerApplication(
+    id: 'edge',
+    name: 'Microsoft Edge',
+    category: ComputerAppCategory.browser,
+  ),
+  ComputerApplication(
     id: 'safari',
     name: 'Safari',
     category: ComputerAppCategory.browser,
@@ -116,6 +121,22 @@ const computerApplications = <ComputerApplication>[
     category: ComputerAppCategory.vibeCoding,
   ),
 ];
+
+List<ComputerApplication> computerApplicationsForOperatingSystem(
+  ComputerOperatingSystem? operatingSystem,
+) => computerApplications
+    .where(
+      (application) =>
+          isComputerApplicationSupportedOn(application, operatingSystem),
+    )
+    .toList(growable: false);
+
+bool isComputerApplicationSupportedOn(
+  ComputerApplication application,
+  ComputerOperatingSystem? operatingSystem,
+) =>
+    application.id != 'safari' ||
+    operatingSystem == ComputerOperatingSystem.macos;
 
 ComputerApplication? computerApplicationById(String id) => computerApplications
     .cast<ComputerApplication?>()
@@ -303,6 +324,7 @@ class ComputerSetup {
     required List<String> applicationIds,
     Map<String, Map<String, String>> bindings = const {},
     this.operatingSystem,
+    this.setupComplete = true,
   }) : applicationIds = List.unmodifiable(
          applicationIds.toSet().where(
            (id) => RegExp(r'^[A-Za-z0-9._-]{1,80}$').hasMatch(id),
@@ -324,6 +346,7 @@ class ComputerSetup {
   final List<String> applicationIds;
   final Map<String, Map<String, String>> bindings;
   final ComputerOperatingSystem? operatingSystem;
+  final bool setupComplete;
 
   String? bindingFor(String appId, String actionId) =>
       bindings[appId]?[actionId];
@@ -350,6 +373,7 @@ class ComputerSetup {
       operatingSystem: ComputerOperatingSystem.fromJson(
         json?['operatingSystem'],
       ),
+      setupComplete: json?['setupComplete'] != false,
     );
   }
 
@@ -357,6 +381,7 @@ class ComputerSetup {
     'applicationIds': applicationIds,
     'bindings': bindings,
     'operatingSystem': operatingSystem?.name,
+    'setupComplete': setupComplete,
   };
 }
 

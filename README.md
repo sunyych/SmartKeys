@@ -266,16 +266,19 @@ then shows your choices. Tap an app to launch it and open its keys. The app row
 also opens the setup again when you want to change the selection.
 
 - **Advanced** starts automatically when LumiaKey Desktop connects. Select
-  detected apps such as Chrome, Firefox, Safari, Teams, Zoom, Codex, Claude, or
-  Cursor. Enable **Apps Sync** and **Auto Launch Apps** in Desktop → General
-  to see the apps and launch them from the phone. Desktop supplies the bindings.
-- **Bluetooth only** is available on Android. Confirm the computer's operating
-  system in the wizard. **Beginner mode** in Settings shows how to assign a
-  system-wide launch shortcut using Windows shortcut properties, the macOS
-  Shortcuts app, or Linux desktop keyboard settings. Enter the same keys in
-  LumiaKey, then tap **Test app launch shortcut** and confirm the right app
-  opened. The wizard also asks for meeting keys such as mute, camera, and raise
-  hand.
+  detected apps such as Chrome, Firefox, Microsoft Edge, Teams, Zoom, Codex,
+  Claude, or Cursor. Safari is available on macOS. Enable **Apps Sync** and
+  **Auto Launch Apps** in Desktop → General to see the apps and launch them from
+  the phone. Desktop supplies the bindings.
+- **Bluetooth only** is available on Android. Confirm the operating system in
+  the wizard to remember it for this Bluetooth computer. **Beginner mode** in
+  Settings shows how to assign a system-wide launch shortcut using Windows
+  shortcut properties, the macOS Shortcuts app, or Linux desktop keyboard
+  settings. Set the launch shortcut on the computer first. For example, if you
+  assigned `Ctrl+Alt+1` to open Edge, enter that combination in LumiaKey using
+  the key picker or text field. Test the shortcut from LumiaKey and confirm the
+  right app opened. For meeting and coding controls, enter the keys configured
+  for each action inside the corresponding desktop app.
 
 ## Vibe Coding
 

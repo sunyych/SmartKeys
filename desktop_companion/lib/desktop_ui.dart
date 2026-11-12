@@ -809,7 +809,7 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
     final updated = await showRemoteButtonEditor(
       context,
       button: button,
-      applications: widget.controller.manifest.applications,
+      applications: widget.controller.applicationsForCurrentPlatform,
     );
     if (updated != null) {
       await widget.controller.updateButton(layout.id, updated);
@@ -845,7 +845,7 @@ class _AppsPage extends StatelessWidget {
         'Each app owns one shortcut layout. Executable paths and names are managed only on this desktop.',
       ),
       const SizedBox(height: 18),
-      ...controller.manifest.applications.map(
+      ...controller.applicationsForCurrentPlatform.map(
         (app) => Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Card(

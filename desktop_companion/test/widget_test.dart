@@ -74,6 +74,37 @@ class _SuccessfulRecordingRunner implements DesktopProcessRunner {
       throw UnsupportedError('This test only uses run');
 }
 
+class _EdgeStartRunner implements DesktopProcessRunner {
+  final starts = <(String, List<String>)>[];
+
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async =>
+      ProcessResult(0, 0, '', '');
+
+  @override
+  Future<Process> start(String executable, List<String> arguments) async {
+    starts.add((executable, arguments));
+    throw UnsupportedError('The test records the selected browser executable.');
+  }
+}
+
+class _EdgeForegroundRunner extends _SuccessfulRecordingRunner {
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async {
+    calls.add((executable, arguments));
+    if (Platform.isMacOS && executable == '/usr/bin/osascript') {
+      return ProcessResult(0, 0, 'Microsoft Edge', '');
+    }
+    if (Platform.isLinux && executable == 'xdotool') {
+      return ProcessResult(0, 0, '123', '');
+    }
+    if (Platform.isLinux && executable == 'ps') {
+      return ProcessResult(0, 0, 'microsoft-edge-stable', '');
+    }
+    return ProcessResult(0, 0, '', '');
+  }
+}
+
 class _RecordingMacSystemControl implements MacSystemControl {
   final List<bool> values = [];
 
@@ -82,6 +113,57 @@ class _RecordingMacSystemControl implements MacSystemControl {
 }
 
 void main() {
+  test('launches Microsoft Edge through the native app entry', () async {
+    final app = RemoteApplication(
+      id: 'edge',
+      name: 'Microsoft Edge',
+      icon: 'language',
+      executable: 'microsoft-edge',
+      layoutId: 'app.edge',
+      detected: true,
+    );
+
+    if (Platform.isMacOS) {
+      final runner = _SuccessfulRecordingRunner();
+      await DesktopActions(runner: runner).activateApplication(app);
+      expect(runner.calls.single, ('/usr/bin/open', ['-a', 'Microsoft Edge']));
+    } else if (Platform.isWindows) {
+      final runner = _SuccessfulRecordingRunner();
+      await DesktopActions(runner: runner).activateApplication(app);
+      expect(runner.calls.single.$1, 'powershell.exe');
+      expect(runner.calls.single.$2[4], "'msedge'");
+      expect(runner.calls.single.$2[5], "'msedge.exe'");
+      expect(runner.calls.single.$2[6], "'Microsoft Edge'");
+      expect(runner.calls.single.$2[3], contains('Get-StartApps'));
+    } else {
+      final runner = _EdgeStartRunner();
+      await expectLater(
+        DesktopActions(runner: runner).activateApplication(app),
+        throwsUnsupportedError,
+      );
+      expect(runner.starts, [('microsoft-edge', const <String>[])]);
+    }
+  });
+
+  test('Edge browser shortcut checks its matching foreground app', () async {
+    final runner = _EdgeForegroundRunner();
+    await DesktopActions(
+      runner: runner,
+    ).sendShortcut(const ['CTRL', 'R'], expectedAppId: 'edge');
+
+    final script = Platform.isWindows
+        ? runner.calls.single.$2[3]
+        : runner.calls.last.$2.last;
+    if (Platform.isMacOS) {
+      expect(script, contains('Microsoft Edge'));
+    } else if (Platform.isWindows) {
+      expect(runner.calls.single.$2[4], contains('msedge'));
+    } else {
+      expect(runner.calls.first.$2, ['getactivewindow', 'getwindowpid']);
+      expect(runner.calls.last.$2, ['key', 'CTRL+R']);
+    }
+  });
+
   test('quotes generic Windows app launch arguments', () async {
     if (!Platform.isWindows) return;
     final runner = _SuccessfulRecordingRunner();

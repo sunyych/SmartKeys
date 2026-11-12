@@ -395,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen> {
             key: ValueKey('first-computer-setup-${computer.id}'),
             controller: controller,
             target: computer,
-            initialSetup: null,
+            initialSetup: controller.activeComputerSetup,
             onSaved: () => setState(() {
               selectedTab = _HomeTab.keyboard;
               selectedApplicationId = null;
@@ -1064,7 +1064,7 @@ class _ComputerApplicationBar extends StatelessWidget {
 }
 
 IconData _computerApplicationIcon(String id) => switch (id) {
-  'chrome' || 'firefox' || 'safari' => Icons.language,
+  'chrome' || 'firefox' || 'edge' || 'safari' => Icons.language,
   'teams' || 'zoom' => Icons.video_call_outlined,
   'codex' => Icons.auto_awesome,
   'claude' => Icons.psychology_outlined,

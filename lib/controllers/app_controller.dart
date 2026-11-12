@@ -139,7 +139,14 @@ class AppController extends ChangeNotifier {
     if (target == null) return const [];
     final selected = activeComputerSetup?.applicationIds.toSet() ?? const {};
     return computerApplicationsOnActiveComputer
-        .where((application) => selected.contains(application.id))
+        .where(
+          (application) =>
+              selected.contains(application.id) &&
+              isComputerApplicationSupportedOn(
+                application,
+                target.operatingSystem,
+              ),
+        )
         .toList(growable: false);
   }
 
@@ -148,7 +155,9 @@ class AppController extends ChangeNotifier {
   List<ComputerApplication> get computerApplicationsOnActiveComputer {
     final target = activeComputer;
     if (target == null) return const [];
-    if (target.mode == ComputerMode.standalone) return computerApplications;
+    if (target.mode == ComputerMode.standalone) {
+      return computerApplicationsForOperatingSystem(target.operatingSystem);
+    }
     final manifest = desktopManifest;
     if (target.mode != ComputerMode.advanced ||
         !isDesktopSynced ||
@@ -166,6 +175,12 @@ class AppController extends ChangeNotifier {
                 category: ComputerAppCategory.other,
               ),
         )
+        .where(
+          (application) => isComputerApplicationSupportedOn(
+            application,
+            target.operatingSystem,
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -173,10 +188,16 @@ class AppController extends ChangeNotifier {
     final target = activeComputer;
     if (target?.mode != ComputerMode.standalone) return false;
     final setup = activeComputerSetup;
-    if (setup == null) return false;
+    if (setup == null || !setup.setupComplete) return false;
     for (final appId in setup.applicationIds) {
       final application = computerApplicationById(appId);
       if (application == null) return false;
+      if (!isComputerApplicationSupportedOn(
+        application,
+        activeComputer?.operatingSystem,
+      )) {
+        continue;
+      }
       for (final shortcut in computerShortcutsFor(application.category)) {
         final binding = setup.bindingFor(appId, shortcut.id);
         if (shortcut.requiredForSetup &&
@@ -201,13 +222,33 @@ class AppController extends ChangeNotifier {
     if (target.mode == ComputerMode.standalone) {
       return isStandaloneSetupComplete;
     }
-    return target.mode == ComputerMode.advanced;
+    return target.mode == ComputerMode.advanced &&
+        activeComputerSetup!.setupComplete;
   }
 
-  Future<void> saveComputerSetup(
+  Future<void> saveComputerSetup(ComputerTarget target, ComputerSetup setup) =>
+      _queueComputerSetupSave(
+        () => _saveComputerSetupForCurrentTarget(target, setup),
+      );
+
+  Future<void> saveComputerOperatingSystem(
     ComputerTarget target,
-    ComputerSetup setup,
-  ) async {
+    ComputerOperatingSystem operatingSystem,
+  ) => _queueComputerSetupSave(() async {
+    _requireCurrentStandaloneTarget(target);
+    final existing = config.computerSetups[target.id];
+    await _saveComputerSetupRecord(
+      target.id,
+      ComputerSetup(
+        applicationIds: existing?.applicationIds ?? const [],
+        bindings: existing?.bindings ?? const {},
+        operatingSystem: operatingSystem,
+        setupComplete: existing?.setupComplete ?? false,
+      ),
+    );
+  });
+
+  Future<void> _queueComputerSetupSave(Future<void> Function() save) async {
     final previousSave = _computerSetupSaveQueue;
     final completer = Completer<void>();
     _computerSetupSaveQueue = completer.future;
@@ -217,7 +258,7 @@ class AppController extends ChangeNotifier {
       } catch (_) {
         // A failed previous save must not block the next connection's setup.
       }
-      await _saveComputerSetupForCurrentTarget(target, setup);
+      await save();
       completer.complete();
     } catch (error, stackTrace) {
       completer.complete();
@@ -229,13 +270,7 @@ class AppController extends ChangeNotifier {
     ComputerTarget target,
     ComputerSetup setup,
   ) async {
-    final current = activeComputer;
-    if (current?.mode != target.mode ||
-        (target.mode != ComputerMode.standalone &&
-            target.mode != ComputerMode.advanced) ||
-        current!.id != target.id) {
-      throw StateError('Reconnect to the same computer to save its setup.');
-    }
+    final current = _requireCurrentComputerTarget(target);
     if (target.mode == ComputerMode.advanced && !isDesktopSynced) {
       throw StateError('Wait for Desktop to finish syncing before saving.');
     }
@@ -249,11 +284,62 @@ class AppController extends ChangeNotifier {
         'Desktop mode uses shortcuts saved in the Desktop companion.',
       );
     }
-    final launchBindings = <String, String>{};
+    final previous = config.computerSetups[target.id];
+    final chosenOperatingSystem = target.mode == ComputerMode.advanced
+        ? current.operatingSystem
+        : setup.operatingSystem ?? previous?.operatingSystem;
+    final applicationOperatingSystem =
+        chosenOperatingSystem ?? current.operatingSystem;
+    final unsupportedPreviousApps = previous?.applicationIds
+        .where((appId) {
+          final application = computerApplicationById(appId);
+          return application != null &&
+              !isComputerApplicationSupportedOn(
+                application,
+                applicationOperatingSystem,
+              );
+        })
+        .toList(growable: false);
+    final preservedBindings = <String, Map<String, String>>{...setup.bindings};
+    for (final appId in unsupportedPreviousApps ?? const <String>[]) {
+      final bindings = previous?.bindings[appId];
+      if (bindings != null) preservedBindings[appId] = bindings;
+    }
     for (final appId in setup.applicationIds) {
+      final application = _computerApplicationFor(target, appId);
+      if (application != null &&
+          !isComputerApplicationSupportedOn(
+            application,
+            applicationOperatingSystem,
+          ) &&
+          !(previous?.applicationIds.contains(appId) ?? false)) {
+        throw FormatException(
+          '${application.name} is unavailable on this operating system.',
+        );
+      }
+    }
+    final setupToSave = ComputerSetup(
+      applicationIds: [
+        ...setup.applicationIds,
+        ...?unsupportedPreviousApps?.where(
+          (appId) => !setup.applicationIds.contains(appId),
+        ),
+      ],
+      bindings: preservedBindings,
+      operatingSystem: chosenOperatingSystem,
+      setupComplete: setup.setupComplete,
+    );
+    final launchBindings = <String, String>{};
+    for (final appId in setupToSave.applicationIds) {
       final application = _computerApplicationFor(target, appId);
       if (application == null) {
         throw FormatException('Unknown computer app: $appId');
+      }
+      if (!isComputerApplicationSupportedOn(
+        application,
+        setupToSave.operatingSystem,
+      )) {
+        continue;
       }
       if (target.mode == ComputerMode.advanced &&
           desktopManifest!.applications.every(
@@ -302,16 +388,43 @@ class AppController extends ChangeNotifier {
         );
       }
     }
+    await _saveComputerSetupRecord(target.id, setupToSave);
+  }
+
+  Future<void> _saveComputerSetupRecord(
+    String targetId,
+    ComputerSetup setup,
+  ) async {
     var base = config;
-    var nextConfig = _computerSetupConfig(base, target.id, setup);
+    var nextConfig = _computerSetupConfig(base, targetId, setup);
     await repository.save(nextConfig);
     while (!identical(_config, base)) {
       base = config;
-      nextConfig = _computerSetupConfig(base, target.id, setup);
+      nextConfig = _computerSetupConfig(base, targetId, setup);
       await repository.save(nextConfig);
     }
     _config = nextConfig;
     notifyListeners();
+  }
+
+  ComputerTarget _requireCurrentStandaloneTarget(ComputerTarget target) {
+    if (target.mode != ComputerMode.standalone) {
+      throw const FormatException(
+        'Choose the computer OS in Bluetooth-only setup.',
+      );
+    }
+    return _requireCurrentComputerTarget(target);
+  }
+
+  ComputerTarget _requireCurrentComputerTarget(ComputerTarget target) {
+    final current = activeComputer;
+    if (current?.mode != target.mode ||
+        current?.id != target.id ||
+        (target.mode != ComputerMode.standalone &&
+            target.mode != ComputerMode.advanced)) {
+      throw StateError('Reconnect to the same computer to save its setup.');
+    }
+    return current!;
   }
 
   static AppConfig _computerSetupConfig(
@@ -340,6 +453,12 @@ class AppController extends ChangeNotifier {
         ).any((shortcut) => shortcut.id == 'launch')) {
       throw const FormatException('Choose an app with a launch action.');
     }
+    if (!isComputerApplicationSupportedOn(
+      application,
+      activeComputer?.operatingSystem,
+    )) {
+      throw FormatException('${application.name} is unavailable on this OS.');
+    }
     await _sendStandaloneChord(target, applicationId, 'launch', chord);
   }
 
@@ -359,6 +478,10 @@ class AppController extends ChangeNotifier {
         activeComputerSetup == null ||
         !activeComputerSetup!.applicationIds.contains(applicationId) ||
         application == null ||
+        !isComputerApplicationSupportedOn(
+          application,
+          current.operatingSystem,
+        ) ||
         !isStandaloneSetupComplete) {
       throw StateError('Select a configured app on its paired computer.');
     }

@@ -192,6 +192,7 @@ class DesktopActions {
       'claude' => 'Claude',
       'cursor' => 'Cursor',
       'chrome' => 'Google Chrome',
+      'edge' => 'Microsoft Edge',
       'firefox' => 'Firefox',
       'safari' => 'Safari',
       'teams' => 'Microsoft Teams',
@@ -217,6 +218,7 @@ class DesktopActions {
         'claude' => const ['Claude'],
         'cursor' => const ['Cursor'],
         'chrome' => const ['chrome'],
+        'edge' => const ['msedge'],
         'firefox' => const ['firefox'],
         'safari' => throw const FormatException(
           'Safari is only available on Mac',
@@ -231,6 +233,7 @@ class DesktopActions {
         'claude' => const ['Claude.exe'],
         'cursor' => const ['Cursor.exe'],
         'chrome' => const ['chrome.exe'],
+        'edge' => const ['msedge.exe'],
         'firefox' => const ['firefox.exe'],
         'teams' => const ['ms-teams.exe', 'Teams.exe'],
         'zoom' => const ['Zoom.exe'],
@@ -242,6 +245,7 @@ class DesktopActions {
         'claude' => 'Claude',
         'cursor' => 'Cursor',
         'chrome' => 'Google Chrome',
+        'edge' => 'Microsoft Edge',
         'firefox' => 'Firefox,Mozilla Firefox',
         'teams' => 'Teams,Microsoft Teams,Microsoft Teams classic',
         'zoom' => 'Zoom,Zoom Workplace,Zoom Meetings',
@@ -347,6 +351,7 @@ class DesktopActions {
       'claude' => 'claude',
       'cursor' => 'cursor',
       'chrome' => 'google-chrome',
+      'edge' => 'microsoft-edge',
       'firefox' => 'firefox',
       'safari' => throw const FormatException(
         'Safari is only available on Mac',
@@ -368,7 +373,21 @@ class DesktopActions {
         window.stdout.toString().trim().split(RegExp(r'\s+')).first,
       ]);
     } else {
-      await runner.start(process, const []);
+      var executable = process;
+      if (app.id == 'edge') {
+        for (final candidate in const [
+          'microsoft-edge',
+          'microsoft-edge-stable',
+        ]) {
+          final result = await runner.run('which', [candidate]);
+          final path = result.stdout.toString().trim();
+          if (result.exitCode == 0 && path.isNotEmpty) {
+            executable = path;
+            break;
+          }
+        }
+      }
+      await runner.start(executable, const []);
     }
   }
 
@@ -571,7 +590,7 @@ Add-Type -AssemblyName System.Windows.Forms
     final guard = switch (expectedAppId) {
       'codex' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "Codex" and frontName is not "ChatGPT" then error "Switch to Codex before using this shortcut."\n',
-      'chrome' || 'firefox' || 'safari' =>
+      'chrome' || 'edge' || 'firefox' || 'safari' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "${_macApplicationName(expectedAppId!)}" then error "Switch to the selected app before using this shortcut."\n',
       'teams' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "Microsoft Teams" and frontName is not "Microsoft Teams classic" then error "Switch to the selected app before using this shortcut."\n',
@@ -598,6 +617,7 @@ Add-Type -AssemblyName System.Windows.Forms
         'claude' => ['claude'],
         'cursor' => ['cursor'],
         'chrome' => ['chrome', 'google chrome'],
+        'edge' => ['microsoft edge', 'msedge', 'microsoft-edge-stable'],
         'firefox' => ['firefox'],
         'safari' => ['safari'],
         'teams' => ['ms-teams', 'teams'],
@@ -624,6 +644,7 @@ Add-Type -AssemblyName System.Windows.Forms
         'claude' => name == 'claude' || name == 'claude code',
         'cursor' => name == 'cursor',
         'chrome' => name == 'google chrome' || name == 'chrome',
+        'edge' => name == 'microsoft edge',
         'firefox' => name == 'firefox',
         'safari' => name == 'safari',
         'teams' =>
@@ -702,6 +723,7 @@ Add-Type -AssemblyName System.Windows.Forms
 
   static String _macApplicationName(String id) => switch (id) {
     'chrome' => 'Google Chrome',
+    'edge' => 'Microsoft Edge',
     'firefox' => 'Firefox',
     'safari' => 'Safari',
     _ => throw const FormatException('unsupported Mac application'),
@@ -711,6 +733,7 @@ Add-Type -AssemblyName System.Windows.Forms
       switch (target.toLowerCase()) {
         'visual studio code' || 'vscode' => 'Code.exe',
         'google chrome' || 'chrome' => 'chrome.exe',
+        'microsoft edge' || 'edge' => 'msedge.exe',
         'adobe photoshop' || 'photoshop' => 'Photoshop.exe',
         'adobe illustrator' || 'illustrator' => 'Illustrator.exe',
         'adobe premiere pro' || 'premiere' => 'Adobe Premiere Pro.exe',

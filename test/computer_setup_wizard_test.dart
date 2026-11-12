@@ -56,6 +56,8 @@ void main() {
         await tester.enterText(field, _validChord(action));
         await tester.pump();
       }
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
 
       await _scrollWizardTo(
         tester,
@@ -81,8 +83,6 @@ void main() {
       );
       await _scrollWizardTo(tester, confirmation);
       expect(confirmation, findsOneWidget);
-
-      await _scrollWizardTo(tester, confirmation);
       await tester.tap(confirmation);
       await tester.pumpAndSettle();
       await _scrollWizardTo(
@@ -259,6 +259,37 @@ void main() {
     expect(find.textContaining('firefox'), findsOneWidget);
   });
 
+  testWidgets('Safari draft selection stays hidden until macOS is selected', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(seedComputerSetup: false);
+    addTearDown(harness.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ComputerSetupWizard(
+            controller: harness.controller,
+            target: harness.controller.activeComputer!,
+          ),
+        ),
+      ),
+    );
+
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.macos);
+    final safari = find.byKey(const ValueKey('computer-app-select-safari'));
+    await tester.ensureVisible(safari);
+    await tester.tap(safari);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(safari).value, isTrue);
+
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.windows);
+    expect(safari, findsNothing);
+
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.macos);
+    await tester.ensureVisible(safari);
+    expect(tester.widget<CheckboxListTile>(safari).value, isTrue);
+  });
+
   testWidgets('changing the selected OS invalidates a prior launch proof', (
     tester,
   ) async {
@@ -303,8 +334,16 @@ void main() {
 
     await _chooseOperatingSystem(tester, ComputerOperatingSystem.macos);
     expect(
-      find.text('LumiaKey will remember this system when you save.'),
+      find.text('Saved for this computer. Change it if needed.'),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('computer-confirm-operating-system')),
+      findsNothing,
+    );
+    expect(
+      harness.controller.activeComputerSetup?.operatingSystem,
+      ComputerOperatingSystem.macos,
     );
     await _scrollWizardTo(tester, finish);
     expect(tester.widget<FilledButton>(finish).onPressed, isNull);
