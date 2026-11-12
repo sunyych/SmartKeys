@@ -460,6 +460,7 @@ class AppPreferences {
     this.chargingBrightnessMode = ChargingBrightnessMode.fixed,
     this.chargingBrightness = 0.8,
     this.keepScreenOnWhileCharging = true,
+    this.beginnerMode = true,
   });
 
   final bool hapticEnabled;
@@ -471,6 +472,7 @@ class AppPreferences {
   final ChargingBrightnessMode chargingBrightnessMode;
   final double chargingBrightness;
   final bool keepScreenOnWhileCharging;
+  final bool beginnerMode;
 
   factory AppPreferences.fromJson(Map<String, dynamic>? json) => AppPreferences(
     hapticEnabled: json?['hapticEnabled'] as bool? ?? true,
@@ -503,6 +505,7 @@ class AppPreferences {
         ),
     keepScreenOnWhileCharging:
         json?['keepScreenOnWhileCharging'] as bool? ?? true,
+    beginnerMode: json?['beginnerMode'] as bool? ?? true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -515,6 +518,7 @@ class AppPreferences {
     'chargingBrightnessMode': chargingBrightnessMode.name,
     'chargingBrightness': chargingBrightness,
     'keepScreenOnWhileCharging': keepScreenOnWhileCharging,
+    'beginnerMode': beginnerMode,
   };
 
   AppPreferences copyWith({
@@ -527,6 +531,7 @@ class AppPreferences {
     ChargingBrightnessMode? chargingBrightnessMode,
     double? chargingBrightness,
     bool? keepScreenOnWhileCharging,
+    bool? beginnerMode,
   }) => AppPreferences(
     hapticEnabled: hapticEnabled ?? this.hapticEnabled,
     soundEnabled: soundEnabled ?? this.soundEnabled,
@@ -547,6 +552,7 @@ class AppPreferences {
     ),
     keepScreenOnWhileCharging:
         keepScreenOnWhileCharging ?? this.keepScreenOnWhileCharging,
+    beginnerMode: beginnerMode ?? this.beginnerMode,
   );
 }
 

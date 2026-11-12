@@ -74,6 +74,7 @@ void main() {
     test('round-trips host setups and ignores invalid legacy data', () {
       final original = ComputerSetup(
         applicationIds: ['chrome', 'chrome', 'unknown app'],
+        operatingSystem: ComputerOperatingSystem.linux,
         bindings: const {
           'chrome': {'launch': 'Ctrl+Alt+1', 'noSuchAction': 'Ctrl+X'},
           'unknown': {'launch': 'Ctrl+Alt+2'},
@@ -85,6 +86,7 @@ void main() {
       expect(original.bindingFor('unknown', 'launch'), isNull);
       final decoded = ComputerSetup.fromJson(original.toJson());
       expect(decoded.applicationIds, ['chrome']);
+      expect(decoded.operatingSystem, ComputerOperatingSystem.linux);
       expect(decoded.bindingFor('chrome', 'launch'), 'Ctrl+Alt+1');
       expect(
         ComputerSetup.fromJson({
@@ -120,6 +122,91 @@ void main() {
         ..['schemaVersion'] = 7;
       expect(AppConfig.fromJson(oldConfig).computerSetups, isEmpty);
     });
+
+    test('beginner mode defaults on and persists with computer OS', () async {
+      expect(AppPreferences.fromJson(null).beginnerMode, isTrue);
+      final original = testConfig().copyWith(
+        preferences: const AppPreferences(beginnerMode: false),
+        computerSetups: {
+          'bluetooth:00:11:22:33:44:55': ComputerSetup(
+            applicationIds: const [],
+            operatingSystem: ComputerOperatingSystem.windows,
+          ),
+        },
+      );
+      final restored = AppConfig.fromJson(original.toJson());
+      expect(restored.preferences.beginnerMode, isFalse);
+      expect(
+        restored.computerSetups['bluetooth:00:11:22:33:44:55']?.operatingSystem,
+        ComputerOperatingSystem.windows,
+      );
+
+      final harness = await TestHarness.create(seedComputerSetup: false);
+      addTearDown(harness.dispose);
+      await harness.controller.setBeginnerMode(false);
+      expect(harness.controller.config.preferences.beginnerMode, isFalse);
+      expect(harness.repository.value.preferences.beginnerMode, isFalse);
+    });
+
+    test(
+      'verified operating system beats the legacy shortcut preference',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final config = testConfig().copyWith(
+          preferences: const AppPreferences(
+            shortcutPlatform: ShortcutPlatform.apple,
+          ),
+          computerSetups: {
+            'bluetooth:00:11:22:33:44:55': ComputerSetup(
+              applicationIds: const [],
+              operatingSystem: ComputerOperatingSystem.linux,
+            ),
+          },
+        );
+        final harness = await TestHarness.create(
+          config: config,
+          seedComputerSetup: false,
+        );
+        addTearDown(harness.dispose);
+        final target = harness.controller.activeComputer!;
+        expect(target.operatingSystem, ComputerOperatingSystem.linux);
+        expect(target.isApple, isFalse);
+        expect(
+          harness.controller.effectiveShortcutPlatform,
+          ShortcutPlatform.windowsLinux,
+        );
+
+        await harness.controller.updateShortcutPlatform(
+          ShortcutPlatform.windowsLinux,
+        );
+        harness.hid.selectedHost.value = const HidHost(
+          id: 'hinted-mac',
+          name: 'MacBook Pro',
+          address: 'AA:BB:CC:DD:EE:FF',
+        );
+        final hintedTarget = harness.controller.activeComputer!;
+        expect(hintedTarget.operatingSystem, ComputerOperatingSystem.macos);
+        expect(hintedTarget.isApple, isFalse);
+        expect(
+          harness.controller.effectiveShortcutPlatform,
+          ShortcutPlatform.windowsLinux,
+        );
+
+        final legacyTarget = const ComputerTarget(
+          id: 'legacy',
+          name: 'MacBook Pro',
+          mode: ComputerMode.standalone,
+          isApple: true,
+        );
+        expect(legacyTarget.isApple, isTrue);
+        expect(legacyTarget.operatingSystem, isNull);
+        final confirmed = legacyTarget.withOperatingSystem(
+          ComputerOperatingSystem.windows,
+        );
+        expect(confirmed.operatingSystem, ComputerOperatingSystem.windows);
+        expect(confirmed.isApple, isFalse);
+      },
+    );
 
     test(
       'Android Bluetooth uses isolated per-host setup and emits exact keys',
@@ -229,6 +316,17 @@ void main() {
         companion.status.value = CompanionSyncStatus.ready;
         expect(harness.controller.computerMode, ComputerMode.advanced);
         expect(harness.controller.activeComputer!.id, 'desktop:test-desktop-1');
+        await harness.controller.updateShortcutPlatform(
+          ShortcutPlatform.windowsLinux,
+        );
+        expect(
+          harness.controller.activeComputer!.operatingSystem,
+          ComputerOperatingSystem.macos,
+        );
+        expect(
+          harness.controller.effectiveShortcutPlatform,
+          ShortcutPlatform.apple,
+        );
 
         companion.status.value = CompanionSyncStatus.syncing;
         companion.errors.value = 'Manifest refresh pending';

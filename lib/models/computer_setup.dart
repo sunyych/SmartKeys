@@ -4,6 +4,23 @@ import 'config.dart';
 
 enum ComputerMode { disconnected, standalone, advanced }
 
+enum ComputerOperatingSystem {
+  windows('Windows'),
+  linux('Linux'),
+  macos('macOS');
+
+  const ComputerOperatingSystem(this.label);
+
+  final String label;
+
+  static ComputerOperatingSystem? fromJson(Object? value) {
+    for (final operatingSystem in values) {
+      if (operatingSystem.name == value) return operatingSystem;
+    }
+    return null;
+  }
+}
+
 @immutable
 class ComputerTarget {
   const ComputerTarget({
@@ -11,12 +28,23 @@ class ComputerTarget {
     required this.name,
     required this.mode,
     required this.isApple,
+    this.operatingSystem,
   });
+
+  ComputerTarget withOperatingSystem(ComputerOperatingSystem operatingSystem) =>
+      ComputerTarget(
+        id: id,
+        name: name,
+        mode: mode,
+        isApple: operatingSystem == ComputerOperatingSystem.macos,
+        operatingSystem: operatingSystem,
+      );
 
   final String id;
   final String name;
   final ComputerMode mode;
   final bool isApple;
+  final ComputerOperatingSystem? operatingSystem;
 
   @override
   bool operator ==(Object other) =>
@@ -24,10 +52,11 @@ class ComputerTarget {
       other.id == id &&
       other.name == name &&
       other.mode == mode &&
-      other.isApple == isApple;
+      other.isApple == isApple &&
+      other.operatingSystem == operatingSystem;
 
   @override
-  int get hashCode => Object.hash(id, name, mode, isApple);
+  int get hashCode => Object.hash(id, name, mode, isApple, operatingSystem);
 }
 
 enum ComputerAppCategory { browser, meetings, vibeCoding, other }
@@ -273,6 +302,7 @@ class ComputerSetup {
   ComputerSetup({
     required List<String> applicationIds,
     Map<String, Map<String, String>> bindings = const {},
+    this.operatingSystem,
   }) : applicationIds = List.unmodifiable(
          applicationIds.toSet().where(
            (id) => RegExp(r'^[A-Za-z0-9._-]{1,80}$').hasMatch(id),
@@ -293,6 +323,7 @@ class ComputerSetup {
 
   final List<String> applicationIds;
   final Map<String, Map<String, String>> bindings;
+  final ComputerOperatingSystem? operatingSystem;
 
   String? bindingFor(String appId, String actionId) =>
       bindings[appId]?[actionId];
@@ -316,12 +347,16 @@ class ComputerSetup {
           .map((id) => id.toString())
           .toList(),
       bindings: parsedBindings,
+      operatingSystem: ComputerOperatingSystem.fromJson(
+        json?['operatingSystem'],
+      ),
     );
   }
 
   Map<String, Object?> toJson() => {
     'applicationIds': applicationIds,
     'bindings': bindings,
+    'operatingSystem': operatingSystem?.name,
   };
 }
 

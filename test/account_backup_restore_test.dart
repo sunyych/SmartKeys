@@ -29,6 +29,7 @@ void main() {
             defaultHostAddress: '192.0.2.10',
             defaultHostName: 'Paired Desktop',
           ),
+          preferences: const AppPreferences(beginnerMode: false),
         ),
       );
       addTearDown(harness.dispose);
@@ -53,6 +54,7 @@ void main() {
         harness.controller.config.preferences.orientationMode,
         OrientationMode.portrait,
       );
+      expect(harness.controller.config.preferences.beginnerMode, isFalse);
       expect(harness.controller.config.device.defaultHostAddress, '192.0.2.10');
       expect(harness.hid.calls, ['releaseAllKeys']);
     },

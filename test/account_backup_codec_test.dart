@@ -20,6 +20,7 @@ void main() {
         profileOrder: profiles.map((p) => p.id).toList(),
         activeProfileId: profiles.first.id,
         defaultProfileId: profiles.first.id,
+        preferences: const AppPreferences(beginnerMode: false),
       );
       final selected = profiles
           .where(
@@ -41,6 +42,12 @@ void main() {
       expect(envelope.keys.toSet(), {'schema_version', 'selection', 'data'});
       final data = envelope['data'] as Map<String, Object?>;
       expect(data.keys.toSet(), {'preferences', 'profiles', 'images'});
+      expect(
+        (data['preferences'] as Map<String, dynamic>).containsKey(
+          'beginnerMode',
+        ),
+        isFalse,
+      );
       final encodedSelection = envelope['selection'] as Map<String, Object?>;
       expect(encodedSelection.keys, isNot(contains('device')));
       expect(
@@ -53,11 +60,55 @@ void main() {
         'backup': envelope,
       }, updatedAt: '2026-10-21T12:00:00Z');
       expect(parsed.profiles.map((p) => p.id), selected.map((p) => p.id));
+      expect(parsed.preferences!.beginnerMode, isTrue);
       expect(parsed.profiles.first.buttons.first.action.value, 'MUTE');
       expect(parsed.profiles.first.wheel.up.value, 'UP');
       expect(
         jsonEncode(parsed.profiles.map((p) => p.toJson()).toList()),
         jsonEncode(selected.map((p) => p.toJson()).toList()),
+      );
+    },
+  );
+
+  test(
+    'beginner mode remains local across portable settings backups',
+    () async {
+      final base = (await ProfileTemplateRepository().loadAll()).first;
+      final config = AppConfig(
+        profiles: [base],
+        profileOrder: [base.id],
+        activeProfileId: base.id,
+        defaultProfileId: base.id,
+        preferences: const AppPreferences(beginnerMode: false),
+      );
+      final encoded = AccountBackupCodec.encode(
+        config,
+        const BackupSelection(settings: true),
+        const {},
+      );
+      final data = encoded['data'] as Map<String, dynamic>;
+      final preferences = data['preferences'] as Map<String, dynamic>;
+      expect(preferences.containsKey('beginnerMode'), isFalse);
+
+      final decoded = AccountBackupCodec.decode({
+        'schema_version': 1,
+        'updated_at': 'x',
+        'backup': encoded,
+      }, updatedAt: 'x');
+      expect(decoded.preferences!.beginnerMode, isTrue);
+
+      final withUnsupportedField =
+          jsonDecode(jsonEncode(encoded)) as Map<String, dynamic>;
+      (withUnsupportedField['data']['preferences']
+              as Map<String, dynamic>)['beginnerMode'] =
+          false;
+      expect(
+        () => AccountBackupCodec.decode({
+          'schema_version': 1,
+          'updated_at': 'x',
+          'backup': withUnsupportedField,
+        }, updatedAt: 'x'),
+        throwsFormatException,
       );
     },
   );

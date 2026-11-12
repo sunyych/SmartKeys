@@ -163,9 +163,10 @@ manifest, controller, or UI layers.
 - Configuration schema v7 owns an ordered list of independent Profiles, each
   with 15 buttons, navigation actions, icon, optional target application,
   accent color, and timestamps.
-- Cross-platform shortcuts use `PRIMARY`: Automatic mode maps it to Command on
-  Apple hosts and Ctrl on Windows/Linux hosts, with an explicit manual override
-  in Settings when a Bluetooth computer name is ambiguous.
+- Cross-platform shortcuts use `PRIMARY`. LumiaKey uses Command on macOS and
+  Ctrl on Windows and Linux. Desktop reports its operating system automatically.
+  For a Bluetooth-only connection, the setup wizard saves the operating system
+  for each computer and uses it when that computer reconnects.
 - The General default matches `docs/screenshots/default_general_layout.png`;
   the final touchpad result is in
   `docs/screenshots/final_touchpad_fullscreen.png`:
@@ -268,11 +269,13 @@ also opens the setup again when you want to change the selection.
   detected apps such as Chrome, Firefox, Safari, Teams, Zoom, Codex, Claude, or
   Cursor. Enable **Apps Sync** and **Auto Launch Apps** in Desktop → General
   to see the apps and launch them from the phone. Desktop supplies the bindings.
-- **Bluetooth only** is available on Android. For each selected app, set a
-  system-wide launch shortcut on the computer, enter it in LumiaKey, then use
-  **Test launch** and confirm the right app opened. The wizard also asks for
-  meeting keys such as mute, camera, and raise hand. Once saved, the controls
-  send those keyboard shortcuts to that computer.
+- **Bluetooth only** is available on Android. Confirm the computer's operating
+  system in the wizard. **Beginner mode** in Settings shows how to assign a
+  system-wide launch shortcut using Windows shortcut properties, the macOS
+  Shortcuts app, or Linux desktop keyboard settings. Enter the same keys in
+  LumiaKey, then tap **Test app launch shortcut** and confirm the right app
+  opened. The wizard also asks for meeting keys such as mute, camera, and raise
+  hand.
 
 ## Vibe Coding
 

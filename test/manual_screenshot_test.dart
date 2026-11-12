@@ -232,6 +232,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final osChoice = find.byKey(const ValueKey('computer-os-choice'));
+    await _scrollWizardToTop(tester);
+    await tester.ensureVisible(osChoice);
+    await tester.tap(osChoice);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Windows').last);
+    await tester.pumpAndSettle();
+
     Future<void> selectApp(String id, {required bool selected}) async {
       final checkbox = find.byKey(ValueKey('computer-app-select-$id'));
       await _scrollWizardTo(tester, checkbox);

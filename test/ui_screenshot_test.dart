@@ -330,8 +330,17 @@ void main() {
     final settingsKey = GlobalKey();
     await tester.pumpWidget(_app(harness, settingsKey, const SettingsScreen()));
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).first, const Offset(0, -1800));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('BUILT-IN TEMPLATES'),
+      260,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('settings-list')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      maxScrolls: 30,
+    );
     expect(find.text('BUILT-IN TEMPLATES'), findsOneWidget);
     await shots.capture(
       id: 'phone-settings-lower-sections',

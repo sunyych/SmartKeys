@@ -114,11 +114,13 @@ class AccountBackupCodec {
         throw const FormatException('A selected custom image is unavailable.');
       }
     }
+    final portablePreferences = config.preferences.toJson()
+      ..remove('beginnerMode');
     final envelope = <String, Object?>{
       'schema_version': 1,
       'selection': selection.toJson(),
       'data': {
-        'preferences': selection.settings ? config.preferences.toJson() : null,
+        'preferences': selection.settings ? portablePreferences : null,
         'profiles': selectedProfiles,
         'images': encodedImages,
       },

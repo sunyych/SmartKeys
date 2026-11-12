@@ -822,9 +822,22 @@ void main() {
     await tester.tap(find.text('Settings').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('SHORTCUT PLATFORM'), findsOneWidget);
-    expect(find.text('Command for Yuchen’s MacBook Pro'), findsOneWidget);
-    expect(find.text('PRIMARY sends Command (⌘)'), findsOneWidget);
+    final settingsScroll = find.descendant(
+      of: find.byKey(const ValueKey('settings-list')),
+      matching: find.byType(Scrollable),
+    );
+    final currentSystem = find.byKey(
+      const ValueKey('current-computer-shortcut-system'),
+    );
+    await tester.scrollUntilVisible(
+      currentSystem,
+      160,
+      scrollable: settingsScroll,
+    );
+    expect(
+      tester.widget<Text>(currentSystem).data,
+      'Current computer: macOS · Primary uses Command (⌘).',
+    );
   });
 
   testWidgets('power indicator reacts to charger connection', (tester) async {

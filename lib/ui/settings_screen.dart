@@ -45,7 +45,49 @@ class SettingsScreen extends StatelessWidget {
         const _SectionLabel('DESKTOP COMPANION'),
         DesktopConnectionPanel(companion: controller.companion),
         const Divider(),
+        if (!isIosDesktop) ...[
+          const _SectionLabel('SETUP EXPERIENCE'),
+          SwitchListTile(
+            key: const ValueKey('beginner-mode-setting'),
+            secondary: const Icon(Icons.school_outlined),
+            title: const Text('Beginner mode'),
+            subtitle: const Text(
+              'Show step-by-step computer shortcut setup on Android Bluetooth connections.',
+            ),
+            value: preferences.beginnerMode,
+            onChanged: controller.setBeginnerMode,
+          ),
+          const Divider(),
+        ],
         const _SectionLabel('SHORTCUT PLATFORM'),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text(
+            'Per-app shortcuts are sent exactly as entered. This setting is the fallback for Primary profile keys; the saved or paired computer OS takes priority.',
+          ),
+        ),
+        Builder(
+          builder: (context) {
+            final computer = controller.activeComputer;
+            final operatingSystem = computer?.operatingSystem;
+            final currentSystem = operatingSystem == null
+                ? 'Computer OS not identified'
+                : operatingSystem.label;
+            final modifier = controller.primaryShortcutLabel == 'Command'
+                ? 'Command (⌘)'
+                : 'Ctrl';
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                computer == null
+                    ? 'No computer selected · fallback now uses $modifier.'
+                    : 'Current computer: $currentSystem · Primary uses $modifier.',
+                key: const ValueKey('current-computer-shortcut-system'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            );
+          },
+        ),
         RadioGroup<ShortcutPlatform>(
           groupValue: preferences.shortcutPlatform,
           onChanged: (value) {
@@ -355,10 +397,12 @@ class SettingsScreen extends StatelessWidget {
   ) => switch (platform) {
     ShortcutPlatform.automatic =>
       controller.hid.activeHost.value == null
-          ? 'Detect from the connected computer name; Ctrl until connected'
-          : '${controller.primaryShortcutLabel} for ${controller.hid.activeHost.value!.name}',
-    ShortcutPlatform.apple => 'PRIMARY sends Command (⌘)',
-    ShortcutPlatform.windowsLinux => 'PRIMARY sends Ctrl',
+          ? 'Use the active OS when available; otherwise use a best-effort computer-name hint.'
+          : '${controller.primaryShortcutLabel} fallback for ${controller.hid.activeHost.value!.name}; saved OS wins.',
+    ShortcutPlatform.apple =>
+      'Command (⌘) fallback when this computer has no saved OS.',
+    ShortcutPlatform.windowsLinux =>
+      'Ctrl fallback when this computer has no saved OS.',
   };
 
   Future<void> _confirmRestore(BuildContext context) async {

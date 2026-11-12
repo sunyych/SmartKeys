@@ -33,6 +33,8 @@ void main() {
         ),
       );
 
+      await _chooseOperatingSystem(tester, ComputerOperatingSystem.windows);
+
       final chooseCodex = find.byKey(
         const ValueKey('computer-app-select-codex'),
       );
@@ -104,6 +106,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(saved, isTrue);
       expect(harness.controller.activeComputerSetup!.applicationIds, ['codex']);
+      expect(
+        harness.controller.activeComputerSetup!.operatingSystem,
+        ComputerOperatingSystem.windows,
+      );
       expect(
         harness.controller.activeComputerSetup!.bindingFor(
           'codex',
@@ -204,25 +210,142 @@ void main() {
 
     final finish = find.byKey(const ValueKey('computer-wizard-save'));
     await _scrollWizardTo(tester, finish);
+    expect(tester.widget<FilledButton>(finish).onPressed, isNull);
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.macos);
+    await _scrollWizardTo(tester, finish);
     expect(tester.widget<FilledButton>(finish).onPressed, isNotNull);
     await tester.tap(finish);
     await tester.pumpAndSettle();
     expect(harness.controller.activeComputerSetup!.applicationIds, isEmpty);
+    expect(
+      harness.controller.activeComputerSetup!.operatingSystem,
+      ComputerOperatingSystem.macos,
+    );
+    expect(harness.controller.activeComputer!.id, target.id);
+  });
+
+  testWidgets('Linux Beginner guide names GNOME Custom Shortcuts', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(seedComputerSetup: false);
+    addTearDown(harness.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ComputerSetupWizard(
+            controller: harness.controller,
+            target: harness.controller.activeComputer!,
+          ),
+        ),
+      ),
+    );
+
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.linux);
+    await _scrollWizardTo(
+      tester,
+      find.byKey(const ValueKey('computer-app-select-codex')),
+    );
+    await tester.tap(find.byKey(const ValueKey('computer-app-select-codex')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('computer-os-beginner-guide')),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('On GNOME, open Settings → Keyboard'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Custom Shortcuts'), findsOneWidget);
+    expect(find.textContaining('firefox'), findsOneWidget);
+  });
+
+  testWidgets('changing the selected OS invalidates a prior launch proof', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(seedComputerSetup: false);
+    addTearDown(harness.dispose);
+    final target = harness.controller.activeComputer!;
+    final setup = ComputerSetup(
+      applicationIds: const ['codex'],
+      operatingSystem: ComputerOperatingSystem.windows,
+      bindings: const {
+        'codex': {
+          'launch': 'Ctrl+Alt+1',
+          'voiceMode': 'Ctrl+Shift+Alt+1',
+          'voiceInput': 'Ctrl+Shift+Alt+2',
+          'cancelClear': 'Escape',
+          'previousChat': 'Ctrl+Alt+Left',
+          'nextChat': 'Ctrl+Alt+Right',
+          'nextProject': 'Ctrl+Alt+P',
+        },
+      },
+    );
+    await harness.controller.saveComputerSetup(target, setup);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ComputerSetupWizard(
+            controller: harness.controller,
+            target: target,
+            initialSetup: setup,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.text('Saved for this computer. Change it if needed.'),
+      findsOneWidget,
+    );
+    final finish = find.byKey(const ValueKey('computer-wizard-save'));
+    await _scrollWizardTo(tester, finish);
+    expect(tester.widget<FilledButton>(finish).onPressed, isNotNull);
+
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.macos);
+    expect(
+      find.text('LumiaKey will remember this system when you save.'),
+      findsOneWidget,
+    );
+    await _scrollWizardTo(tester, finish);
+    expect(tester.widget<FilledButton>(finish).onPressed, isNull);
   });
 }
 
-Future<void> _scrollWizardTo(WidgetTester tester, Finder finder) async {
-  await tester.scrollUntilVisible(
-    finder,
-    220,
-    scrollable: find
-        .descendant(
-          of: find.byKey(const ValueKey('computer-wizard-scroll')),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-  );
+Future<void> _chooseOperatingSystem(
+  WidgetTester tester,
+  ComputerOperatingSystem operatingSystem,
+) async {
+  final selector = find.byKey(const ValueKey('computer-os-choice'));
+  await _scrollWizardToTop(tester);
+  await tester.ensureVisible(selector);
+  await tester.tap(selector);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(operatingSystem.label).last);
+  await tester.pumpAndSettle();
 }
+
+Future<void> _scrollWizardToTop(WidgetTester tester) async {
+  final scrollable = find
+      .descendant(
+        of: find.byKey(const ValueKey('computer-wizard-scroll')),
+        matching: find.byType(Scrollable),
+      )
+      .first;
+  tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _scrollWizardTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(finder, 220, scrollable: _wizardScrollable());
+  await tester.pumpAndSettle();
+}
+
+Finder _wizardScrollable() => find
+    .descendant(
+      of: find.byKey(const ValueKey('computer-wizard-scroll')),
+      matching: find.byType(Scrollable),
+    )
+    .first;
 
 String _validChord(String action) => switch (action) {
   'launch' => 'Ctrl+Alt+1',

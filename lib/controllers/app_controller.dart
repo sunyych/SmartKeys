@@ -97,11 +97,17 @@ class AppController extends ChangeNotifier {
     final host = companion.activeHost.value;
     if (host != null) {
       if (!_isAcceptedCompanionHost(host)) return null;
+      final operatingSystem = _computerOperatingSystemFromPlatform(
+        host.platform,
+      );
       return ComputerTarget(
         id: _desktopComputerSetupId(host),
         name: host.name,
         mode: ComputerMode.advanced,
-        isApple: host.isApple,
+        isApple: operatingSystem == null
+            ? host.isApple
+            : operatingSystem == ComputerOperatingSystem.macos,
+        operatingSystem: operatingSystem,
       );
     }
     if (_isIos ||
@@ -111,11 +117,15 @@ class AppController extends ChangeNotifier {
     }
     final bluetoothHost = hid.activeHost.value;
     if (bluetoothHost == null) return null;
+    final targetId = _bluetoothComputerSetupId(bluetoothHost);
+    final operatingSystem = _standaloneOperatingSystem(bluetoothHost, targetId);
     return ComputerTarget(
-      id: _bluetoothComputerSetupId(bluetoothHost),
+      id: targetId,
       name: bluetoothHost.name,
       mode: ComputerMode.standalone,
-      isApple: effectiveShortcutPlatform == ShortcutPlatform.apple,
+      isApple:
+          _standaloneShortcutPlatform(bluetoothHost) == ShortcutPlatform.apple,
+      operatingSystem: operatingSystem,
     );
   }
 
@@ -429,6 +439,69 @@ class AppController extends ChangeNotifier {
     return 'desktop:$identity';
   }
 
+  ComputerOperatingSystem? _standaloneOperatingSystem(
+    HidHost host,
+    String targetId,
+  ) {
+    final saved = config.computerSetups[targetId]?.operatingSystem;
+    if (saved != null) return saved;
+    return _computerOperatingSystemHint(host.name);
+  }
+
+  ShortcutPlatform _standaloneShortcutPlatform(HidHost host) {
+    final targetId = _bluetoothComputerSetupId(host);
+    final saved = config.computerSetups[targetId]?.operatingSystem;
+    if (saved != null) {
+      return saved == ComputerOperatingSystem.macos
+          ? ShortcutPlatform.apple
+          : ShortcutPlatform.windowsLinux;
+    }
+    final configured = config.preferences.shortcutPlatform;
+    if (configured != ShortcutPlatform.automatic) return configured;
+    final hint = _computerOperatingSystemHint(host.name);
+    if (hint != null) {
+      return hint == ComputerOperatingSystem.macos
+          ? ShortcutPlatform.apple
+          : ShortcutPlatform.windowsLinux;
+    }
+    return detectShortcutPlatform(host.name);
+  }
+
+  static ComputerOperatingSystem? _computerOperatingSystemFromPlatform(
+    String platform,
+  ) => switch (platform.trim().toLowerCase()) {
+    'windows' || 'win32' || 'win' => ComputerOperatingSystem.windows,
+    'linux' => ComputerOperatingSystem.linux,
+    'macos' || 'macosx' || 'darwin' || 'osx' => ComputerOperatingSystem.macos,
+    _ => null,
+  };
+
+  static ComputerOperatingSystem? _computerOperatingSystemHint(
+    String hostName,
+  ) {
+    final name = hostName.trim().toLowerCase();
+    if (name.contains('macbook') ||
+        name.contains('imac') ||
+        name.contains('mac mini') ||
+        name.contains('mac studio') ||
+        name.contains('apple') ||
+        RegExp(r'(^|[^a-z])mac([^a-z]|$)').hasMatch(name)) {
+      return ComputerOperatingSystem.macos;
+    }
+    if (name.contains('ubuntu') ||
+        name.contains('debian') ||
+        name.contains('fedora') ||
+        name.contains('linux') ||
+        name.contains('arch linux')) {
+      return ComputerOperatingSystem.linux;
+    }
+    if (name.contains('windows') ||
+        RegExp(r'(^|[^a-z])win(dows)?([^a-z]|$)').hasMatch(name)) {
+      return ComputerOperatingSystem.windows;
+    }
+    return null;
+  }
+
   static String _bluetoothComputerSetupId(HidHost host) {
     final identity = host.address.trim().isEmpty
         ? host.id.trim()
@@ -576,14 +649,27 @@ class AppController extends ChangeNotifier {
   }
 
   ShortcutPlatform get effectiveShortcutPlatform {
-    final configured = config.preferences.shortcutPlatform;
-    if (configured != ShortcutPlatform.automatic) return configured;
     final desktop = companion.activeHost.value;
     if (desktop != null) {
+      final operatingSystem = _computerOperatingSystemFromPlatform(
+        desktop.platform,
+      );
+      if (operatingSystem != null) {
+        return operatingSystem == ComputerOperatingSystem.macos
+            ? ShortcutPlatform.apple
+            : ShortcutPlatform.windowsLinux;
+      }
       return desktop.isApple
           ? ShortcutPlatform.apple
           : ShortcutPlatform.windowsLinux;
     }
+    final bluetoothHost = hid.activeHost.value;
+    if (bluetoothHost != null &&
+        hid.connectionStatus.value == HidConnectionStatus.connected) {
+      return _standaloneShortcutPlatform(bluetoothHost);
+    }
+    final configured = config.preferences.shortcutPlatform;
+    if (configured != ShortcutPlatform.automatic) return configured;
     return detectShortcutPlatform(hid.activeHost.value?.name);
   }
 
@@ -1022,6 +1108,20 @@ class AppController extends ChangeNotifier {
     );
     notifyListeners();
     await repository.save(config);
+  }
+
+  Future<void> setBeginnerMode(bool beginnerMode) async {
+    if (config.preferences.beginnerMode == beginnerMode) return;
+    _config = config.copyWith(
+      preferences: config.preferences.copyWith(beginnerMode: beginnerMode),
+    );
+    notifyListeners();
+    var saved = config;
+    await repository.save(saved);
+    while (!identical(_config, saved)) {
+      saved = config;
+      await repository.save(saved);
+    }
   }
 
   Future<void> updateControlSurfaceLayout(ControlSurfaceLayout value) async {
@@ -1550,7 +1650,9 @@ class AppController extends ChangeNotifier {
         if (!order.contains(profile.id)) order.add(profile.id);
       }
       final preferences = restoreSettings && backup.preferences != null
-          ? backup.preferences!
+          ? backup.preferences!.copyWith(
+              beginnerMode: config.preferences.beginnerMode,
+            )
           : config.preferences;
       nextConfig = config.copyWith(
         profiles: restoredProfiles,

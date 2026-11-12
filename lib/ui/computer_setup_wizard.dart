@@ -35,6 +35,9 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
   String? _expandedAppId;
   String? _error;
   String? _lastTestedAppId;
+  ComputerOperatingSystem? _operatingSystem;
+  ComputerOperatingSystem? _savedOperatingSystem;
+  bool _operatingSystemSelectedManually = false;
   bool _saving = false;
   bool _testingLaunch = false;
 
@@ -51,6 +54,10 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
   void initState() {
     super.initState();
     final initialSetup = widget.initialSetup;
+    _savedOperatingSystem =
+        initialSetup?.operatingSystem ??
+        widget.controller.activeComputerSetup?.operatingSystem;
+    _operatingSystem = _savedOperatingSystem ?? widget.target.operatingSystem;
     _applicationIds = initialSetup == null
         ? <String>{}
         : Set<String>.of(initialSetup.applicationIds);
@@ -118,6 +125,40 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
               key: const ValueKey('computer-wizard-scroll'),
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
               children: [
+                if (standalone) ...[
+                  Text(
+                    'Computer operating system',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<ComputerOperatingSystem>(
+                    key: const ValueKey('computer-os-choice'),
+                    initialValue: _operatingSystem,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Choose or confirm the computer OS',
+                      helperText: _operatingSystem == null
+                          ? 'Required before this computer can be saved.'
+                          : _operatingSystem == _savedOperatingSystem
+                          ? 'Saved for this computer. Change it if needed.'
+                          : _operatingSystemSelectedManually
+                          ? 'LumiaKey will remember this system when you save.'
+                          : 'Suggested from shortcut settings or the computer name. Confirm or change it before saving.',
+                    ),
+                    items: [
+                      for (final os in ComputerOperatingSystem.values)
+                        DropdownMenuItem(
+                          key: ValueKey('computer-os-${os.name}'),
+                          value: os,
+                          child: Text(os.label),
+                        ),
+                    ],
+                    onChanged: _saving || _testingLaunch
+                        ? null
+                        : _setOperatingSystem,
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 if (apps.isEmpty)
                   const Card(
                     child: Padding(
@@ -145,6 +186,15 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                           : (selected) =>
                                 _selectApplication(app, selected ?? false),
                     ),
+                ],
+                if (selected.isNotEmpty &&
+                    standalone &&
+                    _operatingSystem != null &&
+                    widget.controller.config.preferences.beginnerMode) ...[
+                  const SizedBox(height: 12),
+                  _BeginnerShortcutGuide(
+                    operatingSystem: _operatingSystem!,
+                  ),
                 ],
                 if (selected.isNotEmpty && standalone) ...[
                   const SizedBox(height: 16),
@@ -255,10 +305,12 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                         onChanged: (_) => _bindingChanged(app, shortcut),
                         decoration: InputDecoration(
                           labelText: shortcut.label,
-                          hintText: 'Ctrl + Alt + 1',
-                          helperText: shortcut.id == 'launch'
-                              ? 'A global computer shortcut that launches this app.'
-                              : null,
+                          hintText: _shortcutHint(app, shortcut),
+                          helperText: shortcut.requiredForSetup ||
+                                  _shortcutHint(app, shortcut) == null
+                              ? null
+                              : 'Default: ${_shortcutHint(app, shortcut)}. Leave blank to use it.',
+                          helperMaxLines: 2,
                           suffixIcon: IconButton(
                             tooltip: 'Clear ${shortcut.label}',
                             onPressed: _saving
@@ -275,7 +327,10 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
                     key: ValueKey('computer-test-launch-${app.id}'),
-                    onPressed: launchConfigured && !_testingLaunch && !_saving
+                    onPressed: launchConfigured &&
+                            _operatingSystem != null &&
+                            !_testingLaunch &&
+                            !_saving
                         ? () => _testLaunch(app)
                         : null,
                     icon: _testingLaunch && _lastTestedAppId == app.id
@@ -321,18 +376,34 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
         final result = <String, TextEditingController>{};
         for (final shortcut in computerShortcutsFor(app.category)) {
           final saved = widget.initialSetup?.bindingFor(app.id, shortcut.id);
-          final fallback = defaultComputerShortcut(
-            widget.target,
-            app,
-            shortcut.id,
-          );
           result[shortcut.id] = TextEditingController(
-            text: saved ?? fallback ?? '',
+            text: saved ?? '',
           );
         }
         return _AppBindingControllers(result);
       })
       .forAction(actionId);
+
+  String? _shortcutHint(ComputerApplication app, ComputerShortcut shortcut) {
+    final operatingSystem = _operatingSystem;
+    if (operatingSystem == null) return null;
+    final previewTarget = widget.target.withOperatingSystem(operatingSystem);
+    return defaultComputerShortcut(previewTarget, app, shortcut.id);
+  }
+
+  void _setOperatingSystem(ComputerOperatingSystem? operatingSystem) {
+    if (operatingSystem == _operatingSystem) {
+      setState(() => _operatingSystemSelectedManually = true);
+      return;
+    }
+    setState(() {
+      _operatingSystem = operatingSystem;
+      _operatingSystemSelectedManually = true;
+      _confirmedAppLaunches.clear();
+      _lastTestedAppId = null;
+      _error = null;
+    });
+  }
 
   void _selectApplication(ComputerApplication app, bool selected) {
     setState(() {
@@ -359,7 +430,9 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
 
   Future<void> _testLaunch(ComputerApplication app) async {
     final chord = _bindingEditor(app, 'launch').text.trim();
-    if (parseComputerShortcut(chord) == null) return;
+    if (_operatingSystem == null || parseComputerShortcut(chord) == null) {
+      return;
+    }
     setState(() {
       _testingLaunch = true;
       _lastTestedAppId = null;
@@ -384,7 +457,8 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
   }
 
   bool _canSave(List<ComputerApplication> selected, bool standalone) {
-    if (_saving) return false;
+    if (_saving || _testingLaunch) return false;
+    if (standalone && _operatingSystem == null) return false;
     if (!standalone || selected.isEmpty) return true;
     for (final app in selected) {
       if (!_confirmedAppLaunches.contains(app.id)) return false;
@@ -440,6 +514,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
         ComputerSetup(
           applicationIds: selected.map((app) => app.id).toList(),
           bindings: bindings,
+          operatingSystem: _operatingSystem,
         ),
       );
       if (mounted) widget.onSaved?.call();
@@ -458,9 +533,55 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
         ComputerAppCategory.other => 'Application shortcuts',
       };
 
-  String _launchInstruction(ComputerApplication app) => widget.target.isApple
-      ? 'On the Mac, open Shortcuts, create an Open App shortcut for ${app.name}, then choose Add Keyboard Shortcut for that shortcut.'
-      : 'On Windows, create or find the ${app.name} shortcut in Start or on the Desktop. Open Properties, set its Shortcut key, and choose OK.';
+  String _launchInstruction(ComputerApplication app) =>
+      'Enter the same global launch shortcut you set for ${app.name} on the computer.';
+}
+
+class _BeginnerShortcutGuide extends StatelessWidget {
+  const _BeginnerShortcutGuide({required this.operatingSystem});
+
+  final ComputerOperatingSystem operatingSystem;
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = switch (operatingSystem) {
+      ComputerOperatingSystem.windows => const [
+        '1. Find the app shortcut in Start or on the Desktop. If missing, search from Start → Open file location, or create a Desktop shortcut first.',
+        '2. Right-click → Properties → Shortcut.',
+        '3. Set Shortcut key, for example Ctrl+Alt+1, then select OK.',
+      ],
+      ComputerOperatingSystem.linux => const [
+        '1. On GNOME, open Settings → Keyboard → View and Customize Shortcuts.',
+        '2. Choose Custom Shortcuts and add a name and app command (for example, firefox).',
+        '3. Choose the key combination. Menus vary across Linux desktops.',
+      ],
+      ComputerOperatingSystem.macos => const [
+        '1. Open Shortcuts and create a New Shortcut → Open App.',
+        '2. Choose the app, then open Details.',
+        '3. Select Add Keyboard Shortcut, for example Cmd+Option+1.',
+      ],
+    };
+    return Card(
+      key: const ValueKey('computer-os-beginner-guide'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Set up shortcuts on ${operatingSystem.label}',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            for (final step in steps) Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Text(step),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _AppBindingControllers {
