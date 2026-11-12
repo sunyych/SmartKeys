@@ -413,6 +413,15 @@ Pairing is managed by Android/Windows. LumiaKey retains no separate pairing
 secret and exposes explicit permission, Bluetooth-off, registration, connection,
 and native error states in the connection sheet.
 
+## Switch computers
+
+Pair each computer through Bluetooth on Android or through LumiaKey Desktop.
+Tap **KVM** at the top of Home to cycle through the available computers. Press
+and hold it to pick a specific computer or manage pairing.
+LumiaKey controls one selected computer at a time and restores that computer's
+saved apps and shortcuts. On iPhone and iPad, add computers through LumiaKey
+Desktop pairing.
+
 ## Run and verify
 
 ```sh

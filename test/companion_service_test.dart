@@ -258,6 +258,76 @@ void main() {
 
       expect(companion.activeHost.value?.port, firstServer.port);
       expect(companion.manifest.value?.revision, firstManifest.revision);
+      expect(companion.computerChoices.value, hasLength(2));
+      expect(companion.computerChoices.value.map((choice) => choice.name), [
+        'Desktop A',
+        'Desktop B',
+      ]);
+    },
+  );
+
+  test(
+    'selecting a discovered computer pins routing while discovery continues',
+    () async {
+      final discoveryPort = await _unusedUdpPort();
+      const firstToken = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const secondToken = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+      final first = await _ManualServer.start(token: firstToken);
+      final second = await _ManualServer.start(token: secondToken);
+      final sender = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final companion = LanCompanionService(discoveryPort: discoveryPort);
+      addTearDown(() async {
+        companion.dispose();
+        sender.close();
+        await first.close();
+        await second.close();
+      });
+
+      await companion.start();
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        platform: 'windows',
+        name: 'Computer A',
+        port: first.port,
+        token: firstToken,
+        revision: 12,
+      );
+      await _waitUntil(() => companion.activeHost.value?.port == first.port);
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        platform: 'windows',
+        name: 'Computer B',
+        port: second.port,
+        token: secondToken,
+        revision: 12,
+      );
+      await _waitUntil(() => companion.computerChoices.value.length == 2);
+
+      final secondChoice = companion.computerChoices.value.singleWhere(
+        (choice) => choice.name == 'Computer B',
+      );
+      expect(secondChoice.id, isNot(contains(secondToken)));
+      await companion.selectComputer(secondChoice.id);
+      expect(companion.activeHost.value?.port, second.port);
+      expect(companion.selectedComputerChoiceId, secondChoice.id);
+
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        platform: 'windows',
+        name: 'Computer A',
+        port: first.port,
+        token: firstToken,
+        revision: 12,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(companion.activeHost.value?.port, second.port);
+      expect(companion.computerChoices.value, hasLength(2));
     },
   );
 
@@ -440,6 +510,7 @@ Future<int> _unusedUdpPort() async {
 void _advertise(
   RawDatagramSocket sender, {
   required int discoveryPort,
+  String platform = 'macos',
   required String name,
   required int port,
   required String token,
@@ -450,7 +521,7 @@ void _advertise(
       'service': 'lumiakeys-companion',
       'version': 2,
       'name': name,
-      'platform': 'macos',
+      'platform': platform,
       'port': port,
       'token': token,
       'revision': revision,

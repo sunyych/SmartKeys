@@ -30,6 +30,7 @@ class LocalDictationEntryButton extends StatefulWidget {
     super.key,
     required this.hid,
     this.topOffset = 7,
+    this.forceDesktopOutput = false,
     this.companion,
     this.modelManager,
     this.capture,
@@ -40,6 +41,7 @@ class LocalDictationEntryButton extends StatefulWidget {
 
   final HidService hid;
   final double topOffset;
+  final bool forceDesktopOutput;
   final CompanionService? companion;
   final ModelManager? modelManager;
   final DictationCapture? capture;
@@ -211,7 +213,8 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
             companion: widget.companion,
             key: _panelKey,
             autoStartWhenReady: _autoStartCurrentEntry,
-            forceDesktopOutput: _forceDesktopOutputForCurrentEntry,
+            forceDesktopOutput:
+                _forceDesktopOutputForCurrentEntry || widget.forceDesktopOutput,
             liveChipTopOffset: widget.topOffset,
             autoCollapseWhileListening: true,
             modelManager: widget.modelManager,

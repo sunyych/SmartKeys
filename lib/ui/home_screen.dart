@@ -18,6 +18,7 @@ import 'button_editor_screen.dart';
 import 'bluetooth_connection_sheet.dart';
 import 'desktop_connection_panel.dart';
 import 'computer_setup_wizard.dart';
+import 'computer_switcher.dart';
 import 'profile_management_screen.dart';
 import 'settings_screen.dart';
 import 'shortcut_community_screen.dart';
@@ -433,13 +434,16 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Column(
                 children: [
-                  if (iOSGateContent != null)
-                    Expanded(child: iOSGateContent)
-                  else if (showFirstSetup)
-                    Expanded(child: safeContent)
-                  else ...[
+                  if (iOSGateContent != null) ...[
+                    ComputerSwitcher(controller: controller),
+                    Expanded(child: iOSGateContent),
+                  ] else if (showFirstSetup) ...[
+                    ComputerSwitcher(controller: controller),
+                    Expanded(child: safeContent),
+                  ] else ...[
                     if (showComputerAppBar)
                       _ComputerApplicationBar(
+                        controller: controller,
                         applications: availableApps,
                         selectedApplicationId: applicationIsAvailable
                             ? selectedApplicationId
@@ -449,12 +453,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     Padding(
                       padding: EdgeInsets.fromLTRB(10, 10, 190, 6),
-                      child: _HomeTabBar(
-                        controller: controller,
-                        profiles: visibleProfiles,
-                        activeProfileId: controller.activeProfile.id,
-                        selectedTab: effectiveTab,
-                        onSelectTab: selectTab,
+                      child: Row(
+                        children: [
+                          if (!showComputerAppBar) ...[
+                            ComputerSwitcher(
+                              controller: controller,
+                              compact: true,
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          Expanded(
+                            child: _HomeTabBar(
+                              controller: controller,
+                              profiles: visibleProfiles,
+                              activeProfileId: controller.activeProfile.id,
+                              selectedTab: effectiveTab,
+                              onSelectTab: selectTab,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const Divider(height: 1),
@@ -530,6 +547,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     hid: controller.hid,
                     topOffset: showComputerAppBar ? 47 : 7,
                     companion: controller.companion,
+                    forceDesktopOutput: controller.hasPinnedDesktopComputer,
                     modelManager: widget.dictationModelManager,
                     capture: widget.dictationCapture,
                     recognizerFactory: widget.dictationRecognizerFactory,
@@ -1014,12 +1032,14 @@ class _HomeTabBar extends StatelessWidget {
 
 class _ComputerApplicationBar extends StatelessWidget {
   const _ComputerApplicationBar({
+    required this.controller,
     required this.applications,
     required this.selectedApplicationId,
     required this.onSelectApplication,
     required this.onManage,
   });
 
+  final AppController controller;
   final List<ComputerApplication> applications;
   final String? selectedApplicationId;
   final ValueChanged<ComputerApplication> onSelectApplication;
@@ -1052,6 +1072,7 @@ class _ComputerApplicationBar extends StatelessWidget {
             },
           ),
         ),
+        ComputerSwitcher(controller: controller, compact: true),
         IconButton(
           key: const ValueKey('computer-app-manage'),
           tooltip: 'Choose computer apps and set up shortcuts',

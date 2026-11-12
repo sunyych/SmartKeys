@@ -12,6 +12,7 @@ import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/orientation_service.dart';
 import 'package:smart_keys/services/power_brightness_service.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform;
 
 DesktopManifest desktopManifest({
   Set<String> installed = const {},
@@ -124,11 +125,14 @@ class TestHarness {
     bool? pluggedIn = false,
     ShortcutUsageRepository? shortcutUsage,
     bool seedComputerSetup = true,
+    RecordingHidService? hidService,
+    RecordingCompanionService? companionService,
+    TargetPlatform? platformOverride,
   }) async {
     final directory = Directory.systemTemp.createTempSync('smart_keys_test_');
     final repository = MemoryConfigRepository(config ?? testConfig());
-    final hid = RecordingHidService();
-    final companion = RecordingCompanionService();
+    final hid = hidService ?? RecordingHidService();
+    final companion = companionService ?? RecordingCompanionService();
     final orientation = RecordingOrientationService();
     final power = RecordingPowerBrightnessService(pluggedIn: pluggedIn);
     final usageRepository = shortcutUsage ?? MemoryShortcutUsageRepository();
@@ -141,6 +145,7 @@ class TestHarness {
       imageStore: PrivateImageStore(documentsDirectory: () async => directory),
       powerBrightnessService: power,
       shortcutUsage: usageRepository,
+      platformOverride: platformOverride,
     );
     await controller.initialize();
     final initialComputer = controller.activeComputer;

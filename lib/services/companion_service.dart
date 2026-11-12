@@ -83,6 +83,26 @@ class CompanionHost {
 
 enum CompanionSyncStatus { disconnected, discovering, syncing, ready, error }
 
+@immutable
+class CompanionComputerChoice {
+  const CompanionComputerChoice({
+    required this.id,
+    required this.name,
+    required this.platform,
+  });
+
+  final String id;
+  final String name;
+  final String platform;
+}
+
+abstract interface class SwitchableCompanionConnection {
+  ValueListenable<List<CompanionComputerChoice>> get computerChoices;
+  String? get selectedComputerChoiceId;
+  Future<void> selectComputer(String id);
+  Future<void> suspendComputerSelection();
+}
+
 abstract interface class CompanionService {
   ValueListenable<CompanionHost?> get activeHost;
   ValueListenable<DesktopManifest?> get manifest;
@@ -106,7 +126,10 @@ abstract interface class ManualCompanionConnection {
 }
 
 class LanCompanionService
-    implements CompanionService, ManualCompanionConnection {
+    implements
+        CompanionService,
+        ManualCompanionConnection,
+        SwitchableCompanionConnection {
   LanCompanionService({
     this.discoveryPort = 45832,
     this.hostExpiry = const Duration(seconds: 8),
@@ -128,12 +151,18 @@ class LanCompanionService
     CompanionSyncStatus.disconnected,
   );
   final ValueNotifier<String?> _error = ValueNotifier(null);
+  final ValueNotifier<List<CompanionComputerChoice>> _computerChoices =
+      ValueNotifier(const []);
+  final Map<String, _KnownCompanion> _knownComputers = {};
   RawDatagramSocket? _socket;
   Timer? _expiryTimer;
   DateTime? _lastSeen;
   bool _fetchingManifest = false;
   bool _manualHeartbeatRunning = false;
   bool _manualConnectionSelected = false;
+  String? _selectedComputerChoiceId;
+  bool _selectionPinned = false;
+  bool _selectionSuspended = false;
   int? _pendingRevision;
   CompanionHost? _pendingManifestHost;
   int? _pendingManifestEpoch;
@@ -155,6 +184,13 @@ class LanCompanionService
 
   @override
   ValueListenable<String?> get errorMessage => _error;
+
+  @override
+  ValueListenable<List<CompanionComputerChoice>> get computerChoices =>
+      _computerChoices;
+
+  @override
+  String? get selectedComputerChoiceId => _selectedComputerChoiceId;
 
   @override
   Future<void> start() async {
@@ -182,6 +218,7 @@ class LanCompanionService
         _receive(packet);
       });
       _expiryTimer = Timer.periodic(expiryPollInterval, (_) {
+        _pruneKnownComputers();
         final seen = _lastSeen;
         if (seen != null && _now().difference(seen) > hostExpiry) {
           _host.value = null;
@@ -197,6 +234,7 @@ class LanCompanionService
   @override
   Future<void> connectManually(String code) async {
     if (_disposed) return;
+    _selectionSuspended = false;
     final epoch = ++_selectionEpoch;
     _manualConnectionSelected = true;
     _clearPendingManifestRefresh();
@@ -239,6 +277,16 @@ class LanCompanionService
         revision: revision,
         capabilities: capabilities.map((value) => value.toString()).toSet(),
       );
+      final choiceId = _choiceId(host.platform, host.address, host.port);
+      _knownComputers[choiceId] = _KnownCompanion(
+        host,
+        _now(),
+        manuallyPaired: true,
+      );
+      _selectedComputerChoiceId = choiceId;
+      _selectionPinned = true;
+      _selectionSuspended = false;
+      _publishComputerChoices();
       _host.value = host;
       final manifestJson = await _getJson(
         host.address,
@@ -330,6 +378,50 @@ class LanCompanionService
   Future<void> disconnect() async {
     if (_disposed) return;
     ++_selectionEpoch;
+    _manualConnectionSelected = false;
+    _selectionPinned = false;
+    _selectedComputerChoiceId = null;
+    _selectionSuspended = false;
+    _clearPendingManifestRefresh();
+    _manualHeartbeat?.cancel();
+    _manualHeartbeat = null;
+    _host.value = null;
+    _manifest.value = null;
+    _lastSeen = null;
+    _status.value = enableDiscovery
+        ? CompanionSyncStatus.discovering
+        : CompanionSyncStatus.disconnected;
+    _error.value = null;
+  }
+
+  @override
+  Future<void> selectComputer(String id) async {
+    if (_disposed) return;
+    final known = _knownComputers[id];
+    if (known == null) {
+      throw ArgumentError.value(id, 'id', 'Unknown Desktop computer choice.');
+    }
+    final host = known.host;
+    _selectedComputerChoiceId = id;
+    _selectionPinned = true;
+    _selectionSuspended = false;
+    _manualConnectionSelected = known.manuallyPaired;
+    await connectManually('${host.address}:${host.port} ${host.token}');
+    _manualConnectionSelected = known.manuallyPaired;
+    if (_disposed ||
+        _selectedComputerChoiceId != id ||
+        _host.value?.address != host.address ||
+        _host.value?.port != host.port ||
+        _status.value != CompanionSyncStatus.ready) {
+      throw StateError(_error.value ?? 'Could not connect to that computer.');
+    }
+  }
+
+  @override
+  Future<void> suspendComputerSelection() async {
+    if (_disposed) return;
+    ++_selectionEpoch;
+    _selectionSuspended = true;
     _manualConnectionSelected = false;
     _clearPendingManifestRefresh();
     _manualHeartbeat?.cancel();
@@ -432,7 +524,7 @@ class LanCompanionService
   }
 
   void _receive(Datagram packet) {
-    if (_disposed || !enableDiscovery || _manualConnectionSelected) return;
+    if (_disposed || !enableDiscovery) return;
     try {
       final data = jsonDecode(utf8.decode(packet.data));
       if (data is! Map || data['service'] != 'lumiakeys-companion') return;
@@ -452,28 +544,9 @@ class LanCompanionService
       final capabilities = (data['capabilities'] as List? ?? const [])
           .map((value) => value.toString())
           .toSet();
-      final previous = _host.value;
       final address = packet.address.address;
-      final isSelectedHost =
-          previous == null ||
-          (previous.address == address &&
-              previous.port == port &&
-              previous.token == token);
-      if (!isSelectedHost) return;
-      final hostChanged =
-          previous == null ||
-          previous.address != address ||
-          previous.port != port ||
-          previous.token != token;
-      final recoverSession = _status.value == CompanionSyncStatus.error;
-      if (hostChanged) {
-        ++_selectionEpoch;
-        _clearPendingManifestRefresh();
-      }
-      final revisionChanged = previous?.revision != revision;
-      _lastSeen = _now();
       final host = CompanionHost(
-        name: data['name']?.toString() ?? packet.address.address,
+        name: data['name']?.toString() ?? address,
         platform: platform!,
         address: address,
         port: port,
@@ -482,6 +555,33 @@ class LanCompanionService
         revision: revision,
         capabilities: capabilities,
       );
+      final choiceId = _choiceId(platform, address, port);
+      final oldChoice = _knownComputers[choiceId];
+      _knownComputers[choiceId] = _KnownCompanion(
+        host,
+        _now(),
+        manuallyPaired: oldChoice?.manuallyPaired ?? false,
+      );
+      _publishComputerChoices();
+      if (_selectionSuspended) return;
+      if (_selectionPinned && _selectedComputerChoiceId != choiceId) return;
+      if (!_selectionPinned) _selectedComputerChoiceId = choiceId;
+      final previous = _host.value;
+      final matchesCurrent =
+          previous != null &&
+          previous.address == address &&
+          previous.port == port &&
+          previous.token == token;
+      if (_manualConnectionSelected && !matchesCurrent) return;
+      if (previous != null && !matchesCurrent) return;
+      final hostChanged = previous == null || !matchesCurrent;
+      final recoverSession = _status.value == CompanionSyncStatus.error;
+      if (hostChanged) {
+        ++_selectionEpoch;
+        _clearPendingManifestRefresh();
+      }
+      final revisionChanged = previous?.revision != revision;
+      _lastSeen = _now();
       _host.value = host;
       _error.value = null;
       if (host.supportsManifest) {
@@ -712,6 +812,34 @@ class LanCompanionService
     _pendingManifestEpoch = null;
   }
 
+  void _pruneKnownComputers() {
+    final cutoff = _now().subtract(hostExpiry);
+    _knownComputers.removeWhere(
+      (_, entry) => !entry.manuallyPaired && entry.lastSeen.isBefore(cutoff),
+    );
+    _publishComputerChoices();
+  }
+
+  void _publishComputerChoices() {
+    final choices =
+        _knownComputers.entries
+            .map(
+              (entry) => CompanionComputerChoice(
+                id: entry.key,
+                name: entry.value.host.name,
+                platform: entry.value.host.platform,
+              ),
+            )
+            .toList()
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+    _computerChoices.value = List.unmodifiable(choices);
+  }
+
+  static String _choiceId(String platform, String address, int port) =>
+      base64Url.encode(utf8.encode('$platform|$address|$port'));
+
   @override
   void dispose() {
     _disposed = true;
@@ -725,7 +853,20 @@ class LanCompanionService
     _manifest.dispose();
     _status.dispose();
     _error.dispose();
+    _computerChoices.dispose();
   }
+}
+
+class _KnownCompanion {
+  const _KnownCompanion(
+    this.host,
+    this.lastSeen, {
+    this.manuallyPaired = false,
+  });
+
+  final CompanionHost host;
+  final DateTime lastSeen;
+  final bool manuallyPaired;
 }
 
 class RecordingCompanionService implements CompanionService {

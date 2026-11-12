@@ -15,6 +15,7 @@ import '../models/config.dart';
 import '../models/computer_setup.dart';
 import '../models/control_surface_status.dart';
 import '../services/hid_service.dart';
+import '../services/ios_companion_hid_service.dart';
 import '../services/companion_service.dart';
 import '../services/orientation_service.dart';
 import '../services/power_brightness_service.dart';
@@ -33,10 +34,12 @@ class AppController extends ChangeNotifier {
   }) {
     hid.activeHost.addListener(_handleActiveHostChanged);
     hid.connectionStatus.addListener(_handleActiveHostChanged);
+    hid.pairedHosts.addListener(notifyListeners);
     companion.activeHost.addListener(_handleCompanionHostChanged);
     companion.manifest.addListener(_handleCompanionManifestChanged);
     companion.syncStatus.addListener(_handleCompanionManifestChanged);
     companion.errorMessage.addListener(_handleCompanionManifestChanged);
+    desktopComputerChoices?.addListener(notifyListeners);
     powerBrightnessService.isPluggedIn.addListener(_handlePowerChanged);
   }
 
@@ -66,6 +69,14 @@ class AppController extends ChangeNotifier {
   ButtonConfig? _buttonClipboard;
   int _profileIdSequence = 0;
   bool _darkModeActive = false;
+  late final IosCompanionHidService _desktopShortcutHid =
+      hid is IosCompanionHidService
+      ? hid as IosCompanionHidService
+      : IosCompanionHidService(companion);
+  int _computerSwitchEpoch = 0;
+  String? _computerSwitchPendingId;
+  String? _computerSwitchError;
+  String? _pinnedDesktopChoiceId;
 
   static const _darkPhoneBrightness = 0.1;
   static const _displayBrightnessDownSteps = 20;
@@ -82,11 +93,129 @@ class AppController extends ChangeNotifier {
   bool get canAddProfile => config.profiles.length < freeProfileLimit;
   bool get isDarkModeActive => _darkModeActive;
   DesktopManifest? get desktopManifest => companion.manifest.value;
+  ValueListenable<List<CompanionComputerChoice>>? get desktopComputerChoices =>
+      companion is SwitchableCompanionConnection
+      ? (companion as SwitchableCompanionConnection).computerChoices
+      : null;
+  String? get selectedDesktopComputerChoiceId =>
+      companion is SwitchableCompanionConnection
+      ? (companion as SwitchableCompanionConnection).selectedComputerChoiceId
+      : null;
+  String? get computerSwitchPendingId => _computerSwitchPendingId;
+  String? get computerSwitchError => _computerSwitchError;
+  bool get hasPinnedDesktopComputer => _pinnedDesktopChoiceId != null;
+
+  List<({String id, String name, bool desktop})> get switchableComputers {
+    final choices = <({String id, String name, bool desktop})>[];
+    if (_isAndroid) {
+      for (final host in hid.pairedHosts.value) {
+        if (!host.computerCandidate) continue;
+        choices.add((
+          id: 'bluetooth:${host.id}',
+          name: host.name,
+          desktop: false,
+        ));
+      }
+    }
+    for (final host
+        in desktopComputerChoices?.value ?? const <CompanionComputerChoice>[]) {
+      choices.add((id: 'desktop:${host.id}', name: host.name, desktop: true));
+    }
+    choices.sort((a, b) {
+      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return byName != 0 ? byName : a.id.compareTo(b.id);
+    });
+    return choices;
+  }
+
+  String? get selectedSwitchableComputerId {
+    final host = companion.activeHost.value;
+    if (host != null && _isAcceptedCompanionHost(host)) {
+      final selectedId = selectedDesktopComputerChoiceId;
+      return 'desktop:${selectedId ?? _desktopComputerSetupId(host).substring('desktop:'.length)}';
+    }
+    final bluetooth = hid.activeHost.value;
+    if (bluetooth != null &&
+        hid.connectionStatus.value == HidConnectionStatus.connected) {
+      return 'bluetooth:${bluetooth.id}';
+    }
+    return null;
+  }
+
+  Future<bool> switchComputer(String choiceId) async {
+    if (_computerSwitchPendingId != null) return false;
+    ({String id, String name, bool desktop})? target;
+    for (final choice in switchableComputers) {
+      if (choice.id == choiceId) target = choice;
+    }
+    if (target == null) return false;
+    final epoch = ++_computerSwitchEpoch;
+    _computerSwitchPendingId = choiceId;
+    _computerSwitchError = null;
+    notifyListeners();
+    try {
+      await prepareForContextChange();
+      if (epoch != _computerSwitchEpoch) return false;
+      if (target.desktop) {
+        _pinnedDesktopChoiceId = choiceId.substring('desktop:'.length);
+        if (_isAndroid &&
+            (hid.activeHost.value != null ||
+                hid.connectionStatus.value == HidConnectionStatus.connected ||
+                hid.connectionStatus.value == HidConnectionStatus.connecting)) {
+          await hid.disconnectHost();
+        }
+        if (epoch != _computerSwitchEpoch) return false;
+        final switchable = companion as SwitchableCompanionConnection;
+        await switchable.selectComputer(choiceId.substring('desktop:'.length));
+        return epoch == _computerSwitchEpoch;
+      }
+      _pinnedDesktopChoiceId = null;
+      final switchable = companion is SwitchableCompanionConnection
+          ? companion as SwitchableCompanionConnection
+          : null;
+      if (switchable != null) {
+        await switchable.suspendComputerSelection();
+      }
+      final hostId = choiceId.substring('bluetooth:'.length);
+      await hid.connectHost(hostId);
+      var disconnectedPolls = 0;
+      for (var poll = 0; poll < 120 && epoch == _computerSwitchEpoch; poll++) {
+        if (hid.connectionStatus.value == HidConnectionStatus.connected &&
+            hid.activeHost.value?.id == hostId) {
+          return true;
+        }
+        if (hid.connectionStatus.value == HidConnectionStatus.disconnected) {
+          disconnectedPolls++;
+          if (disconnectedPolls >= 10) break;
+        } else {
+          disconnectedPolls = 0;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (epoch == _computerSwitchEpoch) {
+        throw StateError(
+          'Could not connect to ${target.name}. Check that it is nearby and Bluetooth is on.',
+        );
+      }
+      return false;
+    } catch (error) {
+      if (epoch == _computerSwitchEpoch) {
+        _computerSwitchError = error.toString().replaceFirst('Exception: ', '');
+      }
+      return false;
+    } finally {
+      if (epoch == _computerSwitchEpoch) {
+        _computerSwitchPendingId = null;
+        notifyListeners();
+      }
+    }
+  }
 
   bool get _isAndroid =>
       (platformOverride ?? defaultTargetPlatform) == TargetPlatform.android;
   bool get _isIos =>
       (platformOverride ?? defaultTargetPlatform) == TargetPlatform.iOS;
+  bool get supportsBluetoothComputerSwitch => _isAndroid;
 
   ComputerMode get computerMode =>
       activeComputer?.mode ?? ComputerMode.disconnected;
@@ -95,6 +224,12 @@ class AppController extends ChangeNotifier {
   /// refreshes and action errors, provided the same host session remains.
   ComputerTarget? get activeComputer {
     final host = companion.activeHost.value;
+    if (_pinnedDesktopChoiceId != null &&
+        (host == null ||
+            !_isAcceptedCompanionHost(host) ||
+            selectedDesktopComputerChoiceId != _pinnedDesktopChoiceId)) {
+      return null;
+    }
     if (host != null) {
       if (!_isAcceptedCompanionHost(host)) return null;
       final operatingSystem = _computerOperatingSystemFromPlatform(
@@ -510,6 +645,16 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> _sendPinnedDesktopStep(HidAction action) async {
+    if (_pinnedDesktopChoiceId == null ||
+        action.type != ActionType.keyboard ||
+        activeComputer?.mode != ComputerMode.advanced ||
+        !isDesktopSynced) {
+      return;
+    }
+    await _desktopShortcutHid.sendStep(action);
+  }
+
   bool _isCurrentStandaloneTarget(ComputerTarget target) {
     final current = activeComputer;
     return target.mode == ComputerMode.standalone &&
@@ -887,7 +1032,14 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> pressButton(ButtonConfig button) async {
+    if (_computerSwitchPendingId != null) return;
     if (button.action.type == ActionType.none) return;
+    if (_pinnedDesktopChoiceId != null) {
+      if (button.action.type == ActionType.keyboard) {
+        await _sendPinnedDesktopStep(_resolveShortcutAction(button.action));
+      }
+      return;
+    }
     _recordShortcutUsage(
       _localButtonUsageKey(activeProfile, button),
       '${activeProfile.name} · ${button.label}',
@@ -926,6 +1078,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> executeRemoteButton(RemoteShortcutButton button) async {
+    if (_computerSwitchPendingId != null) return;
     _recordShortcutUsage('desktop:button:${button.id}', button.name);
     await companion.executeRemote(RemoteActionRequest.button(button.id));
   }
@@ -952,6 +1105,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> launchRemoteApplication(RemoteApplication application) async {
+    if (_computerSwitchPendingId != null) return;
     _recordShortcutUsage(
       'desktop:app:${application.id}',
       'Open ${application.name}',
@@ -987,10 +1141,17 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> sendWheelStep(bool clockwise) async {
+    if (_computerSwitchPendingId != null) return;
     final action = clockwise
         ? activeProfile.wheel.clockwise
         : activeProfile.wheel.counterClockwise;
     if (action.type != ActionType.none) {
+      if (_pinnedDesktopChoiceId != null) {
+        if (action.type == ActionType.keyboard) {
+          await _sendPinnedDesktopStep(_resolveShortcutAction(action));
+        }
+        return;
+      }
       _recordShortcutUsage(
         'local:${activeProfile.id}:wheel:${clockwise ? 'clockwise' : 'counterClockwise'}',
         '${activeProfile.name} · ${clockwise ? 'Wheel clockwise' : 'Wheel counter-clockwise'}',
@@ -1001,8 +1162,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> pressWheelCenter() async {
+    if (_computerSwitchPendingId != null) return;
     final action = activeProfile.wheel.center;
     if (action.type != ActionType.none) {
+      if (_pinnedDesktopChoiceId != null) {
+        if (action.type == ActionType.keyboard) {
+          await _sendPinnedDesktopStep(_resolveShortcutAction(action));
+        }
+        return;
+      }
       _recordShortcutUsage(
         'local:${activeProfile.id}:wheel:center',
         '${activeProfile.name} · Wheel center',
@@ -1021,6 +1189,8 @@ class AppController extends ChangeNotifier {
   }
 
   void sendTouchpadMove(double deltaX, double deltaY) {
+    if (_computerSwitchPendingId != null) return;
+    if (_pinnedDesktopChoiceId != null) return;
     const sensitivity = 1.65;
     final x = (deltaX * sensitivity).round().clamp(-127, 127);
     final y = (deltaY * sensitivity).round().clamp(-127, 127);
@@ -1031,6 +1201,8 @@ class AppController extends ChangeNotifier {
   }
 
   void sendMouseClick({required bool secondary}) {
+    if (_computerSwitchPendingId != null) return;
+    if (_pinnedDesktopChoiceId != null) return;
     if (config.preferences.hapticEnabled) {
       unawaited(HapticFeedback.selectionClick());
     }
@@ -1111,7 +1283,8 @@ class AppController extends ChangeNotifier {
     }
 
     final hostTasks = <Future<void>>[];
-    if (hid.connectionStatus.value == HidConnectionStatus.connected) {
+    if (_pinnedDesktopChoiceId == null &&
+        hid.connectionStatus.value == HidConnectionStatus.connected) {
       hostTasks.add(_setHostDarkThroughHid(enabled));
     }
     if (companion.activeHost.value != null) {
@@ -1835,14 +2008,18 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _computerSwitchEpoch++;
     hid.activeHost.removeListener(_handleActiveHostChanged);
     hid.connectionStatus.removeListener(_handleActiveHostChanged);
+    hid.pairedHosts.removeListener(notifyListeners);
     companion.activeHost.removeListener(_handleCompanionHostChanged);
     companion.manifest.removeListener(_handleCompanionManifestChanged);
     companion.syncStatus.removeListener(_handleCompanionManifestChanged);
     companion.errorMessage.removeListener(_handleCompanionManifestChanged);
+    desktopComputerChoices?.removeListener(notifyListeners);
     powerBrightnessService.isPluggedIn.removeListener(_handlePowerChanged);
     hid.dispose();
+    if (!identical(_desktopShortcutHid, hid)) _desktopShortcutHid.dispose();
     companion.dispose();
     powerBrightnessService.dispose();
     shortcutUsage.dispose();
