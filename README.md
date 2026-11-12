@@ -276,9 +276,11 @@ also opens the setup again when you want to change the selection.
   shortcut properties, the macOS Shortcuts app, or Linux desktop keyboard
   settings. Set the launch shortcut on the computer first. For example, if you
   assigned `Ctrl+Alt+1` to open Edge, enter that combination in LumiaKey using
-  the key picker or text field. Test the shortcut from LumiaKey and confirm the
-  right app opened. For meeting and coding controls, enter the keys configured
-  for each action inside the corresponding desktop app.
+  the key picker or text field. You can test the launch shortcut from LumiaKey
+  and confirm the right app opened. Save your app choices and any shortcuts
+  you have entered, then reopen **Computer app settings** to finish or revise
+  them. For meeting and coding controls, use the keys assigned to each action
+  in the corresponding desktop app.
 
 ## Vibe Coding
 

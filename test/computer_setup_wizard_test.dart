@@ -9,123 +9,177 @@ import 'test_support.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets(
-    'Vibe setup requires both voice keys and a confirmed app launch',
-    (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(390, 844);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.view.resetPhysicalSize);
+  testWidgets('Vibe setup can be saved without launch confirmation', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
 
-      final harness = await TestHarness.create(seedComputerSetup: false);
-      addTearDown(harness.dispose);
-      final target = harness.controller.activeComputer!;
-      var saved = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ComputerSetupWizard(
-              controller: harness.controller,
-              target: target,
-              onSaved: () => saved = true,
-            ),
+    final harness = await TestHarness.create(seedComputerSetup: false);
+    addTearDown(harness.dispose);
+    final target = harness.controller.activeComputer!;
+    var saved = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ComputerSetupWizard(
+            controller: harness.controller,
+            target: target,
+            onSaved: () => saved = true,
           ),
         ),
-      );
+      ),
+    );
 
-      await _chooseOperatingSystem(tester, ComputerOperatingSystem.windows);
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.windows);
 
-      final chooseCodex = find.byKey(
-        const ValueKey('computer-app-select-codex'),
-      );
-      await _scrollWizardTo(tester, chooseCodex);
-      await tester.tap(chooseCodex);
-      await tester.pumpAndSettle();
+    final chooseCodex = find.byKey(const ValueKey('computer-app-select-codex'));
+    await _scrollWizardTo(tester, chooseCodex);
+    await tester.tap(chooseCodex);
+    await tester.pumpAndSettle();
 
-      for (final action in [
-        'launch',
-        'voiceMode',
-        'voiceInput',
-        'cancelClear',
-        'previousChat',
-        'nextChat',
-        'nextProject',
-      ]) {
-        final field = find.byKey(ValueKey('computer-key-codex-$action'));
-        await _scrollWizardTo(tester, field);
-        await tester.enterText(field, _validChord(action));
-        await tester.pump();
-      }
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.pumpAndSettle();
+    for (final action in [
+      'launch',
+      'voiceMode',
+      'voiceInput',
+      'cancelClear',
+      'previousChat',
+      'nextChat',
+      'nextProject',
+    ]) {
+      final field = find.byKey(ValueKey('computer-key-codex-$action'));
+      await _scrollWizardTo(tester, field);
+      await tester.enterText(field, _validChord(action));
+      await tester.pump();
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
 
-      await _scrollWizardTo(
-        tester,
-        find.byKey(const ValueKey('computer-wizard-save')),
-      );
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.byKey(const ValueKey('computer-wizard-save')),
-            )
-            .onPressed,
-        isNull,
-      );
+    await _scrollWizardTo(
+      tester,
+      find.byKey(const ValueKey('computer-wizard-save')),
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('computer-wizard-save')),
+          )
+          .onPressed,
+      isNotNull,
+    );
 
-      final launchTest = find.byKey(
-        const ValueKey('computer-test-launch-codex'),
-      );
-      await _scrollWizardTo(tester, launchTest);
-      await tester.tap(launchTest);
-      await tester.pumpAndSettle();
-      final confirmation = find.byKey(
-        const ValueKey('computer-confirm-launch-codex'),
-      );
-      await _scrollWizardTo(tester, confirmation);
-      expect(confirmation, findsOneWidget);
-      await tester.tap(confirmation);
-      await tester.pumpAndSettle();
-      await _scrollWizardTo(
-        tester,
-        find.byKey(const ValueKey('computer-wizard-save')),
-      );
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.byKey(const ValueKey('computer-wizard-save')),
-            )
-            .onPressed,
-        isNotNull,
-      );
+    final launchTest = find.byKey(const ValueKey('computer-test-launch-codex'));
+    await _scrollWizardTo(tester, launchTest);
+    await tester.tap(launchTest);
+    await tester.pumpAndSettle();
+    final confirmation = find.byKey(
+      const ValueKey('computer-confirm-launch-codex'),
+    );
+    await _scrollWizardTo(tester, confirmation);
+    expect(confirmation, findsOneWidget);
+    await tester.tap(confirmation);
+    await tester.pumpAndSettle();
+    await _scrollWizardTo(
+      tester,
+      find.byKey(const ValueKey('computer-wizard-save')),
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('computer-wizard-save')),
+          )
+          .onPressed,
+      isNotNull,
+    );
 
-      await _scrollWizardTo(
-        tester,
-        find.byKey(const ValueKey('computer-wizard-save')),
-      );
-      await tester.tap(find.byKey(const ValueKey('computer-wizard-save')));
-      await tester.pumpAndSettle();
-      expect(saved, isTrue);
-      expect(harness.controller.activeComputerSetup!.applicationIds, ['codex']);
-      expect(
-        harness.controller.activeComputerSetup!.operatingSystem,
-        ComputerOperatingSystem.windows,
-      );
-      expect(
-        harness.controller.activeComputerSetup!.bindingFor(
-          'codex',
-          'voiceMode',
+    await _scrollWizardTo(
+      tester,
+      find.byKey(const ValueKey('computer-wizard-save')),
+    );
+    await tester.tap(find.byKey(const ValueKey('computer-wizard-save')));
+    await tester.pumpAndSettle();
+    expect(saved, isTrue);
+    expect(harness.controller.activeComputerSetup!.applicationIds, ['codex']);
+    expect(
+      harness.controller.activeComputerSetup!.operatingSystem,
+      ComputerOperatingSystem.windows,
+    );
+    expect(
+      harness.controller.activeComputerSetup!.bindingFor('codex', 'voiceMode'),
+      'Ctrl+Shift+Alt+1',
+    );
+    expect(
+      harness.controller.activeComputerSetup!.bindingFor('codex', 'voiceInput'),
+      'Ctrl+Shift+Alt+2',
+    );
+  });
+
+  testWidgets('can save an incomplete app setup and edit it later', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(seedComputerSetup: false);
+    addTearDown(harness.dispose);
+    final target = harness.controller.activeComputer!;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ComputerSetupWizard(
+            controller: harness.controller,
+            target: target,
+          ),
         ),
-        'Ctrl+Shift+Alt+1',
-      );
-      expect(
-        harness.controller.activeComputerSetup!.bindingFor(
-          'codex',
-          'voiceInput',
+      ),
+    );
+
+    await _chooseOperatingSystem(tester, ComputerOperatingSystem.windows);
+    final chooseCodex = find.byKey(const ValueKey('computer-app-select-codex'));
+    await _scrollWizardTo(tester, chooseCodex);
+    await tester.tap(chooseCodex);
+    await tester.pumpAndSettle();
+    final finish = find.byKey(const ValueKey('computer-wizard-save'));
+    await _scrollWizardTo(tester, finish);
+    expect(tester.widget<FilledButton>(finish).onPressed, isNotNull);
+    await tester.tap(finish);
+    await tester.pumpAndSettle();
+
+    final savedSetup = harness.controller.activeComputerSetup!;
+    expect(savedSetup.applicationIds, ['codex']);
+    expect(savedSetup.bindingFor('codex', 'launch'), isNull);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ComputerSetupWizard(
+            key: const ValueKey('reopened-computer-wizard'),
+            controller: harness.controller,
+            target: target,
+            initialSetup: savedSetup,
+          ),
         ),
-        'Ctrl+Shift+Alt+2',
-      );
-    },
-  );
+      ),
+    );
+    final codexCard = find.byKey(const ValueKey('computer-app-settings-codex'));
+    await _scrollWizardTo(tester, codexCard);
+    await tester.tap(
+      find.descendant(of: codexCard, matching: find.byType(ListTile)).first,
+    );
+    await tester.pumpAndSettle();
+    final launchField = find.byKey(const ValueKey('computer-key-codex-launch'));
+    await _scrollWizardTo(tester, launchField);
+    await tester.enterText(launchField, 'Ctrl+Alt+1');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await _scrollWizardTo(tester, finish);
+    expect(tester.widget<FilledButton>(finish).onPressed, isNotNull);
+    await tester.tap(finish);
+    await tester.pumpAndSettle();
+    expect(
+      harness.controller.activeComputerSetup!.bindingFor('codex', 'launch'),
+      'Ctrl+Alt+1',
+    );
+  });
 
   testWidgets(
     'only the selected app has a shortcut panel, with no app submenu',
@@ -290,7 +344,7 @@ void main() {
     expect(tester.widget<CheckboxListTile>(safari).value, isTrue);
   });
 
-  testWidgets('changing the selected OS invalidates a prior launch proof', (
+  testWidgets('changing the OS clears launch proof but does not block saving', (
     tester,
   ) async {
     final harness = await TestHarness.create(seedComputerSetup: false);
@@ -346,7 +400,7 @@ void main() {
       ComputerOperatingSystem.macos,
     );
     await _scrollWizardTo(tester, finish);
-    expect(tester.widget<FilledButton>(finish).onPressed, isNull);
+    expect(tester.widget<FilledButton>(finish).onPressed, isNotNull);
   });
 }
 

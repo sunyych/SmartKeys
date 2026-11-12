@@ -63,9 +63,8 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
     _applicationIds = initialSetup == null
         ? <String>{}
         : Set<String>.of(initialSetup.applicationIds);
-    _confirmedAppLaunches = initialSetup == null
-        ? <String>{}
-        : Set<String>.of(initialSetup.applicationIds);
+    // A saved shortcut is not evidence that the user tested the launch.
+    _confirmedAppLaunches = <String>{};
     _bindingEditors = {};
   }
 
@@ -175,13 +174,13 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                             )
                           : const Icon(Icons.computer),
                       label: Text(
-                        'Confirm ' +
-                            _operatingSystem!.label +
-                            ' for this computer',
+                        'Confirm ${_operatingSystem!.label} for this computer',
                       ),
                     ),
                     const SizedBox(height: 6),
-                    const Text('电脑系统每台电脑单独保存。选好后点击上方按钮确认；下次连接会自动使用已保存的系统。'),
+                    const Text(
+                      'The operating system is saved for this computer and reused next time you connect.',
+                    ),
                     const SizedBox(height: 12),
                   ],
                   const SizedBox(height: 16),
@@ -229,7 +228,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    '先在电脑上设置快捷键，再在这里选择相同按键，测试并确认。\nSet each shortcut on the computer, choose the same keys here, then test and confirm.',
+                    'Set shortcuts on the computer, then choose the same keys here. You can save now and finish or change shortcuts later.',
                   ),
                   const SizedBox(height: 10),
                   for (final app in selected) _applicationCard(app),
@@ -335,7 +334,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                                   ? null
                                   : () => _chooseShortcut(app, shortcut),
                               icon: const Icon(Icons.keyboard),
-                              label: const Text('Choose keys / 选择按键'),
+                              label: const Text('Choose keys'),
                             ),
                           ),
                           TextField(
@@ -535,16 +534,15 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
     bool launchConfirmed,
   ) {
     if (_operatingSystem == null || _savedOperatingSystem != _operatingSystem) {
-      return 'Step 1 · Confirm this computer’s operating system above.';
+      return 'Confirm this computer’s operating system above. You can save and edit these settings later.';
     }
     if (!launchConfigured) {
-      return 'Step 2 · Choose the same keys you assigned on the computer.';
+      return 'Launch shortcut not set. Save now and add it later to launch this app from LumiaKey.';
     }
     if (!launchConfirmed) {
-      return 'Step 3 · Test the shortcut and confirm that the app opens.';
+      return 'Launch shortcut is set. Testing is optional. You can save and edit later.';
     }
-    if (_setupBlocker(app) == null) return 'Launch tested. Ready to save.';
-    return 'Set the required shortcuts before saving.';
+    return 'Launch shortcut tested. You can still edit these settings later.';
   }
 
   String? _setupBlocker(ComputerApplication app) {
@@ -554,11 +552,8 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
     final shortcuts = computerShortcutsFor(app.category);
     for (final shortcut in shortcuts) {
       final chord = _bindingEditor(app, shortcut.id).text.trim();
-      if (shortcut.requiredForSetup && parseComputerShortcut(chord) == null) {
-        return 'Choose a valid key combination for ${shortcut.label}.';
-      }
       if (chord.isNotEmpty && parseComputerShortcut(chord) == null) {
-        return 'The ${shortcut.label.toLowerCase()} combination is not supported.';
+        return 'For ${shortcut.label}, enter a supported key combination or leave it blank to set later.';
       }
     }
     if (app.category == ComputerAppCategory.vibeCoding &&
@@ -575,9 +570,6 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
     });
     if (duplicate.isNotEmpty) {
       return 'This launch combination is already assigned to ${duplicate.first.name}.';
-    }
-    if (!_confirmedAppLaunches.contains(app.id)) {
-      return 'Test the launch combination and confirm that the app opens.';
     }
     return null;
   }
@@ -631,35 +623,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
     }
     if (!standalone || selected.isEmpty) return true;
     for (final app in selected) {
-      if (!_confirmedAppLaunches.contains(app.id)) return false;
-      for (final shortcut in computerShortcutsFor(app.category)) {
-        final chord = _bindingEditor(app, shortcut.id).text.trim();
-        if (shortcut.requiredForSetup && parseComputerShortcut(chord) == null) {
-          return false;
-        }
-        if (chord.isNotEmpty && parseComputerShortcut(chord) == null) {
-          return false;
-        }
-      }
-      final actions = computerShortcutsFor(
-        app.category,
-      ).map((shortcut) => shortcut.id).toSet();
-      if (app.category == ComputerAppCategory.vibeCoding &&
-          actions.contains('voiceMode') &&
-          actions.contains('voiceInput') &&
-          _bindingEditor(app, 'voiceMode').text.trim().toLowerCase() ==
-              _bindingEditor(app, 'voiceInput').text.trim().toLowerCase()) {
-        return false;
-      }
-      for (final other in selected) {
-        if (other.id != app.id &&
-            _sameChord(
-              _bindingEditor(app, 'launch').text,
-              _bindingEditor(other, 'launch').text,
-            )) {
-          return false;
-        }
-      }
+      if (_setupBlocker(app) != null) return false;
     }
     return true;
   }
@@ -772,15 +736,10 @@ class _LaunchChordInstructions extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Launch app · 启动应用',
-            style: TextStyle(fontWeight: FontWeight.w600),
-          ),
-          SizedBox(height: 4),
-          Text('这里填电脑上的组合键，例如 Ctrl+Alt+1。'),
+          Text('Launch app', style: TextStyle(fontWeight: FontWeight.w600)),
           SizedBox(height: 4),
           Text(
-            'Enter the key combination assigned to open this app, for example Ctrl+Alt+1. Tap “Choose keys” to select it.',
+            'Enter the key combination assigned to open this app, for example Ctrl+Alt+1. You can leave it blank and add it later. Tap “Choose keys” to select it.',
           ),
         ],
       ),
@@ -910,7 +869,7 @@ class _ShortcutChordPickerState extends State<_ShortcutChordPicker> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Choose keys · ' + widget.title,
+                      'Choose keys · ${widget.title}',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
@@ -928,14 +887,12 @@ class _ShortcutChordPickerState extends State<_ShortcutChordPicker> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('电脑上的按键要和手机选的一致。先选修饰键，再选一个最后按下的键。'),
-                    const SizedBox(height: 6),
                     const Text(
-                      'Select the modifier keys and one final key. Match the shortcut you set on your computer.',
+                      'Select the modifier keys and one final key to match the shortcut set on your computer.',
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      'Modifier keys · 修饰键',
+                      'Modifier keys',
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                     const SizedBox(height: 6),
@@ -944,7 +901,7 @@ class _ShortcutChordPickerState extends State<_ShortcutChordPicker> {
                       children: [
                         for (final modifier in modifiers)
                           FilterChip(
-                            key: ValueKey('shortcut-modifier-' + modifier),
+                            key: ValueKey('shortcut-modifier-$modifier'),
                             label: Text(switch (modifier) {
                               'System' => _systemModifierLabel,
                               'Option' || 'Alt' => optionLabel,
@@ -966,9 +923,7 @@ class _ShortcutChordPickerState extends State<_ShortcutChordPicker> {
                       key: const ValueKey('shortcut-final-key'),
                       initialValue: _key,
                       isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Final key · 最后一个键',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Final key'),
                       items: [
                         for (final key in _shortcutPickerKeys)
                           DropdownMenuItem(value: key, child: Text(key)),
@@ -977,7 +932,7 @@ class _ShortcutChordPickerState extends State<_ShortcutChordPicker> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Result · 组合键',
+                      'Result',
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                     const SizedBox(height: 4),

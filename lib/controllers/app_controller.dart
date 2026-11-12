@@ -188,32 +188,9 @@ class AppController extends ChangeNotifier {
     final target = activeComputer;
     if (target?.mode != ComputerMode.standalone) return false;
     final setup = activeComputerSetup;
-    if (setup == null || !setup.setupComplete) return false;
-    for (final appId in setup.applicationIds) {
-      final application = computerApplicationById(appId);
-      if (application == null) return false;
-      if (!isComputerApplicationSupportedOn(
-        application,
-        activeComputer?.operatingSystem,
-      )) {
-        continue;
-      }
-      for (final shortcut in computerShortcutsFor(application.category)) {
-        final binding = setup.bindingFor(appId, shortcut.id);
-        if (shortcut.requiredForSetup &&
-            parseComputerShortcut(binding ?? '') == null) {
-          return false;
-        }
-      }
-      if (application.category == ComputerAppCategory.vibeCoding &&
-          _sameComputerChord(
-            setup.bindingFor(appId, 'voiceMode'),
-            setup.bindingFor(appId, 'voiceInput'),
-          )) {
-        return false;
-      }
-    }
-    return true;
+    // Saving the selected applications completes setup. Shortcut bindings can
+    // be added or edited later, so an incomplete set must not reopen onboarding.
+    return setup?.setupComplete ?? false;
   }
 
   bool get isActiveComputerSetupComplete {
@@ -352,12 +329,6 @@ class AppController extends ChangeNotifier {
       if (target.mode == ComputerMode.standalone) {
         for (final shortcut in computerShortcutsFor(application.category)) {
           final chord = setup.bindingFor(appId, shortcut.id);
-          if (shortcut.requiredForSetup &&
-              parseComputerShortcut(chord ?? '') == null) {
-            throw FormatException(
-              '${application.name}: ${shortcut.label} needs a valid keyboard shortcut.',
-            );
-          }
           if (chord != null &&
               chord.trim().isNotEmpty &&
               parseComputerShortcut(chord) == null) {
@@ -365,7 +336,9 @@ class AppController extends ChangeNotifier {
               '${application.name}: ${shortcut.label} has an unsupported shortcut.',
             );
           }
-          if (shortcut.id == 'launch' && chord != null) {
+          if (shortcut.id == 'launch' &&
+              chord != null &&
+              chord.trim().isNotEmpty) {
             final identity = _computerChordIdentity(chord);
             final previousApplication = launchBindings[identity];
             if (previousApplication != null) {
@@ -497,7 +470,13 @@ class AppController extends ChangeNotifier {
     final binding = activeComputerSetup!.bindingFor(applicationId, actionId);
     final chord =
         binding ?? defaultComputerShortcut(target, application, actionId);
-    if (chord == null || chord.isEmpty) {
+    if (chord == null ||
+        chord.trim().isEmpty ||
+        parseComputerShortcut(chord) == null) {
+      // The Home app selector invokes launch when a tile is selected. If no
+      // launch key has been configured, leave the app controls open without
+      // sending a key or surfacing an error; missing action keys stay disabled.
+      if (actionId == 'launch') return;
       throw StateError(
         'Set ${shortcut.label} for ${application.name} in its setup.',
       );
