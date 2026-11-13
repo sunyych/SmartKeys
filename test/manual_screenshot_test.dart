@@ -150,9 +150,7 @@ void main() {
     for (final id in ['codex', 'claude', 'cursor']) {
       expect(find.byKey(ValueKey('workspace-app-$id')), findsOneWidget);
     }
-    await tester.tap(
-      find.byKey(const ValueKey('profile-quick-profile_general')),
-    );
+    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('remote-layout-keyboard')),
@@ -169,28 +167,27 @@ void main() {
 
     await shots.setViewport(const Size(412, 915));
     await tester.pumpAndSettle();
-    final vibeTab = find.byKey(const ValueKey('home-tab-vibe-coding'));
-    await tester.ensureVisible(vibeTab);
-    await tester.tap(vibeTab);
+    final desktopCodex = find.byKey(const ValueKey('workspace-app-codex'));
+    await tester.ensureVisible(desktopCodex);
+    await tester.tap(desktopCodex);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
-    expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
-    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
     expect(
-      tester
-          .widget<OutlinedButton>(
-            find.byKey(const ValueKey('vibe-dictation-start')),
-          )
-          .onPressed,
-      isNotNull,
+      find.byKey(const ValueKey('profile-quick-switch-bar')),
+      findsNothing,
     );
+    expect(find.byKey(const ValueKey('vibe-coding-title')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsNothing);
+    expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
     await tester.pumpAndSettle();
     await shots.capture(
       id: 'manual-vibe-coding',
       title: 'Vibe Coding controls',
       orientation: 'portrait',
       notes:
-          'Portrait Advanced-mode fixture with Codex in the foreground, Codex/Claude/Cursor in the top app row, and separate local dictation controls; no live Desktop connection.',
+          'Portrait Advanced-mode fixture with Codex in the foreground, Codex/Claude/Cursor in the top app row, and the shared compact Local Dictation entry; no live Desktop connection.',
       boundaryKey: key,
     );
 

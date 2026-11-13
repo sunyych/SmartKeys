@@ -67,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _computerTransitionGeneration = 0;
   bool _followForeground = true;
   bool _targetResetPending = false;
+  String? _dictationWorkspaceAppId;
   String? _handledActivationToken;
   String? _lastScopeToken;
   String? _lastComputerId;
@@ -103,44 +104,34 @@ class _HomeScreenState extends State<HomeScreen> {
         (computer.mode == ComputerMode.standalone ||
             controller.isDesktopSynced);
     final availableApps = controller.availableComputerApplications;
-    final selectedApplication = availableApps
+    var effectiveApplication = availableApps
         .cast<ComputerApplication?>()
         .firstWhere(
           (application) => application?.id == selectedApplicationId,
           orElse: () => null,
         );
-    final applicationIsAvailable = selectedApplication != null;
     final foreground = controller.isDesktopSynced
         ? controller.foregroundApplication
         : null;
-    final foregroundIsSelected =
-        foreground != null &&
-        availableApps.any((application) => application.id == foreground.id);
-    var effectiveTab =
-        selectedTab == _HomeTab.application &&
-            selectedApplicationId != null &&
-            !applicationIsAvailable
+    var effectiveTab = effectiveApplication == null
         ? _HomeTab.keyboard
         : selectedTab;
     if (_followForeground &&
         effectiveTab == _HomeTab.keyboard &&
-        foregroundIsSelected) {
-      selectedApplicationId = foreground.id;
-      effectiveTab = _applicationTabFor(foreground.id);
-    }
-    final effectiveApplication = applicationIsAvailable
-        ? selectedApplication
-        : effectiveTab == _HomeTab.application && foregroundIsSelected
-        ? availableApps.cast<ComputerApplication?>().firstWhere(
+        foreground != null) {
+      effectiveApplication = availableApps
+          .cast<ComputerApplication?>()
+          .firstWhere(
             (application) => application?.id == foreground.id,
             orElse: () => null,
-          )
-        : null;
-    final selectedVibeApplicationId =
-        selectedApplication?.category == ComputerAppCategory.vibeCoding &&
-            applicationIsAvailable
-        ? selectedApplication.id
-        : _firstConfiguredVibeId(availableApps);
+          );
+      if (effectiveApplication != null) {
+        effectiveTab = _applicationTabFor(effectiveApplication.id);
+      }
+    }
+    final isDesktopVibeWorkspace =
+        computer?.mode == ComputerMode.advanced &&
+        effectiveTab == _HomeTab.vibeCoding;
     final remoteApplication = effectiveApplication == null
         ? null
         : controller.desktopManifest?.applicationById(effectiveApplication.id);
@@ -157,6 +148,27 @@ class _HomeScreenState extends State<HomeScreen> {
               !desktopReconnecting
         ? controller.genericSyncedLayout
         : null;
+    final selectedVibeApplicationId =
+        effectiveApplication?.category == ComputerAppCategory.vibeCoding
+        ? effectiveApplication!.id
+        : '';
+    if (controller.isDesktopSynced) {
+      final dictationAppId =
+          isDesktopVibeWorkspace && foreground?.id == selectedVibeApplicationId
+          ? selectedVibeApplicationId
+          : null;
+      final entry = _dictationEntryKey.currentState;
+      if (_dictationWorkspaceAppId != null &&
+          _dictationWorkspaceAppId != dictationAppId &&
+          (entry?.isEntryOpen == true || entry?.isOpening == true)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _dictationEntryKey.currentState == entry) {
+            unawaited(_stopVibeDictation());
+          }
+        });
+      }
+      _dictationWorkspaceAppId = dictationAppId;
+    }
     if (effectiveTab == _HomeTab.application &&
         effectiveApplication?.id == _pendingDesktopActivationApplicationId) {
       remoteLayout = remoteLayout?.copyWith(
@@ -264,12 +276,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           );
     Future<void> selectTab(_HomeTab tab) async {
-      final selectedVibe = tab == _HomeTab.vibeCoding
-          ? (selectedApplication?.category == ComputerAppCategory.vibeCoding &&
-                    applicationIsAvailable
-                ? selectedApplication.id
-                : _firstConfiguredVibeId(availableApps))
-          : null;
       final generation = ++_homeSelectionGeneration;
       if (_pendingDesktopActivationGeneration != null) {
         setState(() {
@@ -277,16 +283,14 @@ class _HomeScreenState extends State<HomeScreen> {
           _pendingDesktopActivationApplicationId = null;
         });
       }
-      if (tab != selectedTab ||
-          selectedApplicationId != selectedVibe ||
-          tab == _HomeTab.vibeCoding) {
+      if (tab != selectedTab || selectedApplicationId != null) {
         await _stopVibeDictation();
         await controller.prepareForContextChange();
       }
       if (!mounted || generation != _homeSelectionGeneration) return;
       setState(() {
         selectedTab = tab;
-        selectedApplicationId = selectedVibe;
+        selectedApplicationId = null;
         editing = false;
         _activeBank = 0;
         _followForeground = false;
@@ -400,9 +404,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _pendingDesktopActivationApplicationId == selectedVibeApplicationId,
         onConfigure: computer == null ? null : editComputerSetup,
         onBeforeContextChange: _stopVibeDictation,
-        onStartDictation: () =>
-            _startVibeDictation(controller, selectedVibeApplicationId),
-        onStopDictation: _stopVibeDictation,
       ),
     };
     final iOSGateContent =
@@ -478,10 +479,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       _ComputerApplicationBar(
                         controller: controller,
                         applications: availableApps,
-                        selectedApplicationId: applicationIsAvailable
-                            ? selectedApplicationId
-                            : null,
+                        selectedApplicationId: effectiveApplication?.id,
                         onSelectApplication: selectApplication,
+                        onSelectKeyboard: () => selectTab(_HomeTab.keyboard),
                         onManage: editComputerSetup,
                       ),
                     Padding(
@@ -496,13 +496,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(width: 4),
                           ],
                           Expanded(
-                            child: _HomeTabBar(
-                              controller: controller,
-                              profiles: visibleProfiles,
-                              activeProfileId: controller.activeProfile.id,
-                              selectedTab: effectiveTab,
-                              onSelectTab: selectTab,
-                            ),
+                            child: effectiveTab == _HomeTab.keyboard
+                                ? _HomeTabBar(
+                                    controller: controller,
+                                    profiles: visibleProfiles,
+                                    activeProfileId:
+                                        controller.activeProfile.id,
+                                    onSelectTab: selectTab,
+                                  )
+                                : const SizedBox(height: 34),
                           ),
                         ],
                       ),
@@ -570,6 +572,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: _CompactControlMenu(
                     controller: controller,
                     editing: editing,
+                    inApplicationWorkspace: effectiveTab != _HomeTab.keyboard,
                     onToggleEditing: () => setState(() => editing = !editing),
                   ),
                 ),
@@ -578,9 +581,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: LocalDictationEntryButton(
                     key: _dictationEntryKey,
                     hid: controller.hid,
+                    forceDesktopOutput:
+                        controller.hasPinnedDesktopComputer ||
+                        isDesktopVibeWorkspace,
+                    entryEnabled:
+                        !isDesktopVibeWorkspace ||
+                        controller.isDesktopSynced &&
+                            foreground?.id == selectedVibeApplicationId &&
+                            _pendingDesktopActivationApplicationId !=
+                                selectedVibeApplicationId,
+                    rightInset: effectiveTab == _HomeTab.keyboard ? 142 : 82,
                     topOffset: showComputerAppBar ? 47 : 7,
                     companion: controller.companion,
-                    forceDesktopOutput: controller.hasPinnedDesktopComputer,
                     modelManager: widget.dictationModelManager,
                     capture: widget.dictationCapture,
                     recognizerFactory: widget.dictationRecognizerFactory,
@@ -669,36 +681,10 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _startVibeDictation(
-    AppController controller,
-    String applicationId,
-  ) async {
-    final manifest = controller.desktopManifest;
-    if (controller.computerMode != ComputerMode.advanced ||
-        !controller.isDesktopSynced ||
-        manifest?.applicationById(applicationId)?.foreground != true) {
-      throw StateError(
-        'Focus ${_vibeApplicationLabel(applicationId)} before starting Local Dictation.',
-      );
-    }
-    final entry = _dictationEntryKey.currentState;
-    if (entry == null) {
-      throw StateError('Local Dictation is not ready yet.');
-    }
-    await entry.startQuickDictation(forceDesktopOutput: true);
-  }
-
   Future<void> _stopVibeDictation() async {
     await _dictationEntryKey.currentState?.stopQuickDictation();
   }
 }
-
-String _vibeApplicationLabel(String applicationId) => switch (applicationId) {
-  'codex' => 'Codex',
-  'claude' => 'Claude',
-  'cursor' => 'Cursor',
-  _ => 'the selected app',
-};
 
 _HomeTab _applicationTabFor(String applicationId) =>
     computerApplicationById(applicationId)?.category ==
@@ -706,35 +692,12 @@ _HomeTab _applicationTabFor(String applicationId) =>
     ? _HomeTab.vibeCoding
     : _HomeTab.application;
 
-String _firstConfiguredVibeId(List<ComputerApplication> applications) {
-  for (final application in applications) {
-    if (application.category == ComputerAppCategory.vibeCoding) {
-      return application.id;
-    }
-  }
-  return '';
-}
-
 int _boardColumns(int keysPerPage, bool landscape) {
   final scale = landscape ? 1.25 : 0.8;
   return (sqrt(keysPerPage) * scale).round();
 }
 
 enum _HomeTab { keyboard, application, vibeCoding }
-
-extension on _HomeTab {
-  String get label => switch (this) {
-    _HomeTab.keyboard => 'Keyboard',
-    _HomeTab.application => 'Application',
-    _HomeTab.vibeCoding => 'Vibe Coding',
-  };
-
-  IconData get icon => switch (this) {
-    _HomeTab.keyboard => Icons.keyboard_alt_outlined,
-    _HomeTab.application => Icons.layers_outlined,
-    _HomeTab.vibeCoding => Icons.terminal,
-  };
-}
 
 class _ShortcutBoard extends StatelessWidget {
   const _ShortcutBoard({
@@ -1007,33 +970,18 @@ class _HomeTabBar extends StatelessWidget {
     required this.controller,
     required this.profiles,
     required this.activeProfileId,
-    required this.selectedTab,
     required this.onSelectTab,
   });
 
   final AppController controller;
   final List<ProfileConfig> profiles;
   final String activeProfileId;
-  final _HomeTab selectedTab;
   final ValueChanged<_HomeTab> onSelectTab;
 
   @override
   Widget build(BuildContext context) {
-    Widget vibeChip() => _HomeTabChip(
-      key: const ValueKey('home-tab-vibe-coding'),
-      label: _HomeTab.vibeCoding.label,
-      icon: Icon(_HomeTab.vibeCoding.icon),
-      selected: selectedTab == _HomeTab.vibeCoding,
-      onTap: () => onSelectTab(_HomeTab.vibeCoding),
-    );
-
     final items = <Widget>[];
-    var insertedVibe = false;
     for (final profile in profiles) {
-      if (profile.id == 'profile_custom') {
-        items.add(vibeChip());
-        insertedVibe = true;
-      }
       items.add(
         _HomeTabChip(
           key: ValueKey('profile-quick-${profile.id}'),
@@ -1042,8 +990,7 @@ class _HomeTabBar extends StatelessWidget {
             BuiltinIconCatalog.find(profile.profileIcon.value)?.icon ??
                 Icons.dashboard_outlined,
           ),
-          selected:
-              selectedTab == _HomeTab.keyboard && profile.id == activeProfileId,
+          selected: profile.id == activeProfileId,
           onTap: () {
             onSelectTab(_HomeTab.keyboard);
             controller.switchProfile(profile.id);
@@ -1051,7 +998,6 @@ class _HomeTabBar extends StatelessWidget {
         ),
       );
     }
-    if (!insertedVibe) items.add(vibeChip());
     return SizedBox(
       key: const ValueKey('profile-quick-switch-bar'),
       height: 34,
@@ -1071,6 +1017,7 @@ class _ComputerApplicationBar extends StatelessWidget {
     required this.applications,
     required this.selectedApplicationId,
     required this.onSelectApplication,
+    required this.onSelectKeyboard,
     required this.onManage,
   });
 
@@ -1078,6 +1025,7 @@ class _ComputerApplicationBar extends StatelessWidget {
   final List<ComputerApplication> applications;
   final String? selectedApplicationId;
   final ValueChanged<ComputerApplication> onSelectApplication;
+  final VoidCallback onSelectKeyboard;
   final VoidCallback onManage;
 
   @override
@@ -1086,6 +1034,14 @@ class _ComputerApplicationBar extends StatelessWidget {
     height: 42,
     child: Row(
       children: [
+        if (selectedApplicationId != null)
+          IconButton(
+            key: const ValueKey('home-tab-keyboard'),
+            tooltip: 'Keyboard shortcuts',
+            visualDensity: VisualDensity.compact,
+            onPressed: onSelectKeyboard,
+            icon: const Icon(Icons.keyboard_alt_outlined),
+          ),
         Expanded(
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
@@ -1785,11 +1741,13 @@ class _CompactControlMenu extends StatelessWidget {
   const _CompactControlMenu({
     required this.controller,
     required this.editing,
+    required this.inApplicationWorkspace,
     required this.onToggleEditing,
   });
 
   final AppController controller;
   final bool editing;
+  final bool inApplicationWorkspace;
   final VoidCallback onToggleEditing;
 
   @override
@@ -1807,7 +1765,7 @@ class _CompactControlMenu extends StatelessWidget {
             status,
           );
           return SizedBox(
-            width: 124,
+            width: inApplicationWorkspace ? 64 : 124,
             height: 40,
             child: PopupMenuButton<_ControlMenuAction>(
               key: const ValueKey('control-menu'),
@@ -1816,14 +1774,17 @@ class _CompactControlMenu extends StatelessWidget {
               padding: EdgeInsets.zero,
               onSelected: (action) => _handleAction(context, action),
               itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: _ControlMenuAction.profiles,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.dashboard_customize_outlined),
-                    title: Text('Profiles · ${controller.activeProfile.name}'),
+                if (!inApplicationWorkspace)
+                  PopupMenuItem(
+                    value: _ControlMenuAction.profiles,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.dashboard_customize_outlined),
+                      title: Text(
+                        'Profiles · ${controller.activeProfile.name}',
+                      ),
+                    ),
                   ),
-                ),
                 if (desktopKeyboardOnly)
                   const PopupMenuItem(
                     key: ValueKey('menu-desktop-connection'),
@@ -1854,14 +1815,17 @@ class _CompactControlMenu extends StatelessWidget {
                     ),
                   ),
                 ],
-                PopupMenuItem(
-                  value: _ControlMenuAction.toggleEditing,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(editing ? Icons.check : Icons.edit_outlined),
-                    title: Text(editing ? 'Done editing' : 'Edit buttons'),
+                if (!inApplicationWorkspace)
+                  PopupMenuItem(
+                    value: _ControlMenuAction.toggleEditing,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        editing ? Icons.check : Icons.edit_outlined,
+                      ),
+                      title: Text(editing ? 'Done editing' : 'Edit buttons'),
+                    ),
                   ),
-                ),
                 const PopupMenuItem(
                   value: _ControlMenuAction.importExport,
                   child: ListTile(
@@ -1898,19 +1862,22 @@ class _CompactControlMenu extends StatelessWidget {
                         size: 17,
                         color: display.color,
                       ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          editing ? 'Editing' : display.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                      if (!inApplicationWorkspace) ...[
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            editing ? 'Editing' : display.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
+                      ],
+                      if (inApplicationWorkspace) const Spacer(),
                       Tooltip(
                         message: switch (pluggedIn) {
                           true => 'External power connected',

@@ -56,15 +56,15 @@ void main() {
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
     harness.companion.syncedManifest.value = desktopManifest(
-      installed: const {'codex'},
-      running: const {'codex'},
+      installed: const {'codex', 'cursor'},
+      running: const {'codex', 'cursor'},
       foreground: 'codex',
     );
     final target = harness.controller.activeComputer;
     expect(target, isNotNull);
     await harness.controller.saveComputerSetup(
       target!,
-      ComputerSetup(applicationIds: const ['codex']),
+      ComputerSetup(applicationIds: const ['codex', 'cursor']),
     );
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pumpAndSettle();
@@ -82,13 +82,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(harness.companion.remoteActions, isEmpty);
 
-    await tester.tap(find.byKey(const ValueKey('home-tab-vibe-coding')));
+    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
-    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsOneWidget);
-    expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsOneWidget);
-    expect(find.byKey(const ValueKey('home-tab-codex')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    expect(find.textContaining('is ready'), findsNothing);
+    expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-coding-title')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsNothing);
     expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
-    expect(harness.companion.remoteActions, isEmpty);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('local-quick-output')))
+          .onPressed,
+      isNotNull,
+    );
+    harness.companion.syncedManifest.value = desktopManifest(
+      installed: const {'codex', 'cursor'},
+      running: const {'codex', 'cursor'},
+      foreground: 'cursor',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('local-quick-output')))
+          .onPressed,
+      isNull,
+    );
   });
 }

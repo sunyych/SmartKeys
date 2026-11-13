@@ -10,9 +10,7 @@ import 'test_support.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Vibe Coding sits before Custom without using a profile slot', (
-    tester,
-  ) async {
+  testWidgets('Codex app chip opens Vibe Coding directly', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -25,22 +23,22 @@ void main() {
     );
     final harness = await TestHarness.create(config: config);
     addTearDown(() => _dispose(tester, harness));
+    await _setDesktop(
+      harness,
+      installed: const {'codex'},
+      running: const {'codex'},
+      foreground: 'codex',
+    );
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
 
-    final vibe = find.byKey(const ValueKey('home-tab-vibe-coding'));
-    final custom = find.byKey(const ValueKey('profile-quick-profile_custom'));
-    await _showHomeItem(tester, custom);
-    expect(tester.getRect(vibe).left, lessThan(tester.getRect(custom).left));
-
     final profileCount = harness.controller.config.profiles.length;
-    await tester.tap(vibe);
-    await tester.pump();
-    expect(
-      find.byKey(const ValueKey('vibe-app-required-title')),
-      findsOneWidget,
-    );
+    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);
+    expect(find.byKey(const ValueKey('home-tab-codex')), findsNothing);
     expect(harness.controller.activeProfile.id, 'profile_general');
     expect(harness.controller.config.profiles, hasLength(profileCount));
     expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
@@ -65,11 +63,7 @@ void main() {
 
       await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
       await tester.pump();
-      await _showHomeItem(
-        tester,
-        find.byKey(const ValueKey('home-tab-vibe-coding')),
-      );
-      await tester.tap(find.byKey(const ValueKey('home-tab-vibe-coding')));
+      await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
       await tester.pump();
 
       expect(
@@ -132,7 +126,7 @@ void main() {
         activatedApplicationId: 'cursor',
       );
       await tester.pump();
-      expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
+      expect(find.byKey(const ValueKey('vibe-coding-title')), findsNothing);
       expect(
         find.byKey(const ValueKey('workspace-app-cursor')),
         findsOneWidget,
@@ -142,10 +136,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('workspace-app-claude')));
       await tester.pumpAndSettle();
       expect(harness.companion.remoteActions.last.applicationId, 'claude');
-      expect(
-        find.byKey(const ValueKey('home-tab-vibe-coding')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);
       expect(
         find.byKey(const ValueKey('workspace-app-claude')),
         findsOneWidget,
@@ -155,7 +146,7 @@ void main() {
     },
   );
 
-  testWidgets('Vibe states explain unavailable Desktop and missing apps', (
+  testWidgets('Vibe shows actionable focus guidance only when blocked', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -164,32 +155,33 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     final harness = await TestHarness.create();
     addTearDown(() => _dispose(tester, harness));
-    harness.hid.selectedHost.value = null;
-    harness.hid.status.value = HidConnectionStatus.disconnected;
+    await _setDesktop(
+      harness,
+      installed: const {'codex', 'cursor'},
+      running: const {'codex', 'cursor'},
+      foreground: 'cursor',
+    );
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(-180, 0),
+    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await tester.pump();
+    expect(
+      find.text('Tap Codex above to bring it to the front.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('is ready'), findsNothing);
+    harness.companion.syncedManifest.value = desktopManifest(
+      installed: const {'codex', 'cursor'},
+      running: const {'codex', 'cursor'},
+      foreground: 'codex',
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-tab-vibe-coding')));
-    await tester.pump();
     expect(
-      find.text('Connect to a computer to use Vibe Coding shortcuts.'),
-      findsOneWidget,
+      find.text('Tap Codex above to bring it to the front.'),
+      findsNothing,
     );
-    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
-
-    await _setDesktop(harness, installed: const {});
-    await tester.pump();
-    expect(
-      find.text(
-        'Install or enable app sync for Codex, Claude or Cursor on LumiaKey Desktop.',
-      ),
-      findsOneWidget,
-    );
-    expect(harness.companion.remoteActions, isEmpty);
+    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    expect(find.textContaining('is active'), findsNothing);
   });
 
   testWidgets('holding Backspace repeats only until release', (tester) async {
@@ -208,12 +200,7 @@ void main() {
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(-180, 0),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-tab-vibe-coding')));
+    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
     await tester.pumpAndSettle();
     final backspace = find.byKey(
       const ValueKey('vibe-button-vibe.codex.backspace'),
@@ -300,15 +287,13 @@ void main() {
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('home-tab-vibe-coding')));
+    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
     await tester.pump();
 
     expect(
-      find.byKey(const ValueKey('vibe-project-setup-hint')),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining('Desktop → Shortcut Layout → Vibe Coding · Codex'),
+      find.byTooltip(
+        'Project setup required · Desktop → Shortcut Layout → Vibe Coding · Codex',
+      ),
       findsOneWidget,
     );
     expect(
@@ -319,6 +304,7 @@ void main() {
           .onTap,
       isNull,
     );
+    harness.companion.remoteActions.clear();
     await tester.tap(
       find.byKey(const ValueKey('vibe-button-vibe.codex.project')),
       warnIfMissed: false,
@@ -361,12 +347,4 @@ Future<void> _setDesktop(
 Future<void> _dispose(WidgetTester tester, TestHarness harness) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await harness.dispose();
-}
-
-Future<void> _showHomeItem(WidgetTester tester, Finder item) async {
-  final scrollable = find.descendant(
-    of: find.byKey(const ValueKey('profile-quick-switch-bar')),
-    matching: find.byType(Scrollable),
-  );
-  await tester.scrollUntilVisible(item, 120, scrollable: scrollable);
 }

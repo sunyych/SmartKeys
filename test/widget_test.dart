@@ -178,9 +178,22 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
     await tester.pumpAndSettle();
     expect(harness.companion.remoteActions.last.applicationId, 'codex');
-    expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsOneWidget);
-    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('profile-quick-switch-bar')),
+      findsNothing,
+    );
     expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('remote-layout-keyboard')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('profile-quick-switch-bar')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('consumes each Desktop app activation only once', (tester) async {
@@ -211,11 +224,7 @@ void main() {
       findsOneWidget,
     );
 
-    final generalTab = find.byKey(
-      const ValueKey('profile-quick-profile_general'),
-    );
-    await tester.ensureVisible(generalTab);
-    await tester.tap(generalTab);
+    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
     await tester.pump();
     expect(
       find.byKey(const ValueKey('remote-layout-keyboard')),
@@ -359,12 +368,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
     await tester.pumpAndSettle();
     expect(harness.companion.remoteActions.last.applicationId, 'codex');
-    expect(find.byKey(const ValueKey('vibe-coding-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
     expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('profile-quick-profile_general')),
-    );
+    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
     await tester.pump();
     expect(find.byKey(const ValueKey('landscape-layout')), findsOneWidget);
   });

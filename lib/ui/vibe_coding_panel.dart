@@ -18,8 +18,6 @@ class VibeCodingPanel extends StatefulWidget {
     this.activationPending = false,
     this.onConfigure,
     required this.onBeforeContextChange,
-    required this.onStartDictation,
-    required this.onStopDictation,
   });
 
   final AppController controller;
@@ -28,8 +26,6 @@ class VibeCodingPanel extends StatefulWidget {
   final bool activationPending;
   final VoidCallback? onConfigure;
   final Future<void> Function() onBeforeContextChange;
-  final Future<void> Function() onStartDictation;
-  final Future<void> Function() onStopDictation;
 
   @override
   State<VibeCodingPanel> createState() => _VibeCodingPanelState();
@@ -38,7 +34,6 @@ class VibeCodingPanel extends StatefulWidget {
 class _VibeCodingPanelState extends State<VibeCodingPanel> {
   String? _pendingOperation;
   String? _operationError;
-  bool _dictationBusy = false;
   bool _repeatActive = false;
   String? _repeatButtonId;
   Future<void>? _repeatTask;
@@ -95,6 +90,8 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
           manifest: manifest,
           layout: layout,
           application: application,
+          applicationLabel:
+              basicApplication?.name ?? application?.name ?? 'app',
         );
         final foreground = widget.controller.foregroundApplication?.id == appId;
         final controlsEnabled =
@@ -115,76 +112,17 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: Row(
-                children: [
-                  Icon(_vibeApplicationIcon(appId), size: 19),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Vibe Coding · ${_vibeApplicationLabel(appId)}',
-                    key: const ValueKey('vibe-coding-title'),
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
-              child: _VibeStatusCard(
-                availability: availability,
-                layoutName: layout?.name,
-                error: error,
-                pending: busy,
-                onRefresh: companion.activeHost.value == null
-                    ? null
-                    : () => companion.refreshManifest(),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.mic_none),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'Local Dictation',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        key: const ValueKey('vibe-dictation-start'),
-                        onPressed: controlsEnabled && !busy && !_dictationBusy
-                            ? () => _runDictation(start: true)
-                            : null,
-                        icon: const Icon(Icons.mic, size: 18),
-                        label: const Text('Start'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.tonalIcon(
-                        key: const ValueKey('vibe-dictation-stop'),
-                        onPressed: _dictationBusy
-                            ? null
-                            : () => _runDictation(start: false),
-                        icon: const Icon(Icons.stop, size: 18),
-                        label: const Text('Stop'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (layout != null && layout.buttons.any(_isUnassignedProject))
+            if (!availability.ready || error != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                child: _ProjectSetupHint(layoutName: layout.name),
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                child: _VibeStatusCard(
+                  availability: availability,
+                  error: error,
+                  pending: busy,
+                  onRefresh: companion.activeHost.value == null
+                      ? null
+                      : () => companion.refreshManifest(),
+                ),
               ),
             if (layout == null)
               const Expanded(child: SizedBox.shrink())
@@ -337,22 +275,6 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
     }
   }
 
-  Future<void> _runDictation({required bool start}) async {
-    if (_dictationBusy) return;
-    setState(() => _dictationBusy = true);
-    try {
-      if (start) {
-        await widget.onStartDictation();
-      } else {
-        await widget.onStopDictation();
-      }
-    } catch (error) {
-      if (mounted) setState(() => _operationError = '$error');
-    } finally {
-      if (mounted) setState(() => _dictationBusy = false);
-    }
-  }
-
   Future<void> _runButton(String applicationId, RemoteShortcutButton button) =>
       _runOperation('button:${button.id}', () async {
         if (_isProjectButton(button) ||
@@ -424,19 +346,16 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
   static bool _isProjectButton(RemoteShortcutButton button) =>
       button.id.endsWith('.project');
 
-  static bool _isUnassignedProject(RemoteShortcutButton button) =>
-      _isProjectButton(button) && !button.enabled;
-
   _VibeAvailability _availability({
     required AppController controller,
     required DesktopManifest? manifest,
     required RemoteShortcutLayout? layout,
     required RemoteApplication? application,
+    required String applicationLabel,
   }) {
     final companion = controller.companion;
     if (companion.syncStatus.value == CompanionSyncStatus.error) {
       return _VibeAvailability(
-        title: 'Desktop action failed',
         message: companion.errorMessage.value ?? 'Desktop connection failed.',
         icon: Icons.error_outline,
         error: companion.errorMessage.value ?? 'Desktop connection failed.',
@@ -447,7 +366,6 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
           companion.syncStatus.value == CompanionSyncStatus.discovering ||
           companion.syncStatus.value == CompanionSyncStatus.syncing;
       return _VibeAvailability(
-        title: searching ? 'Looking for LumiaKey Desktop' : 'Desktop offline',
         message: searching
             ? 'Connect this device and LumiaKey Desktop to the same network.'
             : 'Connect LumiaKey Desktop on the same network to use Vibe Coding.',
@@ -456,42 +374,36 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
     }
     if (!controller.isDesktopSynced || manifest == null) {
       return const _VibeAvailability(
-        title: 'Connecting to Desktop',
-        message: 'Waiting for a current Vibe Coding layout.',
+        message: 'Waiting for the current shortcut layout from Desktop.',
         icon: Icons.sync,
       );
     }
     if (layout == null) {
       return const _VibeAvailability(
-        title: 'Update LumiaKey Desktop',
         message: 'This Desktop version does not include Vibe Coding layouts.',
         icon: Icons.system_update_alt,
       );
     }
     if (!manifest.settings.enableAppsSync) {
       return const _VibeAvailability(
-        title: 'Apps Sync is off',
         message: 'Enable Apps Sync in Desktop → General to detect these apps.',
         icon: Icons.sync_disabled,
       );
     }
     if (application == null || !application.detected) {
       return const _VibeAvailability(
-        title: 'App not installed',
         message: 'Install this app on the computer running LumiaKey Desktop.',
         icon: Icons.install_desktop,
       );
     }
     if (!application.running || !application.foreground) {
       return _VibeAvailability(
-        title: '${application.name} is ready',
-        message: 'Tap the app above to launch or focus it.',
+        message: 'Tap $applicationLabel above to bring it to the front.',
         icon: Icons.open_in_new,
       );
     }
     return _VibeAvailability(
-      title: '${application.name} is active',
-      message: 'Vibe shortcuts and Local Dictation are ready.',
+      message: '',
       icon: Icons.check_circle_outline,
       ready: true,
     );
@@ -500,14 +412,12 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
 
 class _VibeAvailability {
   const _VibeAvailability({
-    required this.title,
     required this.message,
     required this.icon,
     this.ready = false,
     this.error,
   });
 
-  final String title;
   final String message;
   final IconData icon;
   final bool ready;
@@ -560,31 +470,15 @@ class _VibeApplicationRequired extends StatelessWidget {
   }
 }
 
-String _vibeApplicationLabel(String applicationId) => switch (applicationId) {
-  'codex' => 'Codex',
-  'claude' => 'Claude',
-  'cursor' => 'Cursor',
-  _ => 'App',
-};
-
-IconData _vibeApplicationIcon(String applicationId) => switch (applicationId) {
-  'codex' => Icons.auto_awesome,
-  'claude' => Icons.psychology_outlined,
-  'cursor' => Icons.code,
-  _ => Icons.terminal,
-};
-
 class _VibeStatusCard extends StatelessWidget {
   const _VibeStatusCard({
     required this.availability,
-    required this.layoutName,
     required this.error,
     required this.pending,
     required this.onRefresh,
   });
 
   final _VibeAvailability availability;
-  final String? layoutName;
   final String? error;
   final bool pending;
   final VoidCallback? onRefresh;
@@ -596,83 +490,51 @@ class _VibeStatusCard extends StatelessWidget {
               ? Theme.of(context).colorScheme.primary
               : Colors.amberAccent
         : Theme.of(context).colorScheme.error;
-    final projectName = layoutName == null ? '' : ' · $layoutName';
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        child: Row(
-          children: [
-            if (pending)
-              const SizedBox.square(
-                dimension: 19,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Icon(
-                error == null ? availability.icon : Icons.error_outline,
+    final message = error ?? availability.message;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          if (pending)
+            const SizedBox.square(
+              dimension: 19,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            Icon(
+              error == null ? availability.icon : Icons.error_outline,
+              color: color,
+              size: 20,
+            ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: color,
-                size: 20,
-              ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    error == null
-                        ? availability.title
-                        : 'Desktop action failed',
-                    style: TextStyle(color: color, fontWeight: FontWeight.w700),
-                  ),
-                  Text(
-                    error ?? '${availability.message}$projectName',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+                fontWeight: FontWeight.w600,
               ),
             ),
-            if (onRefresh != null)
-              IconButton(
-                key: const ValueKey('vibe-refresh-desktop'),
-                tooltip: 'Refresh Desktop connection',
-                onPressed: pending ? null : onRefresh,
-                icon: const Icon(Icons.refresh),
-              ),
-          ],
-        ),
+          ),
+          if (onRefresh != null)
+            IconButton(
+              key: const ValueKey('vibe-refresh-desktop'),
+              tooltip: 'Refresh Desktop connection',
+              onPressed: pending ? null : onRefresh,
+              icon: const Icon(Icons.refresh),
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+            ),
+        ],
       ),
     );
   }
-}
-
-class _ProjectSetupHint extends StatelessWidget {
-  const _ProjectSetupHint({required this.layoutName});
-
-  final String layoutName;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          const Icon(Icons.folder_off_outlined, size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Project switching is not assigned. Set it up in Desktop → Shortcut Layout → $layoutName.',
-              key: const ValueKey('vibe-project-setup-hint'),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 class _VibeShortcutButton extends StatelessWidget {

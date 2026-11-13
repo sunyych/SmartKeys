@@ -30,6 +30,8 @@ class LocalDictationEntryButton extends StatefulWidget {
     super.key,
     required this.hid,
     this.topOffset = 7,
+    this.rightInset = 142,
+    this.entryEnabled = true,
     this.forceDesktopOutput = false,
     this.companion,
     this.modelManager,
@@ -41,6 +43,8 @@ class LocalDictationEntryButton extends StatefulWidget {
 
   final HidService hid;
   final double topOffset;
+  final double rightInset;
+  final bool entryEnabled;
   final bool forceDesktopOutput;
   final CompanionService? companion;
   final ModelManager? modelManager;
@@ -58,10 +62,7 @@ class LocalDictationEntryButton extends StatefulWidget {
       LocalDictationEntryButtonState();
 }
 
-/// Public controls for the existing local dictation entry.
-///
-/// Vibe Coding can invoke quick dictation through the same consent flow and
-/// mounted panel as the regular dictation button.
+/// Controls the dictation entry and its current session.
 class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
     with RouteAware {
   final GlobalKey<LocalDictationPanelState> _panelKey =
@@ -79,8 +80,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
   bool get isDictationRunning =>
       _panelKey.currentState?.isSessionInProgress ?? false;
 
-  Future<void> startQuickDictation({bool forceDesktopOutput = false}) =>
-      _open(autoStart: true, forceDesktopOutput: forceDesktopOutput);
+  Future<void> startQuickDictation() => _open(autoStart: true);
 
   /// Stops the current quick session, or invalidates consent/start work that
   /// has not reached microphone capture yet.
@@ -115,16 +115,14 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
     _removeEntry();
   }
 
-  Future<void> _open({
-    required bool autoStart,
-    bool forceDesktopOutput = false,
-  }) async {
-    if (_opening || _entryVisible) return;
+  Future<void> _open({required bool autoStart}) async {
+    if (!widget.entryEnabled || _opening || _entryVisible) return;
     _opening = true;
     final generation = ++_openGeneration;
     try {
       if (!await ensureDictationEntryExplained(context) ||
           !mounted ||
+          !widget.entryEnabled ||
           generation != _openGeneration ||
           (_route != null && !_route!.isCurrent)) {
         return;
@@ -141,7 +139,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
       setState(() {
         _entryVisible = true;
         _autoStartCurrentEntry = autoStart;
-        _forceDesktopOutputForCurrentEntry = forceDesktopOutput;
+        _forceDesktopOutputForCurrentEntry = widget.forceDesktopOutput;
       });
     } finally {
       _opening = false;
@@ -185,7 +183,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
     children: [
       Positioned(
         top: widget.topOffset,
-        right: 142,
+        right: widget.rightInset,
         child: Tooltip(
           triggerMode: TooltipTriggerMode.manual,
           message:
@@ -199,8 +197,10 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
               key: const ValueKey('local-quick-output'),
               tooltip: null,
               visualDensity: VisualDensity.compact,
-              onPressed: () => _open(autoStart: true),
-              onLongPress: () => _open(autoStart: false),
+              onPressed: widget.entryEnabled ? startQuickDictation : null,
+              onLongPress: widget.entryEnabled
+                  ? () => _open(autoStart: false)
+                  : null,
               icon: const Icon(Icons.mic_external_on),
             ),
           ),
@@ -216,6 +216,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
             forceDesktopOutput:
                 _forceDesktopOutputForCurrentEntry || widget.forceDesktopOutput,
             liveChipTopOffset: widget.topOffset,
+            liveChipRightInset: widget.rightInset,
             autoCollapseWhileListening: true,
             modelManager: widget.modelManager,
             capture: widget.capture,
@@ -238,6 +239,7 @@ class LocalDictationPanel extends StatefulWidget {
     this.autoCollapseWhileListening = false,
     this.forceDesktopOutput = false,
     this.liveChipTopOffset = 7,
+    this.liveChipRightInset = 142,
     this.onDismiss,
     this.modelManager,
     this.capture,
@@ -253,6 +255,7 @@ class LocalDictationPanel extends StatefulWidget {
   final bool autoCollapseWhileListening;
   final bool forceDesktopOutput;
   final double liveChipTopOffset;
+  final double liveChipRightInset;
   final VoidCallback? onDismiss;
   final ModelManager? modelManager;
   final DictationCapture? capture;
@@ -1513,7 +1516,8 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
         children: [
           Positioned(
             top: widget.liveChipTopOffset,
-            right: MediaQuery.paddingOf(context).right + 142,
+            right:
+                MediaQuery.paddingOf(context).right + widget.liveChipRightInset,
             child: _buildLiveLevelStopChip(),
           ),
         ],
