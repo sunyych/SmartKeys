@@ -130,6 +130,13 @@ class DesktopActions {
       await _deleteToLineStart(expectedAppId);
       return;
     }
+    if (button.id == 'chatgpt.codex.deleteToStart') {
+      if (expectedAppId != 'chatgpt') {
+        throw StateError('Delete action requires the ChatGPT app');
+      }
+      await _deleteToLineStart('chatgpt');
+      return;
+    }
     switch (button.targetType) {
       case RemoteTargetType.keyboardShortcut:
         await sendShortcut(button.shortcut, expectedAppId: expectedAppId);
@@ -153,10 +160,19 @@ class DesktopActions {
       case RemoteTargetType.system:
         final appId = expectedAppId;
         final actionId = button.target;
-        if (appId == null || button.id != 'vibe.$appId.$actionId') {
+        final isVibeAction =
+            appId != null && button.id == 'vibe.$appId.$actionId';
+        final isChatGptCodexAction =
+            appId == 'chatgpt' &&
+            button.id == 'chatgpt.codex.$actionId' &&
+            actionId != null;
+        if (!isVibeAction && !isChatGptCodexAction) {
           throw const FormatException('invalid fixed Vibe action');
         }
-        await vibeSystemTools.execute(appId, _requiredText(actionId));
+        await vibeSystemTools.execute(
+          isChatGptCodexAction ? 'codex' : appId!,
+          _requiredText(actionId),
+        );
     }
   }
 
@@ -234,7 +250,6 @@ class DesktopActions {
     final chatGpt =
         app.id == 'chatgpt' ||
         (app.id == 'codex' && app.executable.toLowerCase().contains('chatgpt'));
-    final chatViewKey = app.id == 'chatgpt' ? '1' : '3';
     final targetName = chatGpt ? 'ChatGPT' : executable;
     if (Platform.isMacOS) {
       final open = await runner.run('/usr/bin/open', ['-a', targetName]);
@@ -257,9 +272,6 @@ class DesktopActions {
       }
       if (!await _waitForForeground(chatGpt ? 'chatgpt' : app.id)) {
         throw StateError('macOS did not foreground $targetName');
-      }
-      if (chatGpt) {
-        await sendShortcut(['CTRL', chatViewKey], expectedAppId: 'chatgpt');
       }
       return;
     }
@@ -331,9 +343,79 @@ class DesktopActions {
   $processNames = $args[0] -split ','
   $executables = $args[1] -split ','
   $startAppNames = $args[2] -split ','
+  Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public sealed class LumiaWindowCandidate {
+  public IntPtr Handle;
+  public int ProcessId;
+  public long Area;
+  public bool AppWindow;
+}
+public static class LumiaWindowActivation {
+  private const int GWL_EXSTYLE = -20;
+  private const uint WS_EX_TOOLWINDOW = 0x00000080;
+  private const uint WS_EX_NOACTIVATE = 0x08000000;
+  private const uint WS_EX_APPWINDOW = 0x00040000;
+  private const uint GW_OWNER = 4;
+  private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+  [DllImport("user32.dll", EntryPoint="GetWindowLongW")] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+  [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public static LumiaWindowCandidate[] FindMainWindows(int[] processIds) {
+    var targetIds = new HashSet<int>(processIds);
+    var windows = new List<LumiaWindowCandidate>();
+    EnumWindows(delegate(IntPtr hWnd, IntPtr unused) {
+      uint processId;
+      GetWindowThreadProcessId(hWnd, out processId);
+      if (!targetIds.Contains((int)processId) || !IsWindowVisible(hWnd) || GetWindow(hWnd, GW_OWNER) != IntPtr.Zero) return true;
+      uint exStyle = unchecked((uint)GetWindowLong(hWnd, GWL_EXSTYLE));
+      if ((exStyle & WS_EX_TOOLWINDOW) != 0 || (exStyle & WS_EX_NOACTIVATE) != 0) return true;
+      RECT rect;
+      if (!GetWindowRect(hWnd, out rect)) return true;
+      int width = rect.Right - rect.Left;
+      int height = rect.Bottom - rect.Top;
+      if (width < 320 || height < 240) return true;
+      windows.Add(new LumiaWindowCandidate {
+        Handle = hWnd,
+        ProcessId = (int)processId,
+        Area = (long)width * height,
+        AppWindow = (exStyle & WS_EX_APPWINDOW) != 0
+      });
+      return true;
+    }, IntPtr.Zero);
+    return windows.ToArray();
+  }
+}
+'@
+  function Find-UsableWindow {
+    $processIds = [int[]]@($running | ForEach-Object { $_.Id })
+    if ($processIds.Length -eq 0) { return $null }
+    [LumiaWindowActivation]::FindMainWindows($processIds) |
+      Sort-Object @{Expression='AppWindow';Descending=$true}, @{Expression='Area';Descending=$true} |
+      Select-Object -First 1
+  }
+  $useChatGptWindowPicker = $processNames -contains 'ChatGPT'
   $running = @(Get-Process -Name $processNames -ErrorAction SilentlyContinue)
-  $p = $running | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-  if (-not $p) {
+  $window = $null
+  if ($useChatGptWindowPicker) {
+    $window = Find-UsableWindow
+    if ($window) { $p = Get-Process -Id $window.ProcessId -ErrorAction SilentlyContinue }
+  } else {
+    $p = $running | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  }
+  if (-not $p -and -not $window) {
     $startApps = @(Get-StartApps)
     $app = $null
     foreach ($alias in $startAppNames) {
@@ -395,33 +477,27 @@ class DesktopActions {
     }
   }
 
-  if (-not $p) {
+  if (-not $p -and -not $window) {
     $focusDeadline = [DateTime]::UtcNow.AddMilliseconds(2750)
     do {
-      $p = Get-Process -Name $processNames -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-      if ($p) { break }
+      $running = @(Get-Process -Name $processNames -ErrorAction SilentlyContinue)
+      if ($useChatGptWindowPicker) {
+        $window = Find-UsableWindow
+        if ($window) { $p = Get-Process -Id $window.ProcessId -ErrorAction SilentlyContinue }
+      } else {
+        $p = $running | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+      }
+      if ($p -or $window) { break }
       Start-Sleep -Milliseconds 150
     } while ([DateTime]::UtcNow -lt $focusDeadline)
   }
-  if (-not $p) {
-    throw 'The selected app did not expose a main window; refusing to report activation success.'
+  if (-not $p -and -not $window) {
+    throw 'The selected app did not expose a usable window; refusing to report activation success.'
   }
   $w = New-Object -ComObject WScript.Shell
   # AppActivate can report success without changing the foreground window.
-  Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class LumiaWindowActivation {
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
-  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-}
-'@
-  $hwnd = [IntPtr]$p.MainWindowHandle
+  if ($window) { $hwnd = [IntPtr]$window.Handle }
+  else { $hwnd = [IntPtr]$p.MainWindowHandle }
   if (-not [LumiaWindowActivation]::IsWindowVisible($hwnd)) {
     throw 'The selected app window is not visible; activation failed.'
   }
@@ -466,9 +542,6 @@ public static class LumiaWindowActivation {
           '${result.stderr}',
           result.exitCode,
         );
-      }
-      if (chatGpt && result.stdout.toString().contains('FOCUSED')) {
-        await sendShortcut(['ALT', chatViewKey], expectedAppId: 'chatgpt');
       }
       return;
     }
@@ -534,9 +607,6 @@ public static class LumiaWindowActivation {
     final active = await runner.run('xdotool', const ['getactivewindow']);
     if (active.exitCode != 0 || active.stdout.toString().trim() != windowId) {
       throw StateError('Linux did not activate $targetName');
-    }
-    if (app.id == 'chatgpt' && await _waitForForeground('chatgpt')) {
-      await sendShortcut(const ['ALT', '1'], expectedAppId: 'chatgpt');
     }
   }
 
@@ -688,12 +758,20 @@ if ($approvedProcesses) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public static class LK { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }
+public static class LK { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd); [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint command); [DllImport("user32.dll", EntryPoint="GetWindowLongW")] public static extern int GetWindowLong(IntPtr hWnd, int index); }
 '@
+$foregroundHandle = [LK]::GetForegroundWindow()
 $targetProcessId = 0
-[LK]::GetWindowThreadProcessId([LK]::GetForegroundWindow(), [ref]$targetProcessId) | Out-Null
+[LK]::GetWindowThreadProcessId($foregroundHandle, [ref]$targetProcessId) | Out-Null
 $p = if ($targetProcessId -ne 0) { Get-Process -Id $targetProcessId -ErrorAction SilentlyContinue }
 if (-not $p -or @($approvedProcesses -split ",") -notcontains $p.ProcessName.ToLowerInvariant()) { throw "Switch to the matching Vibe app before using this shortcut." }
+if (@($approvedProcesses -split ",") -contains 'chatgpt') {
+  $style = [uint32][LK]::GetWindowLong($foregroundHandle, -20)
+  # Reject WS_EX_TOOLWINDOW (0x80) and WS_EX_NOACTIVATE (0x08000000) overlays.
+  if (-not [LK]::IsWindowVisible($foregroundHandle) -or ($style -band 0x80) -ne 0 -or ($style -band 0x08000000) -ne 0 -or [LK]::GetWindow($foregroundHandle, 4) -ne [IntPtr]::Zero) {
+    throw "Switch to the main ChatGPT window before using this shortcut."
+  }
+}
 }
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait($keyStroke)

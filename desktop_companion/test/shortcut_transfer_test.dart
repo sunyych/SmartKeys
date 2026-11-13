@@ -33,7 +33,10 @@ void main() {
       final json = layout.toJson();
       json['buttons'] = [
         ...layout.buttons,
-        ...List.generate(16, (i) => layout.buttons[i % layout.buttons.length]),
+        ...List.generate(
+          DesktopShortcutTransferService.maxButtonsPerLayout,
+          (i) => layout.buttons[i % layout.buttons.length],
+        ),
       ].map((button) => button.toJson()).toList();
       return json;
     }).toList();

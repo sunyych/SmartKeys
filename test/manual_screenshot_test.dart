@@ -41,15 +41,15 @@ void main() {
       await shots.setViewport(size);
       if (desktop) {
         harness.companion.syncedManifest.value = desktopManifest(
-          installed: const {'codex', 'claude', 'cursor'},
-          running: const {'codex'},
-          foreground: 'codex',
+          installed: const {'chatgpt', 'claude', 'cursor'},
+          running: const {'chatgpt'},
+          foreground: 'chatgpt',
         ).copyWith(computerId: 'manual-desktop');
         harness.companion.host.value = connectedCompanionHost;
         harness.companion.status.value = CompanionSyncStatus.ready;
         await harness.controller.saveComputerSetup(
           harness.controller.activeComputer!,
-          ComputerSetup(applicationIds: const ['codex', 'claude', 'cursor']),
+          ComputerSetup(applicationIds: const ['chatgpt', 'claude', 'cursor']),
         );
       }
       final key = GlobalKey();
@@ -147,7 +147,7 @@ void main() {
 
     key = await mountHome(const Size(844, 390), desktop: true);
     expect(find.byKey(const ValueKey('computer-app-row')), findsOneWidget);
-    for (final id in ['codex', 'claude', 'cursor']) {
+    for (final id in ['chatgpt', 'claude', 'cursor']) {
       expect(find.byKey(ValueKey('workspace-app-$id')), findsOneWidget);
     }
     await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
@@ -167,11 +167,11 @@ void main() {
 
     await shots.setViewport(const Size(412, 915));
     await tester.pumpAndSettle();
-    final desktopCodex = find.byKey(const ValueKey('workspace-app-codex'));
-    await tester.ensureVisible(desktopCodex);
-    await tester.tap(desktopCodex);
+    final desktopChatGpt = find.byKey(const ValueKey('workspace-app-chatgpt'));
+    await tester.ensureVisible(desktopChatGpt);
+    await tester.tap(desktopChatGpt);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    expect(find.byKey(const ValueKey('remote-layout-chatgpt')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('profile-quick-switch-bar')),
       findsNothing,
@@ -183,11 +183,11 @@ void main() {
     expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
     await tester.pumpAndSettle();
     await shots.capture(
-      id: 'manual-vibe-coding',
-      title: 'Vibe Coding controls',
+      id: 'manual-chatgpt-codex-controls',
+      title: 'ChatGPT Codex controls',
       orientation: 'portrait',
       notes:
-          'Portrait Advanced-mode fixture with Codex in the foreground, Codex/Claude/Cursor in the top app row, and the shared compact Local Dictation entry; no live Desktop connection.',
+          'Portrait Advanced-mode fixture with ChatGPT in the foreground, ChatGPT/Claude/Cursor in the top app row, merged Codex shortcuts, and the compact Local Dictation entry; no live Desktop connection.',
       boundaryKey: key,
     );
 
@@ -250,7 +250,7 @@ void main() {
       }
     }
 
-    for (final id in ['codex', 'claude', 'cursor']) {
+    for (final id in ['chatgpt', 'claude', 'cursor']) {
       await selectApp(id, selected: true);
     }
     await _scrollWizardToTop(tester);
@@ -259,7 +259,7 @@ void main() {
       title: 'Choose computer apps',
       orientation: 'portrait',
       notes:
-          'Real first-connection ComputerSetupWizard with Codex, Claude, and Cursor selected on the standalone Android fixture.',
+          'Real first-connection ComputerSetupWizard with ChatGPT, Claude, and Cursor selected on the standalone Android fixture.',
       boundaryKey: wizardKey,
     );
 
@@ -267,14 +267,15 @@ void main() {
     await selectApp('cursor', selected: false);
     for (final action in [
       'launch',
-      'voiceMode',
-      'voiceInput',
-      'cancelClear',
-      'previousChat',
-      'nextChat',
-      'nextProject',
+      'codexMode',
+      'codex.voiceMode',
+      'codex.voiceInput',
+      'codex.cancelClear',
+      'codex.previousChat',
+      'codex.nextChat',
+      'codex.nextProject',
     ]) {
-      final field = find.byKey(ValueKey('computer-key-codex-$action'));
+      final field = find.byKey(ValueKey('computer-key-chatgpt-$action'));
       await _scrollWizardTo(tester, field);
       await tester.enterText(field, _manualChord(action));
       await tester.pump();
@@ -283,34 +284,43 @@ void main() {
     await tester.pumpAndSettle();
     await _alignWizardItem(
       tester,
-      find.byKey(const ValueKey('computer-key-codex-launch')),
+      find.byKey(const ValueKey('computer-key-chatgpt-codex.voiceMode')),
       190,
     );
     expect(
-      find.byKey(const ValueKey('computer-key-codex-voiceMode')).hitTestable(),
+      find
+          .byKey(const ValueKey('computer-key-chatgpt-codex.voiceMode'))
+          .hitTestable(),
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('computer-key-codex-voiceInput')).hitTestable(),
+      find
+          .byKey(const ValueKey('computer-key-chatgpt-codex.voiceInput'))
+          .hitTestable(),
       findsOneWidget,
     );
     await shots.capture(
       id: 'manual-computer-setup-shortcuts',
-      title: 'Configure Codex shortcuts',
+      title: 'Configure ChatGPT shortcuts',
       orientation: 'portrait',
       notes:
-          'Real standalone setup wizard with Codex selected and separate voice-mode, voice-input, cancel, chat navigation, and project shortcuts configured in the fixture.',
+          'Real standalone setup wizard with ChatGPT selected and separate ChatGPT/Codex mode, voice, cancel, chat navigation, and project shortcuts configured in the fixture.',
       boundaryKey: wizardKey,
     );
 
-    final launchTest = find.byKey(const ValueKey('computer-test-launch-codex'));
-    await _scrollWizardTo(tester, launchTest);
+    final launchTest = find.byKey(
+      const ValueKey('computer-test-launch-chatgpt'),
+    );
+    FocusManager.instance.primaryFocus?.unfocus();
+    tester.testTextInput.hide();
+    await tester.pumpAndSettle();
+    await _centerWizardItemInViewport(tester, launchTest);
     expect(launchTest, findsOneWidget);
     expect(launchTest.hitTestable(), findsOneWidget);
     await tester.tap(launchTest);
     await tester.pumpAndSettle();
     final launchConfirmation = find.byKey(
-      const ValueKey('computer-confirm-launch-codex'),
+      const ValueKey('computer-confirm-launch-chatgpt'),
     );
     await _scrollWizardTo(tester, launchConfirmation);
     expect(launchConfirmation.hitTestable(), findsOneWidget);
@@ -321,7 +331,7 @@ void main() {
       title: 'Test and confirm app launch',
       orientation: 'portrait',
       notes:
-          'Wizard state after the fixture sends the launch shortcut and the user confirms seeing Codex open; no real computer was controlled.',
+          'Wizard state after the fixture sends the launch shortcut and the user confirms seeing ChatGPT open; no real computer was controlled.',
       boundaryKey: wizardKey,
     );
 
@@ -357,18 +367,18 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final codexApp = find.byKey(const ValueKey('workspace-app-codex'));
-    await tester.ensureVisible(codexApp);
-    await tester.tap(codexApp);
+    final chatgptApp = find.byKey(const ValueKey('workspace-app-chatgpt'));
+    await tester.ensureVisible(chatgptApp);
+    await tester.tap(chatgptApp);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('standalone-app-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
     await shots.capture(
-      id: 'manual-standalone-vibe',
-      title: 'Standalone Vibe shortcuts',
+      id: 'manual-standalone-chatgpt-shortcuts',
+      title: 'Standalone ChatGPT shortcuts',
       orientation: 'portrait',
       notes:
-          'Real standalone Codex shortcut panel with separate voice-mode and voice-input actions; generated from the first-connection setup fixture.',
+          'Real standalone ChatGPT shortcut panel with distinct Codex mode, voice-mode, and voice-input actions; generated from the first-connection setup fixture.',
       boundaryKey: key,
     );
   });
@@ -376,12 +386,13 @@ void main() {
 
 String _manualChord(String action) => switch (action) {
   'launch' => 'Ctrl+Alt+1',
-  'voiceMode' => 'Ctrl+Shift+Alt+1',
-  'voiceInput' => 'Ctrl+Shift+Alt+2',
-  'cancelClear' => 'Escape',
-  'previousChat' => 'Ctrl+Alt+Left',
-  'nextChat' => 'Ctrl+Alt+Right',
-  'nextProject' => 'Ctrl+Alt+P',
+  'codexMode' => 'Ctrl+Alt+3',
+  'codex.voiceMode' => 'Ctrl+Shift+Alt+1',
+  'codex.voiceInput' => 'Ctrl+Shift+Alt+2',
+  'codex.cancelClear' => 'Escape',
+  'codex.previousChat' => 'Ctrl+Alt+Left',
+  'codex.nextChat' => 'Ctrl+Alt+Right',
+  'codex.nextProject' => 'Ctrl+Alt+P',
   _ => throw ArgumentError.value(action),
 };
 
@@ -421,6 +432,27 @@ Future<void> _alignWizardItem(
       .clamp(0.0, scrollable.position.maxScrollExtent)
       .toDouble();
   scrollable.position.jumpTo(nextOffset);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _centerWizardItemInViewport(
+  WidgetTester tester,
+  Finder finder,
+) async {
+  final scrollable = _wizardScrollable(tester);
+  final viewport = scrollable.context.findRenderObject()! as RenderBox;
+  final item = tester.renderObject(finder) as RenderBox;
+  final viewportTop = viewport.localToGlobal(Offset.zero).dy;
+  final itemTop = item.localToGlobal(Offset.zero).dy;
+  final targetTop = viewportTop + (viewport.size.height - item.size.height) / 2;
+  scrollable.position.jumpTo(
+    (scrollable.position.pixels + itemTop - targetTop)
+        .clamp(
+          scrollable.position.minScrollExtent,
+          scrollable.position.maxScrollExtent,
+        )
+        .toDouble(),
+  );
   await tester.pumpAndSettle();
 }
 

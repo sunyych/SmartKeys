@@ -142,14 +142,14 @@ void main() {
     final harness = await TestHarness.create();
     addTearDown(() => _disposeHarness(tester, harness));
     harness.companion.syncedManifest.value = desktopManifest(
-      installed: const {'vscode', 'codex'},
+      installed: const {'vscode', 'chatgpt'},
       running: const {'vscode'},
     );
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
     await harness.controller.saveComputerSetup(
       harness.controller.activeComputer!,
-      ComputerSetup(applicationIds: const ['vscode', 'codex']),
+      ComputerSetup(applicationIds: const ['vscode', 'chatgpt']),
     );
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
@@ -181,18 +181,23 @@ void main() {
     await tester.pump();
     expect(harness.companion.remoteActions.last.buttonId, 'vscode.save');
 
-    final codex = find.byKey(const ValueKey('workspace-app-codex'));
-    await tester.scrollUntilVisible(codex, 120, scrollable: appScrollable);
-    await Scrollable.ensureVisible(tester.element(codex), alignment: 0.5);
-    await tester.tap(codex);
+    final chatgpt = find.byKey(const ValueKey('workspace-app-chatgpt'));
+    await tester.scrollUntilVisible(chatgpt, 120, scrollable: appScrollable);
+    await Scrollable.ensureVisible(tester.element(chatgpt), alignment: 0.5);
+    await tester.tap(chatgpt);
     await tester.pumpAndSettle();
-    expect(harness.companion.remoteActions.last.applicationId, 'codex');
+    expect(harness.companion.remoteActions.last.applicationId, 'chatgpt');
     expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);
     expect(
       find.byKey(const ValueKey('profile-quick-switch-bar')),
       findsNothing,
     );
-    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    expect(find.byKey(const ValueKey('remote-layout-chatgpt')), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('remote-button-chatgpt.newChat')),
+    );
+    await tester.pump();
+    expect(harness.companion.remoteActions.last.buttonId, 'chatgpt.newChat');
     await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
     await tester.pumpAndSettle();
     expect(
@@ -357,13 +362,13 @@ void main() {
     expect(keyWidth / wheelWidth, closeTo(2, 0.05));
 
     harness.companion.syncedManifest.value = desktopManifest(
-      installed: const {'codex'},
+      installed: const {'chatgpt'},
     );
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
     await harness.controller.saveComputerSetup(
       harness.controller.activeComputer!,
-      ComputerSetup(applicationIds: const ['codex']),
+      ComputerSetup(applicationIds: const ['chatgpt']),
     );
     await tester.pump();
     expect(
@@ -374,11 +379,11 @@ void main() {
       find.descendant(of: navigation, matching: find.text('Teams')),
       findsNothing,
     );
-    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
     await tester.pumpAndSettle();
-    expect(harness.companion.remoteActions.last.applicationId, 'codex');
+    expect(harness.companion.remoteActions.last.applicationId, 'chatgpt');
     expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
-    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    expect(find.byKey(const ValueKey('remote-layout-chatgpt')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
     await tester.pump();
     expect(find.byKey(const ValueKey('landscape-layout')), findsOneWidget);

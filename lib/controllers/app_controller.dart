@@ -298,17 +298,24 @@ class AppController extends ChangeNotifier {
         manifest?.settings.enableAppsSync != true) {
       return const [];
     }
-    return manifest!.applications
-        .where((application) => application.detected)
-        .map(
-          (application) =>
-              computerApplicationById(application.id) ??
-              ComputerApplication(
-                id: application.id,
-                name: application.name,
-                category: ComputerAppCategory.other,
-              ),
-        )
+    final available = <String, ComputerApplication>{};
+    for (final installed in manifest!.applications.where(
+      (application) => application.detected,
+    )) {
+      final id = canonicalComputerApplicationId(installed.id);
+      final catalogApp = computerApplicationById(id);
+      available.putIfAbsent(
+        id,
+        () =>
+            catalogApp ??
+            ComputerApplication(
+              id: id,
+              name: installed.name,
+              category: ComputerAppCategory.other,
+            ),
+      );
+    }
+    return available.values
         .where(
           (application) => isComputerApplicationSupportedOn(
             application,
@@ -454,7 +461,9 @@ class AppController extends ChangeNotifier {
       }
       if (target.mode == ComputerMode.advanced &&
           desktopManifest!.applications.every(
-            (installed) => installed.id != appId || !installed.detected,
+            (installed) =>
+                canonicalComputerApplicationId(installed.id) != appId ||
+                !installed.detected,
           )) {
         throw FormatException(
           '${application.name} is not detected on this computer.',
@@ -492,6 +501,16 @@ class AppController extends ChangeNotifier {
           )) {
         throw const FormatException(
           'Choose different shortcuts for voice mode and voice input.',
+        );
+      }
+      if (application.id == 'chatgpt' &&
+          target.mode == ComputerMode.standalone &&
+          _sameComputerChord(
+            setup.bindingFor(appId, 'codex.voiceMode'),
+            setup.bindingFor(appId, 'codex.voiceInput'),
+          )) {
+        throw const FormatException(
+          'Choose different shortcuts for Codex voice mode and voice input.',
         );
       }
     }
@@ -553,11 +572,13 @@ class AppController extends ChangeNotifier {
     String applicationId,
     String chord,
   ) async {
+    final canonicalAppId = canonicalComputerApplicationId(applicationId);
+    final actionId = canonicalComputerShortcutId(applicationId, 'launch');
     final application = computerApplicationById(applicationId);
     if (application == null ||
         !computerShortcutsFor(
           application.category,
-        ).any((shortcut) => shortcut.id == 'launch')) {
+        ).any((shortcut) => shortcut.id == actionId)) {
       throw const FormatException('Choose an app with a launch action.');
     }
     if (!isComputerApplicationSupportedOn(
@@ -566,7 +587,7 @@ class AppController extends ChangeNotifier {
     )) {
       throw FormatException('${application.name} is unavailable on this OS.');
     }
-    await _sendStandaloneChord(target, applicationId, 'launch', chord);
+    await _sendStandaloneChord(target, canonicalAppId, actionId, chord);
   }
 
   /// Send one configured or built-in shortcut to the computer currently
@@ -578,12 +599,17 @@ class AppController extends ChangeNotifier {
     String actionId,
   ) async {
     final current = activeComputer;
+    final canonicalAppId = canonicalComputerApplicationId(applicationId);
+    final canonicalActionId = canonicalComputerShortcutId(
+      applicationId,
+      actionId,
+    );
     final application = computerApplicationById(applicationId);
     if (current?.mode != ComputerMode.standalone ||
         current!.id != target.id ||
         target.mode != ComputerMode.standalone ||
         activeComputerSetup == null ||
-        !activeComputerSetup!.applicationIds.contains(applicationId) ||
+        !activeComputerSetup!.applicationIds.contains(canonicalAppId) ||
         application == null ||
         !isComputerApplicationSupportedOn(
           application,
@@ -595,27 +621,38 @@ class AppController extends ChangeNotifier {
     final shortcut = computerShortcutsFor(application.category)
         .cast<ComputerShortcut?>()
         .firstWhere(
-          (candidate) => candidate?.id == actionId,
+          (candidate) => candidate?.id == canonicalActionId,
           orElse: () => null,
         );
     if (shortcut == null) {
       throw FormatException('Unsupported ${application.name} action.');
     }
-    final binding = activeComputerSetup!.bindingFor(applicationId, actionId);
+    final binding = activeComputerSetup!.bindingFor(
+      canonicalAppId,
+      canonicalActionId,
+    );
     final chord =
-        binding ?? defaultComputerShortcut(target, application, actionId);
+        binding ??
+        defaultComputerShortcut(target, application, canonicalActionId);
     if (chord == null ||
         chord.trim().isEmpty ||
         parseComputerShortcut(chord) == null) {
       // The Home app selector invokes launch when a tile is selected. If no
       // launch key has been configured, leave the app controls open without
       // sending a key or surfacing an error; missing action keys stay disabled.
-      if (actionId == 'launch') return;
+      if (canonicalActionId == 'launch' || canonicalActionId == 'codexMode') {
+        return;
+      }
       throw StateError(
         'Set ${shortcut.label} for ${application.name} in its setup.',
       );
     }
-    await _sendStandaloneChord(target, applicationId, actionId, chord);
+    await _sendStandaloneChord(
+      target,
+      canonicalAppId,
+      canonicalActionId,
+      chord,
+    );
   }
 
   Future<void> _sendStandaloneChord(
@@ -781,9 +818,15 @@ class AppController extends ChangeNotifier {
     if (catalogApp != null || target.mode != ComputerMode.advanced) {
       return catalogApp;
     }
+    final canonicalId = canonicalComputerApplicationId(id);
     final installed = desktopManifest?.applications
         .cast<RemoteApplication?>()
-        .firstWhere((application) => application?.id == id, orElse: () => null);
+        .firstWhere(
+          (application) =>
+              application != null &&
+              canonicalComputerApplicationId(application.id) == canonicalId,
+          orElse: () => null,
+        );
     if (!isDesktopSynced || installed?.detected != true) return null;
     return ComputerApplication(
       id: installed!.id,
@@ -792,12 +835,19 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  /// A retained manifest is intentionally kept for diagnostics after a LAN
-  /// timeout. It is not an active Desktop sync and must not drive the surface.
-  bool get isDesktopSynced =>
-      companion.activeHost.value != null &&
-      companion.syncStatus.value == CompanionSyncStatus.ready &&
-      desktopManifest != null;
+  /// Keep the accepted manifest usable during a same-session refresh so a
+  /// revision update does not replace the selected app workspace with the
+  /// reconnect screen. A retained manifest from an expired or changed session
+  /// still cannot drive the surface.
+  bool get isDesktopSynced {
+    final host = companion.activeHost.value;
+    if (host == null || desktopManifest == null) return false;
+    final status = companion.syncStatus.value;
+    return status == CompanionSyncStatus.ready ||
+        status == CompanionSyncStatus.syncing &&
+            _acceptedCompanionSession == _companionSessionId(host);
+  }
+
   bool get isDesktopDriven => isDesktopSynced;
   RemoteShortcutLayout? get remoteCurrentLayout =>
       desktopManifest?.currentLayout;
@@ -844,6 +894,19 @@ class AppController extends ChangeNotifier {
   bool get hasCodexWorkspace =>
       syncedApplications.any((application) => application.id == 'codex') &&
       remoteCodexLayout != null;
+
+  /// Resolve an app row selection against older Desktop manifests that still
+  /// publish the combined ChatGPT/Codex process as `codex`. Returning its wire
+  /// ID keeps launches and button requests compatible with that Desktop.
+  RemoteApplication? remoteApplicationForComputerApp(String applicationId) {
+    final manifest = desktopManifest;
+    final exact = manifest?.applicationById(applicationId);
+    if (exact != null) return exact;
+    if (canonicalComputerApplicationId(applicationId) == 'chatgpt') {
+      return manifest?.applicationById('codex');
+    }
+    return null;
+  }
 
   ControlSurfaceStatus get controlSurfaceStatus {
     final foreground = foregroundApplication;
@@ -1201,7 +1264,8 @@ class AppController extends ChangeNotifier {
       );
       return;
     }
-    if (_pinnedDesktopChoiceId != null || computerMode == ComputerMode.advanced) {
+    if (_pinnedDesktopChoiceId != null ||
+        computerMode == ComputerMode.advanced) {
       return;
     }
     unawaited(
@@ -1222,7 +1286,8 @@ class AppController extends ChangeNotifier {
       );
       return;
     }
-    if (_pinnedDesktopChoiceId != null || computerMode == ComputerMode.advanced) {
+    if (_pinnedDesktopChoiceId != null ||
+        computerMode == ComputerMode.advanced) {
       return;
     }
     unawaited(
@@ -1255,7 +1320,8 @@ class AppController extends ChangeNotifier {
       );
       return;
     }
-    if (_pinnedDesktopChoiceId != null || computerMode == ComputerMode.advanced) {
+    if (_pinnedDesktopChoiceId != null ||
+        computerMode == ComputerMode.advanced) {
       return;
     }
     unawaited(

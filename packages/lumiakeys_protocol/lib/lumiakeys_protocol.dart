@@ -18,11 +18,16 @@ enum PointerInputKind { move, scroll, button }
 
 class PointerInput {
   const PointerInput.move(this.x, this.y)
-    : kind = PointerInputKind.move, secondary = null;
+    : kind = PointerInputKind.move,
+      secondary = null;
   const PointerInput.scroll(this.y)
-    : kind = PointerInputKind.scroll, x = 0, secondary = null;
+    : kind = PointerInputKind.scroll,
+      x = 0,
+      secondary = null;
   const PointerInput.button({required this.secondary})
-    : kind = PointerInputKind.button, x = 0, y = 0;
+    : kind = PointerInputKind.button,
+      x = 0,
+      y = 0;
 
   final PointerInputKind kind;
   final int x;
@@ -718,29 +723,6 @@ class DesktopManifest {
         shortcut('codex.sidebar', 'Sidebar', 'menu_open', ['PRIMARY', 'B']),
       ],
     );
-    final chatgpt = appLayout('chatgpt', 'ChatGPT', [
-      shortcut('chatgpt.chatView', 'Chat View', 'chat', ['ALT', '1']),
-      shortcut('chatgpt.startVoice', 'Start Voice Chat', 'mic', [
-        'CTRL',
-        'SHIFT',
-        'V',
-      ]),
-      shortcut('chatgpt.newChat', 'New Chat', 'add', ['PRIMARY', 'N']),
-      shortcut('chatgpt.previousChat', 'Previous Chat', 'arrow_back', [
-        'CTRL',
-        'SHIFT',
-        'TAB',
-      ]),
-      shortcut('chatgpt.nextChat', 'Next Chat', 'arrow_forward', [
-        'CTRL',
-        'TAB',
-      ]),
-      shortcut('chatgpt.find', 'Find', 'search', ['PRIMARY', 'F']),
-      shortcut('chatgpt.sidebar', 'Show / Hide Sidebar', 'menu_open', [
-        'PRIMARY',
-        'B',
-      ]),
-    ]);
     RemoteShortcutLayout vibeLayout(
       String id,
       String name,
@@ -838,6 +820,71 @@ class DesktopManifest {
         'G',
       ]),
       ...vibeEditingButtons('codex'),
+    ]);
+    RemoteShortcutButton chatGptCodexButton(
+      RemoteShortcutButton button,
+      String action,
+    ) => RemoteShortcutButton(
+      id: 'chatgpt.codex.$action',
+      name: button.name,
+      icon: button.icon,
+      targetType: button.targetType,
+      shortcut: button.shortcut,
+      target: button.target,
+      description: button.description,
+      enabled: button.enabled,
+    );
+    final chatgpt = appLayout('chatgpt', 'ChatGPT', [
+      shortcut('chatgpt.chatView', 'Chat View', 'chat', ['ALT', '1']),
+      shortcut('chatgpt.codexMode', 'Codex Mode', 'code', ['ALT', '3']),
+      shortcut('chatgpt.startVoice', 'Start Voice Chat', 'mic', [
+        'CTRL',
+        'SHIFT',
+        'V',
+      ]),
+      shortcut('chatgpt.newChat', 'New Chat', 'add', ['PRIMARY', 'N']),
+      shortcut('chatgpt.previousChat', 'Previous Chat', 'arrow_back', [
+        'CTRL',
+        'SHIFT',
+        'TAB',
+      ]),
+      shortcut('chatgpt.nextChat', 'Next Chat', 'arrow_forward', [
+        'CTRL',
+        'TAB',
+      ]),
+      shortcut('chatgpt.find', 'Find', 'search', ['PRIMARY', 'F']),
+      shortcut('chatgpt.sidebar', 'Show / Hide Sidebar', 'menu_open', [
+        'PRIMARY',
+        'B',
+      ]),
+      ...codex.buttons
+          .where(
+            (button) => !const {
+              'codex.newChat',
+              'codex.focusInput',
+              'codex.previousConversation',
+              'codex.nextConversation',
+              'codex.send',
+              'codex.findInChat',
+              'codex.terminal',
+              'codex.review',
+              'codex.sidebar',
+            }.contains(button.id),
+          )
+          .map(
+            (button) => chatGptCodexButton(
+              button,
+              button.id.substring('codex.'.length),
+            ),
+          ),
+      ...vibeCodex.buttons
+          .where((button) => button.id != 'vibe.codex.newChat')
+          .map(
+            (button) => chatGptCodexButton(
+              button,
+              button.id.substring('vibe.codex.'.length),
+            ),
+          ),
     ]);
     final vibeClaude = vibeLayout('claude', 'Claude', [
       RemoteShortcutButton(
@@ -993,13 +1040,6 @@ class DesktopManifest {
           icon: 'chat',
           executable: 'ChatGPT',
           layoutId: 'chatgpt',
-        ),
-        RemoteApplication(
-          id: 'codex',
-          name: 'Codex / ChatGPT',
-          icon: 'code',
-          executable: 'Codex',
-          layoutId: 'codex',
         ),
         RemoteApplication(
           id: 'claude',

@@ -17,7 +17,7 @@ class _InstalledDiscovery implements ApplicationDiscovery {
     return apps
         .map(
           (app) => app.copyWith(
-            detected: app.id == 'vscode' || app.id == 'codex',
+            detected: app.id == 'vscode' || app.id == 'chatgpt',
             running: app.id == 'vscode',
             foreground: app.id == 'vscode',
           ),
@@ -124,43 +124,49 @@ class _RecordingMacSystemControl implements MacSystemControl {
 }
 
 void main() {
-  test('ChatGPT and legacy Codex activation select their own views', () async {
-    if (!Platform.isWindows) return;
-    final chatGptRunner = _FocusedRecordingRunner();
-    await DesktopActions(runner: chatGptRunner).activateApplication(
-      const RemoteApplication(
-        id: 'chatgpt',
-        name: 'ChatGPT',
-        icon: 'chat',
-        executable: 'ChatGPT',
-        layoutId: 'chatgpt',
-      ),
-    );
-    expect(chatGptRunner.calls, hasLength(2));
-    expect(chatGptRunner.calls.first.$2[6], "'ChatGPT'");
-    final activationScript = chatGptRunner.calls.first.$2[3];
-    expect(activationScript, contains('GetForegroundWindow'));
-    expect(activationScript, contains('GetAsyncKeyState'));
-    expect(activationScript, contains('ShowWindowAsync'));
-    expect(
-      activationScript,
-      contains('did not activate the selected app window'),
-    );
-    expect(chatGptRunner.calls.last.$2.last, "'%1'");
+  test(
+    'ChatGPT and legacy Codex activation preserve the current view',
+    () async {
+      if (!Platform.isWindows) return;
+      final chatGptRunner = _FocusedRecordingRunner();
+      await DesktopActions(runner: chatGptRunner).activateApplication(
+        const RemoteApplication(
+          id: 'chatgpt',
+          name: 'ChatGPT',
+          icon: 'chat',
+          executable: 'ChatGPT',
+          layoutId: 'chatgpt',
+        ),
+      );
+      expect(chatGptRunner.calls, hasLength(1));
+      expect(chatGptRunner.calls.first.$2[6], "'ChatGPT'");
+      final activationScript = chatGptRunner.calls.first.$2[3];
+      expect(activationScript, contains('GetForegroundWindow'));
+      expect(activationScript, contains('GetAsyncKeyState'));
+      expect(activationScript, contains('ShowWindowAsync'));
+      expect(activationScript, contains('FindMainWindows'));
+      expect(activationScript, contains('WS_EX_TOOLWINDOW'));
+      expect(activationScript, contains('WS_EX_NOACTIVATE'));
+      expect(activationScript, contains('AppWindow'));
+      expect(activationScript, contains(r"$processNames -contains 'ChatGPT'"));
+      expect(
+        activationScript,
+        contains('did not activate the selected app window'),
+      );
 
-    final codexRunner = _FocusedRecordingRunner();
-    await DesktopActions(runner: codexRunner).activateApplication(
-      const RemoteApplication(
-        id: 'codex',
-        name: 'Codex / ChatGPT',
-        icon: 'code',
-        executable: 'ChatGPT',
-        layoutId: 'codex',
-      ),
-    );
-    expect(codexRunner.calls, hasLength(2));
-    expect(codexRunner.calls.last.$2.last, "'%3'");
-  });
+      final codexRunner = _FocusedRecordingRunner();
+      await DesktopActions(runner: codexRunner).activateApplication(
+        const RemoteApplication(
+          id: 'codex',
+          name: 'Codex / ChatGPT',
+          icon: 'code',
+          executable: 'ChatGPT',
+          layoutId: 'codex',
+        ),
+      );
+      expect(codexRunner.calls, hasLength(1));
+    },
+  );
 
   test('launches Microsoft Edge through the native app entry', () async {
     final app = RemoteApplication(
@@ -302,6 +308,19 @@ void main() {
     }
   });
 
+  test('ChatGPT key guard rejects pet overlay windows on Windows', () async {
+    if (!Platform.isWindows) return;
+    final runner = _RecordingRunner();
+    await DesktopActions(
+      runner: runner,
+    ).sendShortcut(const ['PRIMARY', 'N'], expectedAppId: 'chatgpt');
+    final script = runner.calls.single.$2[3];
+    expect(script, contains('WS_EX_TOOLWINDOW'));
+    expect(script, contains('WS_EX_NOACTIVATE'));
+    expect(script, contains(r'GetWindow($foregroundHandle, 4)'));
+    expect(script, contains('Switch to the main ChatGPT window'));
+  });
+
   test(
     'accepts the fixed dark action without arbitrary command input',
     () async {
@@ -345,15 +364,70 @@ void main() {
       final legacyCodex = starter
           .layoutById('codex')!
           .copyWith(
-            buttons: const [
-              RemoteShortcutButton(
-                id: 'codex.accept',
-                name: 'Accept',
-                icon: 'check',
+            buttons: starter
+                .layoutById('codex')!
+                .buttons
+                .map(
+                  (button) => button.id == 'codex.openFolder'
+                      ? button.copyWith(
+                          shortcut: const ['PRIMARY', 'SHIFT', 'O'],
+                        )
+                      : button.id == 'codex.sidebar'
+                      ? button.copyWith(
+                          shortcut: const ['PRIMARY', 'SHIFT', 'B'],
+                        )
+                      : button,
+                )
+                .toList(growable: false),
+          );
+      final legacyChatGpt = starter
+          .layoutById('chatgpt')!
+          .copyWith(
+            buttons: [
+              ...starter
+                  .layoutById('chatgpt')!
+                  .buttons
+                  .where(
+                    (button) => const {
+                      'chatgpt.chatView',
+                      'chatgpt.startVoice',
+                      'chatgpt.newChat',
+                      'chatgpt.previousChat',
+                      'chatgpt.nextChat',
+                      'chatgpt.find',
+                      'chatgpt.sidebar',
+                    }.contains(button.id),
+                  )
+                  .map(
+                    (button) => button.id == 'chatgpt.newChat'
+                        ? button.copyWith(
+                            shortcut: const ['CTRL', 'SHIFT', 'N'],
+                          )
+                        : button,
+                  ),
+              const RemoteShortcutButton(
+                id: 'chatgpt.codex.sidebar',
+                name: 'Show / Hide Sidebar',
+                icon: 'menu_open',
                 targetType: RemoteTargetType.keyboardShortcut,
-                shortcut: ['TAB'],
+                shortcut: ['PRIMARY', 'B'],
               ),
             ],
+          );
+      final legacyVibeCodex = starter
+          .layoutById('vibe.codex')!
+          .copyWith(
+            buttons: starter
+                .layoutById('vibe.codex')!
+                .buttons
+                .map(
+                  (button) => button.id == 'vibe.codex.alternateSend'
+                      ? button.copyWith(
+                          shortcut: const ['PRIMARY', 'SHIFT', 'ENTER'],
+                        )
+                      : button,
+                )
+                .toList(growable: false),
           );
       final legacyChrome = starter
           .layoutById('app.chrome')!
@@ -369,10 +443,25 @@ void main() {
                 .toList(growable: false),
           );
       final legacy = starter.copyWith(
+        applications: [
+          ...starter.applications,
+          const RemoteApplication(
+            id: 'codex',
+            name: 'Codex / ChatGPT',
+            icon: 'code',
+            executable: 'ChatGPT',
+            layoutId: 'codex',
+            detected: true,
+            running: true,
+          ),
+        ],
+        activatedApplicationId: 'codex',
         layouts: starter.layouts
             .map(
               (layout) => switch (layout.id) {
                 'codex' => legacyCodex,
+                'chatgpt' => legacyChatGpt,
+                'vibe.codex' => legacyVibeCodex,
                 'app.chrome' => legacyChrome,
                 _ => layout,
               },
@@ -411,10 +500,28 @@ void main() {
       expect(controller.manifest.buttonById('codex.voice'), isNotNull);
       expect(controller.manifest.buttonById('codex.send'), isNotNull);
       expect(controller.manifest.buttonById('codex.accept'), isNull);
+      expect(controller.manifest.buttonById('chatgpt.newChat')!.shortcut, [
+        'CTRL',
+        'SHIFT',
+        'N',
+      ]);
       expect(
-        controller.manifest.applicationById('codex')!.name,
-        'Codex / ChatGPT',
+        controller.manifest.buttonById('chatgpt.codex.openFolder')!.shortcut,
+        ['PRIMARY', 'SHIFT', 'O'],
       );
+      expect(controller.manifest.buttonById('chatgpt.sidebar')!.shortcut, [
+        'PRIMARY',
+        'SHIFT',
+        'B',
+      ]);
+      expect(controller.manifest.buttonById('chatgpt.codex.sidebar'), isNull);
+      expect(
+        controller.manifest.buttonById('chatgpt.codex.alternateSend')!.shortcut,
+        ['PRIMARY', 'SHIFT', 'ENTER'],
+      );
+      expect(controller.manifest.applicationById('codex'), isNull);
+      expect(controller.manifest.applicationById('chatgpt')!.detected, isTrue);
+      expect(controller.manifest.activatedApplicationId, 'vscode');
       expect(
         controller.manifest.layoutById('app.chrome')!.buttons,
         hasLength(15),
@@ -446,9 +553,31 @@ void main() {
       );
       expect(synced.applications.map((app) => app.id).toSet(), {
         'vscode',
-        'codex',
+        'chatgpt',
       });
       expect(synced.applicationById('vscode')!.foreground, isTrue);
+      final migratedButtonIds = controller.manifest
+          .layoutById('chatgpt')!
+          .buttons
+          .map((button) => button.id)
+          .toList(growable: false);
+      expect(migratedButtonIds.toSet(), hasLength(migratedButtonIds.length));
+      final reopened = DesktopController(
+        store: store,
+        discovery: _NoopDiscovery(),
+      );
+      addTearDown(reopened.dispose);
+      await reopened.initialize();
+      final reopenedButtons = reopened.manifest
+          .layoutById('chatgpt')!
+          .buttons
+          .map((button) => button.id)
+          .toList(growable: false);
+      expect(reopenedButtons.toSet(), hasLength(reopenedButtons.length));
+      expect(
+        reopened.manifest.buttonById('chatgpt.codex.alternateSend'),
+        isNotNull,
+      );
     },
   );
 

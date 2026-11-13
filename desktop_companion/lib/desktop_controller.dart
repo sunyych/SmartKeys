@@ -270,7 +270,13 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
       foreground,
       preferredAppId: preferredForegroundAppId,
     );
-    return resolved == app.id;
+    if (resolved == app.id) return true;
+    // ChatGPT exposes both Chat and Codex modes from the same native window.
+    // The process probe may retain either legacy app identity as the preferred
+    // panel, but both IDs describe the same focused executable.
+    return (resolved == 'chatgpt' || resolved == 'codex') &&
+        (app.id == 'chatgpt' || app.id == 'codex') &&
+        app.executable.toLowerCase().contains('chatgpt');
   }
 
   static Future<List<String>> _windowsApplicationNames() async {
@@ -320,10 +326,14 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             '\n'
             r'using System; using System.Runtime.InteropServices; '
             r'public static class LK { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); '
-            r'[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'
+            r'[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); '
+            r'[DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint command); '
+            r'[DllImport("user32.dll", EntryPoint="GetWindowLongW")] public static extern int GetWindowLong(IntPtr hWnd, int index); '
+            r'[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd); }'
             '\n'
-            r'"@; $id = 0; [LK]::GetWindowThreadProcessId([LK]::GetForegroundWindow(), [ref]$id) | Out-Null; '
-            r'if ($id -ne 0) { (Get-Process -Id $id).ProcessName }',
+            r'"@; $windowPid = 0; $hwnd = [LK]::GetForegroundWindow(); [LK]::GetWindowThreadProcessId($hwnd, [ref]$windowPid) | Out-Null; '
+            r'if ($windowPid -ne 0) { $name = (Get-Process -Id $windowPid).ProcessName; $style = [uint32][LK]::GetWindowLong($hwnd, -20); $owner = [LK]::GetWindow($hwnd, 4); '
+            r'if ($name -ne "ChatGPT" -or ([LK]::IsWindowVisible($hwnd) -and ($style -band 0x80) -eq 0 -and ($style -band 0x08000000) -eq 0 -and $owner -eq [IntPtr]::Zero)) { $name } }',
       ]);
     } else {
       final window = await Process.run('xdotool', const [
@@ -606,6 +616,7 @@ class DesktopController extends ChangeNotifier {
         .toList(growable: false);
     if (profiles.isEmpty) return starter;
     final starterCodex = starter.layoutById('codex')!;
+    final starterChatGpt = starter.layoutById('chatgpt')!;
     final starterChrome = starter.layoutById('app.chrome')!;
     final hasCurrentCodexActions =
         manifest.buttonById('codex.focusInput') != null &&
@@ -618,6 +629,9 @@ class DesktopController extends ChangeNotifier {
         manifest.buttonById('chrome.nextTab') != null &&
         manifest.buttonById('chrome.passwordManager') != null &&
         manifest.buttonById('chrome.mute') != null;
+    final legacyCodexButtons = hasCurrentCodexActions
+        ? manifest.layoutById('codex')!.buttons
+        : starterCodex.buttons;
     final layouts = manifest.layouts
         .map((layout) {
           if (layout.id == 'codex' && !hasCurrentCodexActions) {
@@ -634,6 +648,81 @@ class DesktopController extends ChangeNotifier {
                   .toList(growable: false),
             );
           }
+          if (layout.id == 'chatgpt') {
+            final existingById = {
+              for (final button in layout.buttons)
+                if (button.id != 'chatgpt.codex.sidebar') button.id: button,
+            };
+            final intermediateCodexSidebar = layout.buttons
+                .where((button) => button.id == 'chatgpt.codex.sidebar')
+                .firstOrNull;
+            final migratedCodexById = {
+              for (final button in legacyCodexButtons)
+                _canonicalLegacyCodexButtonId(button.id): _copyButtonWithId(
+                  button,
+                  _canonicalLegacyCodexButtonId(button.id),
+                ),
+            };
+            final migratedVibeCodexById = {
+              for (final button
+                  in manifest.layoutById('vibe.codex')?.buttons ??
+                      const <RemoteShortcutButton>[])
+                _canonicalLegacyVibeCodexButtonId(button.id): _copyButtonWithId(
+                  button,
+                  _canonicalLegacyVibeCodexButtonId(button.id),
+                ),
+            };
+            final starterIds = starterChatGpt.buttons
+                .map((button) => button.id)
+                .toSet();
+            final defaultChatGptSidebar = starterChatGpt.buttons
+                .where((button) => button.id == 'chatgpt.sidebar')
+                .firstOrNull;
+            final currentChatGptSidebar = existingById['chatgpt.sidebar'];
+            final migratedCodexSidebar = migratedCodexById['chatgpt.sidebar'];
+            bool isCustomSidebar(RemoteShortcutButton? button) =>
+                button != null &&
+                defaultChatGptSidebar != null &&
+                !_sameKeys(button.shortcut, defaultChatGptSidebar.shortcut);
+            final customLegacySidebar = [
+              intermediateCodexSidebar,
+              migratedCodexSidebar,
+            ].where(isCustomSidebar).firstOrNull;
+            final canonicalSidebar =
+                !isCustomSidebar(currentChatGptSidebar) &&
+                    customLegacySidebar != null
+                ? customLegacySidebar
+                : currentChatGptSidebar ??
+                      intermediateCodexSidebar ??
+                      migratedCodexSidebar;
+            final extrasById = <String, RemoteShortcutButton>{};
+            for (final entry in migratedCodexById.entries) {
+              if (!starterIds.contains(entry.key)) {
+                extrasById[entry.key] = entry.value;
+              }
+            }
+            for (final entry in migratedVibeCodexById.entries) {
+              if (!starterIds.contains(entry.key)) {
+                extrasById[entry.key] = entry.value;
+              }
+            }
+            for (final button in layout.buttons) {
+              if (!starterIds.contains(button.id) &&
+                  button.id != 'chatgpt.codex.sidebar') {
+                extrasById[button.id] = button;
+              }
+            }
+            final buttons = [
+              for (final button in starterChatGpt.buttons)
+                (button.id == 'chatgpt.sidebar' ? canonicalSidebar : null) ??
+                    existingById[button.id] ??
+                    migratedVibeCodexById[button.id] ??
+                    migratedCodexById[button.id] ??
+                    button,
+              ...extrasById.values,
+            ];
+            return starterChatGpt.copyWith(name: layout.name, buttons: buttons);
+          }
           return layout;
         })
         .toList(growable: true);
@@ -645,14 +734,22 @@ class DesktopController extends ChangeNotifier {
         layouts.add(starterLayout);
       }
     }
-    final starterCodexApp = starter.applicationById('codex')!;
+    final legacyCodexApp = manifest.applicationById('codex');
     final applications = manifest.applications
-        .map(
-          (application) => application.id == 'codex'
-              ? application.copyWith(name: starterCodexApp.name)
-              : application,
-        )
+        .where((application) => application.id != 'codex')
         .toList(growable: true);
+    final chatGptIndex = applications.indexWhere(
+      (application) => application.id == 'chatgpt',
+    );
+    if (legacyCodexApp != null && chatGptIndex >= 0) {
+      final chatGpt = applications[chatGptIndex];
+      applications[chatGptIndex] = chatGpt.copyWith(
+        detected: chatGpt.detected || legacyCodexApp.detected,
+        running: chatGpt.running || legacyCodexApp.running,
+        foreground: chatGpt.foreground || legacyCodexApp.foreground,
+        executable: 'ChatGPT',
+      );
+    }
     for (final starterApp in starter.applications) {
       if (!applications.any((application) => application.id == starterApp.id)) {
         applications.add(starterApp);
@@ -665,6 +762,9 @@ class DesktopController extends ChangeNotifier {
     return manifest.copyWith(
       layouts: layouts,
       applications: applications,
+      activatedApplicationId: manifest.activatedApplicationId == 'codex'
+          ? 'chatgpt'
+          : manifest.activatedApplicationId,
       profiles: profiles,
       currentProfileId: currentProfileId,
     );
@@ -682,6 +782,9 @@ class DesktopController extends ChangeNotifier {
           .firstOrNull;
       final originalChatView = originalChatGptLayout?.buttons
           .where((button) => button.id == 'chatgpt.chatView')
+          .firstOrNull;
+      final originalCodexMode = originalChatGptLayout?.buttons
+          .where((button) => button.id == 'chatgpt.codexMode')
           .firstOrNull;
       final defaultVoice =
           originalVoice == null ||
@@ -706,6 +809,15 @@ class DesktopController extends ChangeNotifier {
                 (originalChatView == null ||
                     _sameKeys(originalChatView.shortcut, const ['ALT', '1']))) {
               return button.copyWith(shortcut: const ['CTRL', '1']);
+            }
+            if (button.id == 'chatgpt.codexMode' &&
+                Platform.isMacOS &&
+                (originalCodexMode == null ||
+                    _sameKeys(originalCodexMode.shortcut, const [
+                      'ALT',
+                      '3',
+                    ]))) {
+              return button.copyWith(shortcut: const ['CTRL', '3']);
             }
             return button;
           })
@@ -797,7 +909,10 @@ class DesktopController extends ChangeNotifier {
   Future<void> executeRemote(RemoteActionRequest request) async {
     switch (request.kind) {
       case RemoteActionKind.button:
-        final button = _manifest.buttonById(request.buttonId ?? '');
+        final requestedButtonId = request.buttonId ?? '';
+        final button = _manifest.buttonById(
+          _canonicalLegacyCodexButtonId(requestedButtonId),
+        );
         if (button == null) throw const FormatException('Unknown button');
         final vibeAppId = _vibeAppForButton(button.id);
         final managedAppId =
@@ -812,9 +927,14 @@ class DesktopController extends ChangeNotifier {
                 button.id == 'chrome.passwordManager' &&
                 button.targetType == RemoteTargetType.openUrl &&
                 button.target == 'https://passwords.google.com/';
+            final allowedChatGptVoice =
+                managedAppId == 'chatgpt' &&
+                button.id == 'chatgpt.codex.voice' &&
+                button.targetType == RemoteTargetType.voiceInput;
             if (button.targetType != RemoteTargetType.keyboardShortcut &&
                 button.targetType != RemoteTargetType.system &&
-                !allowedPasswordManager) {
+                !allowedPasswordManager &&
+                !allowedChatGptVoice) {
               throw const FormatException(
                 'Managed app actions must use a Desktop-approved action',
               );
@@ -837,7 +957,10 @@ class DesktopController extends ChangeNotifier {
         if (!_manifest.settings.autoLaunchApps) {
           throw StateError('Automatic app launching is disabled');
         }
-        final app = _manifest.applicationById(request.applicationId ?? '');
+        final requestedAppId = request.applicationId ?? '';
+        final app = _manifest.applicationById(
+          requestedAppId == 'codex' ? 'chatgpt' : requestedAppId,
+        );
         if (app == null) throw const FormatException('Unknown application');
         if (!_isManagedLaunchApp(app.id) && !_isStarterLaunchApp(app.id)) {
           throw const FormatException('Unsupported application');
@@ -857,6 +980,39 @@ class DesktopController extends ChangeNotifier {
         await switchProfile(request.profileId ?? '');
     }
   }
+
+  static String _canonicalLegacyCodexButtonId(String id) {
+    if (!id.startsWith('codex.')) return id;
+    final action = id.substring('codex.'.length);
+    return switch (action) {
+      'newChat' => 'chatgpt.newChat',
+      'previousConversation' => 'chatgpt.codex.previousChat',
+      'nextConversation' => 'chatgpt.codex.nextChat',
+      'findInChat' => 'chatgpt.find',
+      'sidebar' => 'chatgpt.sidebar',
+      _ => 'chatgpt.codex.$action',
+    };
+  }
+
+  static String _canonicalLegacyVibeCodexButtonId(String id) {
+    if (!id.startsWith('vibe.codex.')) return id;
+    final action = id.substring('vibe.codex.'.length);
+    return action == 'newChat' ? 'chatgpt.newChat' : 'chatgpt.codex.$action';
+  }
+
+  static RemoteShortcutButton _copyButtonWithId(
+    RemoteShortcutButton button,
+    String id,
+  ) => RemoteShortcutButton(
+    id: id,
+    name: button.name,
+    icon: button.icon,
+    targetType: button.targetType,
+    shortcut: button.shortcut,
+    target: button.target,
+    description: button.description,
+    enabled: button.enabled,
+  );
 
   Future<bool> _isLiveForeground(RemoteApplication app) async {
     final probe = foregroundProbe;

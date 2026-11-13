@@ -205,6 +205,76 @@ void main() {
       );
     });
 
+    test('migrates legacy Codex setup into ChatGPT Codex mode controls', () {
+      final migrated = ComputerSetup.fromJson({
+        'applicationIds': ['codex', 'chatgpt', 'codex'],
+        'bindings': {
+          'codex': {
+            'launch': 'Alt+Shift+1',
+            'newChat': 'Ctrl+N',
+            'voiceMode': 'Ctrl+Alt+V',
+            'send': 'Enter',
+            'focusInput': 'Escape',
+            'project': 'Ctrl+Alt+Shift+O',
+            'review': 'Ctrl+Shift+G',
+            'sidebar': 'Ctrl+Shift+B',
+          },
+          'chatgpt': {'newChat': 'Alt+N', 'startVoice': 'Ctrl+Shift+V'},
+        },
+      });
+
+      expect(migrated.applicationIds, ['chatgpt']);
+      expect(migrated.bindingFor('chatgpt', 'codexMode'), 'Alt+Shift+1');
+      expect(migrated.bindingFor('chatgpt', 'newChat'), 'Alt+N');
+      expect(migrated.bindingFor('chatgpt', 'codex.voiceMode'), 'Ctrl+Alt+V');
+      expect(migrated.bindingFor('chatgpt', 'codex.send'), 'Enter');
+      expect(migrated.bindingFor('chatgpt', 'codex.focusInput'), 'Escape');
+      expect(
+        migrated.bindingFor('chatgpt', 'codex.project'),
+        'Ctrl+Alt+Shift+O',
+      );
+      expect(migrated.bindingFor('chatgpt', 'codex.review'), 'Ctrl+Shift+G');
+      expect(migrated.bindingFor('chatgpt', 'sidebar'), 'Ctrl+Shift+B');
+      expect(
+        computerShortcutsFor(
+          ComputerAppCategory.chat,
+        ).map((action) => action.id),
+        contains('sidebar'),
+      );
+      expect(
+        computerShortcutsFor(
+          ComputerAppCategory.chat,
+        ).map((action) => action.id),
+        isNot(contains('codex.sidebar')),
+      );
+      expect(migrated.bindingFor('chatgpt', 'startVoice'), 'Ctrl+Shift+V');
+      expect(
+        ComputerSetup.fromJson(
+          migrated.toJson(),
+        ).bindingFor('chatgpt', 'codexMode'),
+        'Alt+Shift+1',
+      );
+      expect(
+        computerApplications.map((app) => app.id),
+        isNot(contains('codex')),
+      );
+      expect(computerApplicationById('codex')?.id, 'chatgpt');
+      expect(
+        computerApplicationById('codex')?.category,
+        ComputerAppCategory.chat,
+      );
+      expect(
+        computerApplications.map((app) => app.id),
+        containsAll(['claude', 'cursor']),
+      );
+      expect(
+        computerShortcutsFor(
+          ComputerAppCategory.chat,
+        ).map((action) => action.id),
+        isNot(contains('codex.newChat')),
+      );
+    });
+
     test(
       'OS-only setup persists per Bluetooth address and stays incomplete',
       () async {
@@ -324,8 +394,8 @@ void main() {
       expect(restored.schemaVersion, AppConfig.currentSchemaVersion);
       expect(
         restored.computerSetups['bluetooth:00:11:22:33:44:55']?.bindingFor(
-          'codex',
-          'voiceMode',
+          'chatgpt',
+          'codex.voiceMode',
         ),
         'Ctrl+Alt+2',
       );
@@ -452,7 +522,7 @@ void main() {
         );
         expect(controller.isStandaloneSetupComplete, isTrue);
         expect(controller.availableComputerApplications.map((app) => app.id), [
-          'codex',
+          'chatgpt',
         ]);
 
         await controller.testComputerLaunch(target, 'codex', 'Ctrl+Alt+1');
@@ -534,7 +604,7 @@ void main() {
         );
 
         expect(controller.isActiveComputerSetupComplete, isTrue);
-        expect(controller.activeComputerSetup?.applicationIds, ['codex']);
+        expect(controller.activeComputerSetup?.applicationIds, ['chatgpt']);
         expect(
           harness.repository.value.computerSetups[target.id]?.bindingFor(
             'codex',
@@ -643,7 +713,15 @@ void main() {
           computerId: 'desktop-selected-apps',
           applications: [
             for (final app in starter.applications)
-              if (app.id == 'codex') app.copyWith(detected: true),
+              if (app.id == 'chatgpt') app.copyWith(detected: true),
+            const RemoteApplication(
+              id: 'codex',
+              name: 'Codex / ChatGPT',
+              icon: 'code',
+              executable: 'ChatGPT',
+              layoutId: 'chatgpt',
+              detected: true,
+            ),
             const RemoteApplication(
               id: 'vscode',
               name: 'Visual Studio Code',
@@ -660,13 +738,13 @@ void main() {
           controller.computerApplicationsOnActiveComputer.map(
             (application) => application.id,
           ),
-          containsAll(['codex', 'vscode']),
+          containsAll(['chatgpt', 'vscode']),
         );
 
         await controller.saveComputerSetup(
           target,
           ComputerSetup(
-            applicationIds: const ['codex', 'vscode'],
+            applicationIds: const ['chatgpt', 'vscode'],
             operatingSystem: ComputerOperatingSystem.windows,
           ),
         );
@@ -676,14 +754,14 @@ void main() {
           ComputerOperatingSystem.macos,
         );
         expect(controller.availableComputerApplications.map((app) => app.id), [
-          'codex',
+          'chatgpt',
           'vscode',
         ]);
         expect(
           AppConfig.fromJson(
             controller.config.toJson(),
           ).computerSetups[target.id]?.applicationIds,
-          ['codex', 'vscode'],
+          ['chatgpt', 'vscode'],
         );
         companion.syncedManifest.value = companion.syncedManifest.value!
             .copyWith(

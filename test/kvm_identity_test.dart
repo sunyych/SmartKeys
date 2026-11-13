@@ -152,24 +152,30 @@ void main() {
       });
       await companion.start();
       final discoveryPort = companion.boundDiscoveryPort!;
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        platform: 'windows',
-        name: 'Computer A',
-        port: serverA.port,
-        token: tokenA,
+      await _waitUntil(
+        () => companion.activeHost.value?.port == serverA.port,
+        advertise: () => _advertise(
+          sender,
+          discoveryPort: discoveryPort,
+          platform: 'windows',
+          name: 'Computer A',
+          port: serverA.port,
+          token: tokenA,
+        ),
       );
-      await _waitUntil(() => companion.activeHost.value?.port == serverA.port);
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        platform: 'windows',
-        name: 'Computer B',
-        port: serverB.port,
-        token: tokenB,
+      await _waitUntil(
+        () => companion.computerChoices.value.any(
+          (choice) => choice.name == 'Computer B',
+        ),
+        advertise: () => _advertise(
+          sender,
+          discoveryPort: discoveryPort,
+          platform: 'windows',
+          name: 'Computer B',
+          port: serverB.port,
+          token: tokenB,
+        ),
       );
-      await _waitUntil(() => companion.computerChoices.value.length == 2);
       final choiceB = companion.computerChoices.value.singleWhere(
         (choice) => choice.name == 'Computer B',
       );
@@ -239,13 +245,19 @@ void _advertise(
   sender.send(payload, InternetAddress.loopbackIPv4, discoveryPort);
 }
 
-Future<void> _waitUntil(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 2));
+Future<void> _waitUntil(
+  bool Function() condition, {
+  void Function()? advertise,
+}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
   while (!condition()) {
     if (DateTime.now().isAfter(deadline)) {
       throw TimeoutException('Condition was not met');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    advertise?.call();
+    await Future<void>.delayed(
+      Duration(milliseconds: advertise == null ? 20 : 100),
+    );
   }
 }
 

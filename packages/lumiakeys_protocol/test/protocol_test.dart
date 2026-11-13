@@ -33,11 +33,42 @@ void main() {
       'codex.sidebar',
     ]);
     expect(restored.applicationById('vscode')!.layoutId, 'app.vscode');
-    expect(restored.applicationById('codex')!.name, 'Codex / ChatGPT');
+    expect(restored.applicationById('codex'), isNull);
     expect(restored.applicationById('chatgpt')!.name, 'ChatGPT');
     expect(restored.applicationById('chatgpt')!.layoutId, 'chatgpt');
     expect(restored.buttonById('chatgpt.chatView')!.shortcut, ['ALT', '1']);
     expect(restored.buttonById('chatgpt.newChat')!.shortcut, ['PRIMARY', 'N']);
+    expect(restored.buttonById('chatgpt.codexMode')!.shortcut, ['ALT', '3']);
+    expect(
+      restored
+          .layoutById('chatgpt')!
+          .buttons
+          .take(2)
+          .map((button) => button.id),
+      ['chatgpt.chatView', 'chatgpt.codexMode'],
+    );
+    final chatGptButtons = restored.layoutById('chatgpt')!.buttons;
+    expect(
+      chatGptButtons
+          .where((button) => button.name == 'New Chat')
+          .map((b) => b.id),
+      ['chatgpt.newChat'],
+    );
+    expect(restored.buttonById('chatgpt.codex.newChat'), isNull);
+    expect(restored.buttonById('chatgpt.codex.sidebar'), isNull);
+    expect(restored.buttonById('chatgpt.sidebar')!.shortcut, ['PRIMARY', 'B']);
+    expect(restored.buttonById('chatgpt.codex.project'), isNotNull);
+    expect(restored.buttonById('chatgpt.codex.alternateSend'), isNotNull);
+    expect(restored.buttonById('chatgpt.codex.screenshot'), isNotNull);
+    final chatGptShortcuts = chatGptButtons
+        .where(
+          (button) =>
+              button.targetType == RemoteTargetType.keyboardShortcut &&
+              button.shortcut.isNotEmpty,
+        )
+        .map((button) => button.shortcut.join('+'))
+        .toList(growable: false);
+    expect(chatGptShortcuts.toSet(), hasLength(chatGptShortcuts.length));
     expect(restored.applicationById('appleMusic')!.executable, 'Music');
     expect(restored.applicationById('finder')!.executable, 'Finder');
     expect(restored.layoutById('app.finder')!.buttons, hasLength(15));
@@ -64,7 +95,7 @@ void main() {
       expect(manifest.layoutById('vibe.$app'), isNotNull);
       expect(manifest.buttonById('vibe.$app.project'), isNotNull);
     }
-    expect(manifest.applicationById('codex')!.layoutId, 'codex');
+    expect(manifest.applicationById('codex'), isNull);
     expect(manifest.buttonById('vibe.codex.project')!.shortcut, [
       'PRIMARY',
       'ALT',
@@ -147,7 +178,7 @@ void main() {
       DesktopManifest.starter()
           .copyWith(
             applications: DesktopManifest.starter().applications
-                .map((app) => app.copyWith(detected: app.id == 'codex'))
+                .map((app) => app.copyWith(detected: app.id == 'chatgpt'))
                 .toList(),
           )
           .toJson(forSync: true),
@@ -241,15 +272,15 @@ void main() {
       applications: original.applications
           .map(
             (application) => application.copyWith(
-              detected: application.id == 'codex',
-              running: application.id == 'codex',
+              detected: application.id == 'chatgpt',
+              running: application.id == 'chatgpt',
             ),
           )
           .toList(growable: false),
     );
 
     final synced = DesktopManifest.fromJson(detected.toJson(forSync: true));
-    expect(synced.applications.single.id, 'codex');
+    expect(synced.applications.single.id, 'chatgpt');
     expect(synced.applications.single.running, isTrue);
   });
 

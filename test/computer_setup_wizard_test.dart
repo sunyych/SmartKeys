@@ -35,21 +35,24 @@ void main() {
 
     await _chooseOperatingSystem(tester, ComputerOperatingSystem.windows);
 
-    final chooseCodex = find.byKey(const ValueKey('computer-app-select-codex'));
-    await _scrollWizardTo(tester, chooseCodex);
-    await tester.tap(chooseCodex);
+    final chooseChatGpt = find.byKey(
+      const ValueKey('computer-app-select-chatgpt'),
+    );
+    await _scrollWizardTo(tester, chooseChatGpt);
+    await tester.tap(chooseChatGpt);
     await tester.pumpAndSettle();
 
     for (final action in [
       'launch',
-      'voiceMode',
-      'voiceInput',
-      'cancelClear',
-      'previousChat',
-      'nextChat',
-      'nextProject',
+      'codexMode',
+      'codex.voiceMode',
+      'codex.voiceInput',
+      'codex.cancelClear',
+      'codex.previousChat',
+      'codex.nextChat',
+      'codex.nextProject',
     ]) {
-      final field = find.byKey(ValueKey('computer-key-codex-$action'));
+      final field = find.byKey(ValueKey('computer-key-chatgpt-$action'));
       await _scrollWizardTo(tester, field);
       await tester.enterText(field, _validChord(action));
       await tester.pump();
@@ -70,12 +73,14 @@ void main() {
       isNotNull,
     );
 
-    final launchTest = find.byKey(const ValueKey('computer-test-launch-codex'));
+    final launchTest = find.byKey(
+      const ValueKey('computer-test-launch-chatgpt'),
+    );
     await _scrollWizardTo(tester, launchTest);
     await tester.tap(launchTest);
     await tester.pumpAndSettle();
     final confirmation = find.byKey(
-      const ValueKey('computer-confirm-launch-codex'),
+      const ValueKey('computer-confirm-launch-chatgpt'),
     );
     await _scrollWizardTo(tester, confirmation);
     expect(confirmation, findsOneWidget);
@@ -101,17 +106,23 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('computer-wizard-save')));
     await tester.pumpAndSettle();
     expect(saved, isTrue);
-    expect(harness.controller.activeComputerSetup!.applicationIds, ['codex']);
+    expect(harness.controller.activeComputerSetup!.applicationIds, ['chatgpt']);
     expect(
       harness.controller.activeComputerSetup!.operatingSystem,
       ComputerOperatingSystem.windows,
     );
     expect(
-      harness.controller.activeComputerSetup!.bindingFor('codex', 'voiceMode'),
+      harness.controller.activeComputerSetup!.bindingFor(
+        'chatgpt',
+        'codex.voiceMode',
+      ),
       'Ctrl+Shift+Alt+1',
     );
     expect(
-      harness.controller.activeComputerSetup!.bindingFor('codex', 'voiceInput'),
+      harness.controller.activeComputerSetup!.bindingFor(
+        'chatgpt',
+        'codex.voiceInput',
+      ),
       'Ctrl+Shift+Alt+2',
     );
   });
@@ -134,9 +145,11 @@ void main() {
     );
 
     await _chooseOperatingSystem(tester, ComputerOperatingSystem.windows);
-    final chooseCodex = find.byKey(const ValueKey('computer-app-select-codex'));
-    await _scrollWizardTo(tester, chooseCodex);
-    await tester.tap(chooseCodex);
+    final chooseChatGpt = find.byKey(
+      const ValueKey('computer-app-select-chatgpt'),
+    );
+    await _scrollWizardTo(tester, chooseChatGpt);
+    await tester.tap(chooseChatGpt);
     await tester.pumpAndSettle();
     final finish = find.byKey(const ValueKey('computer-wizard-save'));
     await _scrollWizardTo(tester, finish);
@@ -145,8 +158,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final savedSetup = harness.controller.activeComputerSetup!;
-    expect(savedSetup.applicationIds, ['codex']);
-    expect(savedSetup.bindingFor('codex', 'launch'), isNull);
+    expect(savedSetup.applicationIds, ['chatgpt']);
+    expect(savedSetup.bindingFor('chatgpt', 'launch'), isNull);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -160,13 +173,17 @@ void main() {
         ),
       ),
     );
-    final codexCard = find.byKey(const ValueKey('computer-app-settings-codex'));
-    await _scrollWizardTo(tester, codexCard);
+    final chatGptCard = find.byKey(
+      const ValueKey('computer-app-settings-chatgpt'),
+    );
+    await _scrollWizardTo(tester, chatGptCard);
     await tester.tap(
-      find.descendant(of: codexCard, matching: find.byType(ListTile)).first,
+      find.descendant(of: chatGptCard, matching: find.byType(ListTile)).first,
     );
     await tester.pumpAndSettle();
-    final launchField = find.byKey(const ValueKey('computer-key-codex-launch'));
+    final launchField = find.byKey(
+      const ValueKey('computer-key-chatgpt-launch'),
+    );
     await _scrollWizardTo(tester, launchField);
     await tester.enterText(launchField, 'Ctrl+Alt+1');
     FocusManager.instance.primaryFocus?.unfocus();
@@ -176,7 +193,7 @@ void main() {
     await tester.tap(finish);
     await tester.pumpAndSettle();
     expect(
-      harness.controller.activeComputerSetup!.bindingFor('codex', 'launch'),
+      harness.controller.activeComputerSetup!.bindingFor('chatgpt', 'launch'),
       'Ctrl+Alt+1',
     );
   });
@@ -210,7 +227,7 @@ void main() {
             body: StandaloneAppPanel(
               controller: harness.controller,
               target: target,
-              application: computerApplicationById('codex')!,
+              application: computerApplicationById('chatgpt')!,
             ),
           ),
         ),
@@ -222,13 +239,13 @@ void main() {
       );
       expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
       final voiceInput = find.byKey(
-        const ValueKey('standalone-action-codex-voiceInput'),
+        const ValueKey('standalone-action-chatgpt-codex.voiceInput'),
       );
       await tester.scrollUntilVisible(
         voiceInput,
         160,
         scrollable: find.descendant(
-          of: find.byKey(const ValueKey('standalone-app-codex')),
+          of: find.byKey(const ValueKey('standalone-app-chatgpt')),
           matching: find.byType(Scrollable),
         ),
       );
@@ -344,9 +361,9 @@ void main() {
     await _chooseOperatingSystem(tester, ComputerOperatingSystem.linux);
     await _scrollWizardTo(
       tester,
-      find.byKey(const ValueKey('computer-app-select-codex')),
+      find.byKey(const ValueKey('computer-app-select-chatgpt')),
     );
-    await tester.tap(find.byKey(const ValueKey('computer-app-select-codex')));
+    await tester.tap(find.byKey(const ValueKey('computer-app-select-chatgpt')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('computer-os-beginner-guide')),
@@ -489,11 +506,12 @@ Finder _wizardScrollable() => find
 
 String _validChord(String action) => switch (action) {
   'launch' => 'Ctrl+Alt+1',
-  'voiceMode' => 'Ctrl+Shift+Alt+1',
-  'voiceInput' => 'Ctrl+Shift+Alt+2',
-  'cancelClear' => 'Escape',
-  'previousChat' => 'Ctrl+Alt+Left',
-  'nextChat' => 'Ctrl+Alt+Right',
-  'nextProject' => 'Ctrl+Alt+P',
+  'codexMode' => 'Ctrl+Alt+3',
+  'codex.voiceMode' => 'Ctrl+Shift+Alt+1',
+  'codex.voiceInput' => 'Ctrl+Shift+Alt+2',
+  'codex.cancelClear' => 'Escape',
+  'codex.previousChat' => 'Ctrl+Alt+Left',
+  'codex.nextChat' => 'Ctrl+Alt+Right',
+  'codex.nextProject' => 'Ctrl+Alt+P',
   _ => throw ArgumentError.value(action),
 };

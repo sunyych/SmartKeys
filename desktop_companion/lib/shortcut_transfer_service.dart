@@ -11,7 +11,7 @@ class DesktopShortcutTransferService {
   static const format = 'lumiakeys.desktop.shortcuts';
   static const version = 1;
   static const maxLayouts = 64;
-  static const maxButtonsPerLayout = 24;
+  static const maxButtonsPerLayout = 40;
   static const maxTotalButtons = 1024;
   static const _vibeApps = {'codex', 'claude', 'cursor'};
   static const _vibeSystemActions = {
@@ -63,13 +63,19 @@ class DesktopShortcutTransferService {
     for (final layout in layouts) {
       for (final button in layout.buttons) {
         if (button.targetType != RemoteTargetType.system) continue;
-        final appId = layout.id.startsWith('vibe.')
-            ? layout.id.substring('vibe.'.length)
-            : '';
         final actionId = button.target ?? '';
-        if (!_vibeApps.contains(appId) ||
+        final isVibeAction =
+            layout.id.startsWith('vibe.') &&
+            _vibeApps.contains(layout.id.substring('vibe.'.length)) &&
+            button.id ==
+                'vibe.${layout.id.substring('vibe.'.length)}.$actionId';
+        final isUnifiedChatGptCodexAction =
+            layout.id == 'chatgpt' &&
+            _vibeApps.contains('codex') &&
+            button.id == 'chatgpt.codex.$actionId';
+        if ((!isVibeAction && !isUnifiedChatGptCodexAction) ||
             !_vibeSystemActions.contains(actionId) ||
-            button.id != 'vibe.$appId.$actionId') {
+            actionId.isEmpty) {
           throw const FormatException('Invalid fixed Desktop system action.');
         }
       }

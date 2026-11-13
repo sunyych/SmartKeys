@@ -5,6 +5,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/controllers/app_controller.dart';
 import 'package:smart_keys/data/shortcut_usage_repository.dart';
 import 'package:smart_keys/models/config.dart';
+import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/companion_service.dart';
 
@@ -467,7 +468,7 @@ void main() {
       final harness = await TestHarness.create();
       addTearDown(harness.dispose);
       final manifest = desktopManifest(
-        installed: const {'vscode', 'codex'},
+        installed: const {'vscode', 'chatgpt'},
         running: const {'vscode'},
       );
       harness.companion.syncedManifest.value = manifest;
@@ -493,6 +494,53 @@ void main() {
       expect(harness.shortcutUsage.records, hasLength(2));
     },
   );
+
+  test('ChatGPT row resolves a legacy Codex-only Desktop manifest', () async {
+    final harness = await TestHarness.create();
+    addTearDown(harness.dispose);
+    final starter = DesktopManifest.starter();
+    final legacyManifest = starter.copyWith(
+      applications: [
+        ...starter.applications.where(
+          (application) => application.id != 'chatgpt',
+        ),
+        const RemoteApplication(
+          id: 'codex',
+          name: 'Codex / ChatGPT',
+          icon: 'code',
+          executable: 'ChatGPT',
+          layoutId: 'codex',
+          detected: true,
+          running: true,
+          foreground: true,
+        ),
+      ],
+    );
+    harness.companion.syncedManifest.value = legacyManifest;
+    harness.companion.host.value = connectedCompanionHost;
+    harness.companion.status.value = CompanionSyncStatus.ready;
+    await harness.controller.saveComputerSetup(
+      harness.controller.activeComputer!,
+      ComputerSetup(applicationIds: const ['chatgpt']),
+    );
+
+    expect(
+      harness.controller.availableComputerApplications.map((app) => app.id),
+      ['chatgpt'],
+    );
+    expect(
+      harness.controller.remoteApplicationForComputerApp('chatgpt')?.id,
+      'codex',
+    );
+    expect(
+      harness.controller
+          .layoutForApplication(
+            harness.controller.remoteApplicationForComputerApp('chatgpt')!,
+          )
+          ?.id,
+      'codex',
+    );
+  });
 
   test(
     'shortcut usage remains local and can reorder the active Profile',

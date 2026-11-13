@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/computer_setup.dart';
+import 'shortcut_grid_geometry.dart';
 
 /// Controls for the app selected in the home row.
 class StandaloneAppPanel extends StatelessWidget {
@@ -20,72 +21,95 @@ class StandaloneAppPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final viewport = MediaQuery.sizeOf(context);
     final shortcuts = computerShortcutsFor(
       application.category,
     ).where((shortcut) => shortcut.id != 'launch').toList(growable: false);
-    return CustomScrollView(
-      key: ValueKey('standalone-app-${application.id}'),
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  application.name,
-                  key: const ValueKey('standalone-app-title'),
-                  style: Theme.of(context).textTheme.titleLarge,
+    return LayoutBuilder(
+      builder: (context, pageConstraints) {
+        final safeInset =
+            (viewport.width - pageConstraints.maxWidth).clamp(
+              0,
+              double.infinity,
+            ) /
+            2;
+        final gridPadding = ShortcutGridGeometry.horizontalPaddingForViewport(
+          viewport,
+          safeAreaLeft: safeInset,
+          safeAreaRight: safeInset,
+        );
+        return CustomScrollView(
+          key: ValueKey('standalone-app-${application.id}'),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      application.name,
+                      key: const ValueKey('standalone-app-title'),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Bluetooth controls for ${target.name}.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Bluetooth controls for ${target.name}.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          sliver: SliverLayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.crossAxisExtent;
-              final columns = width >= 760
-                  ? 4
-                  : width >= 500
-                  ? 3
-                  : 2;
-              return SliverGrid.builder(
-                itemCount: shortcuts.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: 9,
-                  mainAxisSpacing: 9,
-                  childAspectRatio: width < 360 ? 1.05 : 1.25,
-                ),
-                itemBuilder: (context, index) => _StandaloneShortcutTile(
-                  controller: controller,
-                  target: target,
-                  application: application,
-                  shortcut: shortcuts[index],
-                ),
-              );
-            },
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
-          sliver: SliverToBoxAdapter(
-            child: OutlinedButton.icon(
-              key: const ValueKey('edit-computer-setup'),
-              onPressed: onConfigure,
-              icon: const Icon(Icons.tune),
-              label: const Text('Computer app settings'),
+            SliverPadding(
+              padding: EdgeInsets.only(
+                left: gridPadding.left,
+                right: gridPadding.right,
+              ),
+              sliver: SliverLayoutBuilder(
+                builder: (context, constraints) {
+                  final geometry = ShortcutGridGeometry.forViewport(
+                    viewport: viewport,
+                    gridContentWidth: constraints.crossAxisExtent,
+                    keysPerPage:
+                        controller.config.preferences.tabletKeysPerPage,
+                    safeAreaVertical: MediaQuery.viewPaddingOf(
+                      context,
+                    ).vertical,
+                  );
+                  return SliverGrid.builder(
+                    itemCount: shortcuts.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: geometry.columns,
+                      crossAxisSpacing: ShortcutGridGeometry.spacing,
+                      mainAxisSpacing: ShortcutGridGeometry.spacing,
+                      childAspectRatio: geometry.width / geometry.height,
+                    ),
+                    itemBuilder: (context, index) => _StandaloneShortcutTile(
+                      controller: controller,
+                      target: target,
+                      application: application,
+                      shortcut: shortcuts[index],
+                      compact: geometry.height < 104,
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-        ),
-      ],
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
+              sliver: SliverToBoxAdapter(
+                child: OutlinedButton.icon(
+                  key: const ValueKey('edit-computer-setup'),
+                  onPressed: onConfigure,
+                  icon: const Icon(Icons.tune),
+                  label: const Text('Computer app settings'),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -96,12 +120,14 @@ class _StandaloneShortcutTile extends StatelessWidget {
     required this.target,
     required this.application,
     required this.shortcut,
+    required this.compact,
   });
 
   final AppController controller;
   final ComputerTarget target;
   final ComputerApplication application;
   final ComputerShortcut shortcut;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +159,7 @@ class _StandaloneShortcutTile extends StatelessWidget {
                 }
               },
         child: Padding(
-          padding: const EdgeInsets.all(11),
+          padding: EdgeInsets.all(compact ? 5 : 11),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -147,9 +173,11 @@ class _StandaloneShortcutTile extends StatelessWidget {
               Text(
                 shortcut.label,
                 textAlign: TextAlign.center,
-                maxLines: 2,
+                maxLines: compact ? 1 : 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelLarge,
+                style: compact
+                    ? Theme.of(context).textTheme.labelSmall
+                    : Theme.of(context).textTheme.labelLarge,
               ),
               if (chord == null)
                 Text(

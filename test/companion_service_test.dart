@@ -322,7 +322,7 @@ void main() {
   });
 
   test(
-    'app activation errors reach the caller without breaking Desktop sync',
+    'Desktop app action errors reach the caller without breaking sync',
     () async {
       final discoveryPort = await _unusedUdpPort();
       final manifest = DesktopManifest.starter().copyWith(revision: 31);
@@ -357,9 +357,132 @@ void main() {
         ),
         throwsA(isA<HttpException>()),
       );
+      await expectLater(
+        companion.executeRemote(
+          const RemoteActionRequest.button('chatgpt.newChat'),
+        ),
+        throwsA(isA<HttpException>()),
+      );
       expect(companion.syncStatus.value, CompanionSyncStatus.ready);
       expect(companion.errorMessage.value, isNull);
       expect(server.manifestRequests, 1);
+    },
+  );
+
+  test('app button response survives a same-session revision update', () async {
+    final discoveryPort = await _unusedUdpPort();
+    final firstManifest = DesktopManifest.starter().copyWith(revision: 40);
+    final nextManifest = firstManifest.copyWith(revision: 41);
+    final actionGate = Completer<void>();
+    final server = await _ManifestServer.start(
+      firstManifest,
+      laterManifest: nextManifest,
+      actionGate: actionGate,
+      actionRevision: nextManifest.revision,
+    );
+    final sender = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
+    final companion = LanCompanionService(discoveryPort: discoveryPort);
+    addTearDown(() async {
+      companion.dispose();
+      sender.close();
+      await server.close();
+    });
+
+    await companion.start();
+    _advertise(
+      sender,
+      discoveryPort: discoveryPort,
+      name: 'Desktop A',
+      port: server.port,
+      token: 'token-a',
+      revision: firstManifest.revision,
+    );
+    await _waitUntil(
+      () => companion.syncStatus.value == CompanionSyncStatus.ready,
+    );
+
+    final action = companion.executeRemote(
+      const RemoteActionRequest.button('chatgpt.codexMode'),
+    );
+    await server.actionRequestReceived.future;
+    _advertise(
+      sender,
+      discoveryPort: discoveryPort,
+      name: 'Desktop A',
+      port: server.port,
+      token: 'token-a',
+      revision: nextManifest.revision,
+    );
+    await _waitUntil(
+      () => companion.activeHost.value?.revision == nextManifest.revision,
+    );
+
+    actionGate.complete();
+    await action;
+    await _waitUntil(
+      () =>
+          companion.manifest.value?.revision == nextManifest.revision &&
+          companion.syncStatus.value == CompanionSyncStatus.ready,
+    );
+    expect(companion.errorMessage.value, isNull);
+    expect(server.manifestRequests, 2);
+  });
+
+  test(
+    'manifest refresh keeps a newer revision queued during an in-flight fetch',
+    () async {
+      final discoveryPort = await _unusedUdpPort();
+      final firstManifest = DesktopManifest.starter().copyWith(revision: 50);
+      final nextManifest = firstManifest.copyWith(revision: 51);
+      final firstFetchGate = Completer<void>();
+      final server = await _ManifestServer.start(
+        firstManifest,
+        laterManifest: nextManifest,
+        firstManifestGate: firstFetchGate,
+      );
+      final sender = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final companion = LanCompanionService(discoveryPort: discoveryPort);
+      addTearDown(() async {
+        companion.dispose();
+        sender.close();
+        await server.close();
+      });
+
+      await companion.start();
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        name: 'Desktop A',
+        port: server.port,
+        token: 'token-a',
+        revision: firstManifest.revision,
+      );
+      await server.firstManifestRequestReceived.future;
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        name: 'Desktop A',
+        port: server.port,
+        token: 'token-a',
+        revision: nextManifest.revision,
+      );
+      await _waitUntil(
+        () => companion.activeHost.value?.revision == nextManifest.revision,
+      );
+
+      firstFetchGate.complete();
+      await _waitUntil(
+        () =>
+            companion.manifest.value?.revision == nextManifest.revision &&
+            companion.syncStatus.value == CompanionSyncStatus.ready,
+      );
+      expect(server.manifestRequests, 2);
     },
   );
 
@@ -525,13 +648,22 @@ Future<void> _waitUntil(
 }
 
 class _ManifestServer {
-  _ManifestServer(this._server, {this.laterManifest, this.firstManifestGate});
+  _ManifestServer(
+    this._server, {
+    this.laterManifest,
+    this.firstManifestGate,
+    this.actionGate,
+    this.actionRevision,
+  });
 
   final HttpServer _server;
   late final StreamSubscription<HttpRequest> _subscription;
   final DesktopManifest? laterManifest;
   final Completer<void>? firstManifestGate;
+  final Completer<void>? actionGate;
+  final int? actionRevision;
   final Completer<void> firstManifestRequestReceived = Completer<void>();
+  final Completer<void> actionRequestReceived = Completer<void>();
   int manifestRequests = 0;
   bool rejectActions = false;
 
@@ -541,16 +673,33 @@ class _ManifestServer {
     DesktopManifest manifest, {
     DesktopManifest? laterManifest,
     Completer<void>? firstManifestGate,
+    Completer<void>? actionGate,
+    int? actionRevision,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final helper = _ManifestServer(
       server,
       laterManifest: laterManifest,
       firstManifestGate: firstManifestGate,
+      actionGate: actionGate,
+      actionRevision: actionRevision,
     );
     helper._subscription = server.listen((request) async {
       request.response.headers.contentType = ContentType.json;
       if (request.uri.path == '/action') {
+        if (!helper.actionRequestReceived.isCompleted) {
+          helper.actionRequestReceived.complete();
+        }
+        final actionGate = helper.actionGate;
+        if (actionGate != null) await actionGate.future;
+        if (helper.actionRevision != null) {
+          request.response.statusCode = HttpStatus.ok;
+          request.response.write(
+            jsonEncode({'revision': helper.actionRevision}),
+          );
+          await request.response.close();
+          return;
+        }
         request.response.statusCode = helper.rejectActions
             ? 409
             : HttpStatus.notFound;

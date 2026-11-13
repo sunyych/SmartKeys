@@ -98,9 +98,89 @@ void main() {
       companion.launchGate.complete();
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('remote-button-vscode.open')));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
       expect(companion.remoteActions.last.kind, RemoteActionKind.button);
       expect(companion.remoteActions.last.buttonId, 'vscode.open');
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.android}),
+  );
+
+  testWidgets(
+    'same-session manifest refresh keeps ChatGPT controls visible',
+    (tester) async {
+      final harness = await TestHarness.create(seedComputerSetup: false);
+      addTearDown(harness.dispose);
+      harness.companion.syncedManifest.value = desktopManifest(
+        installed: const {'chatgpt'},
+        running: const {'chatgpt'},
+        foreground: 'chatgpt',
+      );
+      harness.companion.host.value = connectedCompanionHost;
+      harness.companion.status.value = CompanionSyncStatus.ready;
+      await harness.controller.saveComputerSetup(
+        harness.controller.activeComputer!,
+        ComputerSetup(applicationIds: const ['chatgpt']),
+      );
+
+      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
+      await tester.pumpAndSettle();
+      final chatgptNewChat = find.byKey(
+        const ValueKey('remote-button-chatgpt.newChat'),
+      );
+      expect(chatgptNewChat, findsOneWidget);
+
+      harness.companion.status.value = CompanionSyncStatus.syncing;
+      await tester.pump();
+
+      expect(harness.controller.isDesktopSynced, isTrue);
+      expect(
+        find.byKey(const ValueKey('remote-layout-chatgpt')),
+        findsOneWidget,
+      );
+      expect(chatgptNewChat, findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('desktop-reconnect-state')),
+        findsNothing,
+      );
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.android}),
+  );
+
+  testWidgets(
+    'rejected Desktop app button shows a snackbar',
+    (tester) async {
+      final companion = _RejectedButtonCompanion();
+      final harness = await TestHarness.create(
+        seedComputerSetup: false,
+        companionService: companion,
+      );
+      addTearDown(harness.dispose);
+      final starter = DesktopManifest.starter();
+      companion.host.value = connectedCompanionHost;
+      companion.syncedManifest.value = starter.copyWith(
+        computerId: 'desktop-rejected-action-test',
+        applications: [
+          for (final app in starter.applications)
+            if (app.id == 'vscode')
+              app.copyWith(detected: true, running: true, foreground: true),
+        ],
+      );
+      companion.status.value = CompanionSyncStatus.ready;
+      await harness.controller.saveComputerSetup(
+        harness.controller.activeComputer!,
+        ComputerSetup(applicationIds: ['vscode']),
+      );
+      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('workspace-app-vscode')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('remote-button-vscode.open')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Desktop rejected the shortcut.'), findsOneWidget);
     },
     variant: const TargetPlatformVariant({TargetPlatform.android}),
   );
@@ -117,6 +197,16 @@ class _DelayedLaunchCompanion extends RecordingCompanionService {
       await launchGate.future;
       remoteActions.add(request);
       return;
+    }
+    await super.executeRemote(request);
+  }
+}
+
+class _RejectedButtonCompanion extends RecordingCompanionService {
+  @override
+  Future<void> executeRemote(RemoteActionRequest request) async {
+    if (request.kind == RemoteActionKind.button) {
+      throw StateError('Desktop rejected the shortcut.');
     }
     await super.executeRemote(request);
   }

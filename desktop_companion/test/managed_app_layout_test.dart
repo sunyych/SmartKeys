@@ -46,7 +46,7 @@ void main() {
         'ChatGPT.exe',
         preferredAppId: 'codex',
       ),
-      'codex',
+      'chatgpt',
     );
     expect(
       PlatformApplicationDiscovery.resolveForegroundApplicationId(
@@ -245,14 +245,50 @@ void main() {
   });
 
   test(
-    'legacy desktop shortcuts remain outside the new managed guard',
+    'ChatGPT New Chat and Codex controls share the ChatGPT app entry',
+    () async {
+      final starter = DesktopManifest.starter();
+      final stored = starter.copyWith(
+        applications: starter.applications
+            .map((app) => app.copyWith(detected: app.id == 'chatgpt'))
+            .toList(growable: false),
+      );
+      final actions = _RecordingActions();
+      final controller = DesktopController(
+        store: MemoryDesktopConfigStore()..value = stored,
+        actions: actions,
+        discovery: _NoopDiscovery(),
+        foregroundProbe: (app) async => app.id == 'chatgpt',
+      );
+      await controller.initialize();
+
+      await controller.executeRemote(
+        const RemoteActionRequest.button('chatgpt.newChat'),
+      );
+      await controller.executeRemote(
+        const RemoteActionRequest.button('codex.newChat'),
+      );
+      expect(actions.executed, [
+        'chatgpt.newChat:chatgpt',
+        'chatgpt.newChat:chatgpt',
+      ]);
+      expect(
+        controller.manifest.layoutById('chatgpt')!.buttons.map((b) => b.id),
+        isNot(contains('chatgpt.codex.newChat')),
+      );
+      controller.dispose();
+    },
+  );
+
+  test(
+    'legacy Codex shortcut IDs resolve through the managed ChatGPT app',
     () async {
       final actions = _RecordingActions();
       final controller = DesktopController(
         store: MemoryDesktopConfigStore(),
         actions: actions,
         discovery: _NoopDiscovery(),
-        foregroundProbe: (_) async => false,
+        foregroundProbe: (app) async => app.id == 'chatgpt',
       );
       await controller.initialize();
 
@@ -262,7 +298,10 @@ void main() {
       await controller.executeRemote(
         const RemoteActionRequest.button('codex.voice'),
       );
-      expect(actions.executed, ['vscode.run:null', 'codex.voice:null']);
+      expect(actions.executed, [
+        'vscode.run:null',
+        'chatgpt.codex.voice:chatgpt',
+      ]);
       controller.dispose();
     },
   );

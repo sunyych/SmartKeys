@@ -106,11 +106,6 @@ const computerApplications = <ComputerApplication>[
     category: ComputerAppCategory.meetings,
   ),
   ComputerApplication(
-    id: 'codex',
-    name: 'Codex',
-    category: ComputerAppCategory.vibeCoding,
-  ),
-  ComputerApplication(
     id: 'chatgpt',
     name: 'ChatGPT',
     category: ComputerAppCategory.chat,
@@ -143,9 +138,25 @@ bool isComputerApplicationSupportedOn(
     (application.id != 'safari' ||
     operatingSystem == ComputerOperatingSystem.macos);
 
-ComputerApplication? computerApplicationById(String id) => computerApplications
-    .cast<ComputerApplication?>()
-    .firstWhere((application) => application?.id == id, orElse: () => null);
+String canonicalComputerApplicationId(String id) =>
+    id == 'codex' ? 'chatgpt' : id;
+
+String canonicalComputerShortcutId(String appId, String actionId) {
+  if (actionId == 'codex.sidebar' ||
+      appId == 'codex' && actionId == 'sidebar') {
+    return 'sidebar';
+  }
+  if (appId != 'codex') return actionId;
+  if (actionId == 'launch') return 'codexMode';
+  if (actionId == 'newChat') return 'newChat';
+  return 'codex.$actionId';
+}
+
+ComputerApplication? computerApplicationById(String id) =>
+    computerApplications.cast<ComputerApplication?>().firstWhere(
+      (application) => application?.id == canonicalComputerApplicationId(id),
+      orElse: () => null,
+    );
 
 @immutable
 class ComputerShortcut {
@@ -318,6 +329,160 @@ const _chatShortcuts = <ComputerShortcut>[
     label: 'Show or hide sidebar',
     requiredForSetup: false,
   ),
+  ComputerShortcut(
+    id: 'codexMode',
+    label: 'Open Codex mode',
+    requiredForSetup: false,
+  ),
+  ..._codexModeShortcuts,
+];
+
+const _codexModeShortcuts = <ComputerShortcut>[
+  ComputerShortcut(
+    id: 'codex.project',
+    label: 'Codex · Open project',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.focusInput',
+    label: 'Codex · Focus input',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.searchChats',
+    label: 'Codex · Search chats',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.findInChat',
+    label: 'Codex · Find in chat',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.openFolder',
+    label: 'Codex · Open folder',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.commandMenu',
+    label: 'Codex · Command menu',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.voiceMode',
+    label: 'Codex · Start voice mode',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.toggleVoiceMode',
+    label: 'Codex · Toggle voice mode',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.voiceInput',
+    label: 'Codex · Start voice input',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.cancelClear',
+    label: 'Codex · Cancel or clear',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.previousChat',
+    label: 'Codex · Previous conversation',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.nextChat',
+    label: 'Codex · Next conversation',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.nextProject',
+    label: 'Codex · Next project',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.send',
+    label: 'Codex · Send',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.alternateSend',
+    label: 'Codex · Alternate send',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.backspace',
+    label: 'Codex · Backspace',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.deleteToStart',
+    label: 'Codex · Delete to line start',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.copy',
+    label: 'Codex · Copy',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.paste',
+    label: 'Codex · Paste',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.cut',
+    label: 'Codex · Cut',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.comma',
+    label: 'Codex · Insert comma',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.period',
+    label: 'Codex · Insert period',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.exclamation',
+    label: 'Codex · Insert exclamation mark',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.quote',
+    label: 'Codex · Insert quote',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.screenshot',
+    label: 'Codex · Screenshot selection',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.terminal',
+    label: 'Codex · Toggle terminal',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.review',
+    label: 'Codex · Review',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.back',
+    label: 'Codex · Back',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'codex.forward',
+    label: 'Codex · Forward',
+    requiredForSetup: false,
+  ),
 ];
 
 List<ComputerShortcut> computerShortcutsFor(ComputerAppCategory category) =>
@@ -402,6 +567,9 @@ String? defaultComputerShortcut(
     }
   }
   if (application.category == ComputerAppCategory.chat) {
+    if (actionId.startsWith('codex.')) {
+      return _defaultCodexComputerShortcut(primary, actionId.substring(6));
+    }
     // These defaults follow OpenAI's documented macOS app shortcuts. The
     // Windows app does not document a corresponding voice-chat chord, so leave
     // it unset for the user to supply if their installed version exposes one.
@@ -413,6 +581,7 @@ String? defaultComputerShortcut(
         'nextChat' => 'Ctrl+Tab',
         'find' => 'Ctrl+F',
         'sidebar' => 'Ctrl+B',
+        'codexMode' => 'Alt+3',
         _ => null,
       };
     }
@@ -424,6 +593,7 @@ String? defaultComputerShortcut(
         'nextChat' => 'Ctrl+Tab',
         'find' => 'Ctrl+F',
         'sidebar' => 'Ctrl+B',
+        'codexMode' => 'Alt+3',
         _ => null,
       };
     }
@@ -439,6 +609,7 @@ String? defaultComputerShortcut(
       'nextChat' => 'Ctrl+Tab',
       'find' => 'Command+F',
       'sidebar' => 'Command+B',
+      'codexMode' => 'Ctrl+3',
       _ => null,
     };
   }
@@ -456,6 +627,73 @@ String? defaultComputerShortcut(
   };
 }
 
+String? _defaultCodexComputerShortcut(String primary, String actionId) =>
+    switch (actionId) {
+      'project' => '$primary+Alt+Shift+O',
+      'focusInput' => 'Escape',
+      'searchChats' => '$primary+G',
+      'findInChat' => '$primary+F',
+      'openFolder' => '$primary+O',
+      'commandMenu' => '$primary+Shift+P',
+      'send' => 'Enter',
+      'alternateSend' => '$primary+Enter',
+      'backspace' => 'Backspace',
+      'copy' => '$primary+C',
+      'paste' => '$primary+V',
+      'cut' => '$primary+X',
+      'comma' => 'Comma',
+      'period' => 'Period',
+      'exclamation' => 'Shift+1',
+      'quote' => "Shift+'",
+      'nextProject' => '$primary+Alt+Shift+O',
+      'terminal' => 'Ctrl+`',
+      'review' => 'Ctrl+Shift+G',
+      'back' => '$primary+[',
+      'forward' => '$primary+]',
+      'sidebar' => '$primary+B',
+      _ => null,
+    };
+
+List<String> _canonicalizeApplicationIds(Iterable<String> ids) =>
+    List.unmodifiable(
+      ids
+          .map(canonicalComputerApplicationId)
+          .toSet()
+          .where((id) => RegExp(r'^[A-Za-z0-9._-]{1,80}$').hasMatch(id)),
+    );
+
+Map<String, Map<String, String>> _canonicalizeBindings(
+  Map<String, Map<String, String>> input,
+) {
+  final normalized = <String, Map<String, String>>{};
+  // Fold legacy Codex settings in first so explicit ChatGPT settings win on
+  // shared actions such as New Chat.
+  final entries = input.entries.toList()
+    ..sort(
+      (a, b) => (a.key == 'codex' ? 0 : 1).compareTo(b.key == 'codex' ? 0 : 1),
+    );
+  for (final entry in entries) {
+    final appId = canonicalComputerApplicationId(entry.key);
+    final app = computerApplicationById(appId);
+    if (app == null || !RegExp(r'^[A-Za-z0-9._-]{1,80}$').hasMatch(appId)) {
+      continue;
+    }
+    final appBindings = normalized.putIfAbsent(appId, () => {});
+    for (final binding in entry.value.entries) {
+      final actionId = canonicalComputerShortcutId(entry.key, binding.key);
+      if (computerShortcutsFor(
+        app.category,
+      ).any((action) => action.id == actionId)) {
+        appBindings[actionId] = binding.value.trim();
+      }
+    }
+  }
+  return {
+    for (final entry in normalized.entries)
+      entry.key: Map<String, String>.unmodifiable(entry.value),
+  };
+}
+
 @immutable
 class ComputerSetup {
   ComputerSetup({
@@ -463,23 +701,8 @@ class ComputerSetup {
     Map<String, Map<String, String>> bindings = const {},
     this.operatingSystem,
     this.setupComplete = true,
-  }) : applicationIds = List.unmodifiable(
-         applicationIds.toSet().where(
-           (id) => RegExp(r'^[A-Za-z0-9._-]{1,80}$').hasMatch(id),
-         ),
-       ),
-       bindings = Map.unmodifiable({
-         for (final entry in bindings.entries)
-           if (computerApplicationById(entry.key) != null &&
-               RegExp(r'^[A-Za-z0-9._-]{1,80}$').hasMatch(entry.key))
-             entry.key: Map<String, String>.unmodifiable({
-               for (final binding in entry.value.entries)
-                 if (computerShortcutsFor(
-                   computerApplicationById(entry.key)!.category,
-                 ).any((action) => action.id == binding.key))
-                   binding.key: binding.value.trim(),
-             }),
-       });
+  }) : applicationIds = _canonicalizeApplicationIds(applicationIds),
+       bindings = Map.unmodifiable(_canonicalizeBindings(bindings));
 
   final List<String> applicationIds;
   final Map<String, Map<String, String>> bindings;

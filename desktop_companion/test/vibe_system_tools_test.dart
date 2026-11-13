@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import 'package:lumiakeys_companion/desktop_actions.dart';
 import 'package:lumiakeys_companion/vibe_system_tools.dart';
 
 void main() {
@@ -25,6 +27,26 @@ void main() {
     expect(received?.method, 'execute');
     expect(received?.arguments, {'appId': 'codex', 'actionId': 'quote'});
   });
+
+  test(
+    'unified ChatGPT Codex controls preserve fixed system-action routing',
+    () async {
+      MethodCall? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            received = call;
+            return {'status': 'delivered'};
+          });
+      final manifest = DesktopManifest.starter();
+      final button = manifest.buttonById('chatgpt.codex.quote')!;
+
+      await DesktopActions(
+        vibeSystemTools: VibeSystemTools(channel: channel),
+      ).executeButton(button, manifest, expectedAppId: 'chatgpt');
+
+      expect(received?.arguments, {'appId': 'codex', 'actionId': 'quote'});
+    },
+  );
 
   test('rejects app IDs and action payloads outside the fixed allowlist', () {
     final tools = VibeSystemTools(channel: channel);

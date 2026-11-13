@@ -30,6 +30,7 @@ import 'wheel_editor_screen.dart';
 import 'widgets/button_face.dart';
 import 'widgets/jog_wheel.dart';
 import 'widgets/mouse_touchpad.dart';
+import 'shortcut_grid_geometry.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -134,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
         effectiveTab == _HomeTab.vibeCoding;
     final remoteApplication = effectiveApplication == null
         ? null
-        : controller.desktopManifest?.applicationById(effectiveApplication.id);
+        : controller.remoteApplicationForComputerApp(effectiveApplication.id);
     var remoteLayout =
         effectiveTab == _HomeTab.application &&
             computer?.mode == ComputerMode.advanced &&
@@ -336,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       try {
         if (target.mode == ComputerMode.advanced) {
-          final remote = controller.desktopManifest?.applicationById(
+          final remote = controller.remoteApplicationForComputerApp(
             application.id,
           );
           if (remote == null) {
@@ -714,27 +715,29 @@ class _HomeScreenState extends State<HomeScreen> {
         sequence <= 0) {
       return;
     }
-    final token = '${host.token}:$sequence';
-    if (_handledActivationToken == token) return;
-    if (!controller.availableComputerApplications.any(
-      (application) => application.id == appId,
-    )) {
+    final canonicalAppId = canonicalComputerApplicationId(appId);
+    final pendingApplicationId = _pendingDesktopActivationApplicationId;
+    if (pendingApplicationId != null &&
+        canonicalAppId !=
+            canonicalComputerApplicationId(pendingApplicationId)) {
       return;
     }
-    final app = controller.syncedApplications
-        .cast<RemoteApplication?>()
+    final token = '${host.token}:$sequence';
+    if (_handledActivationToken == token) return;
+    final app = controller.remoteApplicationForComputerApp(canonicalAppId);
+    final computerApp = controller.availableComputerApplications
+        .cast<ComputerApplication?>()
         .firstWhere(
-          (candidate) =>
-              candidate?.id == appId && candidate?.foreground == true,
+          (candidate) => candidate?.id == canonicalAppId,
           orElse: () => null,
         );
-    if (app == null ||
-        controller.layoutForApplication(app)?.buttons.isEmpty != false) {
+    if (app == null || computerApp == null || app.foreground != true) return;
+    if (controller.layoutForApplication(app)?.buttons.isEmpty != false) {
       return;
     }
     _handledActivationToken = token;
-    selectedTab = _applicationTabFor(app.id);
-    selectedApplicationId = app.id;
+    selectedTab = _applicationTabFor(computerApp.id);
+    selectedApplicationId = computerApp.id;
     editing = false;
     _followForeground = false;
   }
@@ -1382,13 +1385,17 @@ class _RemoteButtonGrid extends StatelessWidget {
     final rows = rowCountOverride ?? (count / columns).ceil();
     return LayoutBuilder(
       builder: (context, constraints) {
-        const horizontalSpacing = 4.0;
-        const verticalSpacing = 8.0;
-        final width =
-            (constraints.maxWidth - horizontalSpacing * (columns - 1)) /
-            columns;
-        final height =
-            (constraints.maxHeight - verticalSpacing * (rows - 1)) / rows;
+        const horizontalSpacing = ShortcutGridGeometry.spacing;
+        const verticalSpacing = ShortcutGridGeometry.spacing;
+        final cellSize = ShortcutGridGeometry.forViewport(
+          viewport: MediaQuery.sizeOf(context),
+          gridContentWidth: constraints.maxWidth,
+          keysPerPage: columns * rows,
+          safeAreaVertical: MediaQuery.viewPaddingOf(context).vertical,
+          columns: columns,
+          rows: rows,
+        );
+        final aspectRatio = cellSize.width / cellSize.height;
         return GridView.builder(
           key: ValueKey('remote-layout-${layout.id}'),
           physics: const NeverScrollableScrollPhysics(),
@@ -1398,7 +1405,7 @@ class _RemoteButtonGrid extends StatelessWidget {
             crossAxisCount: columns,
             crossAxisSpacing: horizontalSpacing,
             mainAxisSpacing: verticalSpacing,
-            childAspectRatio: width / height,
+            childAspectRatio: aspectRatio,
           ),
           itemBuilder: (context, index) {
             if (index >= buttons.length) {
@@ -1433,7 +1440,22 @@ class _RemoteButtonGrid extends StatelessWidget {
                               return;
                             }
                             if (!context.mounted) return;
-                            await controller.executeRemoteButton(button);
+                            try {
+                              await controller.executeRemoteButton(button);
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.maybeOf(context)
+                                ?..hideCurrentSnackBar()
+                                ..showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      error is StateError
+                                          ? error.message
+                                          : '$error',
+                                    ),
+                                  ),
+                                );
+                            }
                           }
                         : null,
                     child: LayoutBuilder(
@@ -1647,13 +1669,18 @@ class _ButtonGrid extends StatelessWidget {
     final rows = rowCountOverride ?? (visibleCount / columns).ceil();
     return LayoutBuilder(
       builder: (context, constraints) {
-        const horizontalSpacing = 4.0;
-        const verticalSpacing = 8.0;
-        final width =
-            (constraints.maxWidth - horizontalSpacing * (columns - 1)) /
-            columns;
-        final height =
-            (constraints.maxHeight - verticalSpacing * (rows - 1)) / rows;
+        const horizontalSpacing = ShortcutGridGeometry.spacing;
+        const verticalSpacing = ShortcutGridGeometry.spacing;
+        final cellSize = ShortcutGridGeometry.forViewport(
+          viewport: MediaQuery.sizeOf(context),
+          gridContentWidth: constraints.maxWidth,
+          keysPerPage: columns * rows,
+          safeAreaVertical: MediaQuery.viewPaddingOf(context).vertical,
+          columns: columns,
+          rows: rows,
+        );
+        final width = cellSize.width;
+        final height = cellSize.height;
         return GridView.builder(
           key: ValueKey('button-grid-${columns}x$rows'),
           physics: const NeverScrollableScrollPhysics(),

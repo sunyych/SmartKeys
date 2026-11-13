@@ -8,6 +8,7 @@ import '../models/config.dart';
 import '../models/computer_setup.dart';
 import '../services/companion_service.dart';
 import 'standalone_app_panel.dart';
+import 'shortcut_grid_geometry.dart';
 
 class VibeCodingPanel extends StatefulWidget {
   const VibeCodingPanel({
@@ -148,24 +149,53 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
                     ? const Center(
                         child: Text('No Vibe Coding actions configured.'),
                       )
-                    : Builder(
-                        builder: (context) {
-                          final landscape =
-                              MediaQuery.orientationOf(context) ==
-                              Orientation.landscape;
-                          final columns = landscape ? 5 : 3;
-                          const spacing = 6.0;
+                    : LayoutBuilder(
+                        builder: (context, viewportConstraints) {
+                          final viewport = MediaQuery.sizeOf(context);
+                          final safeInset =
+                              (viewport.width - viewportConstraints.maxWidth) /
+                              2;
+                          final gridPadding =
+                              ShortcutGridGeometry.horizontalPaddingForViewport(
+                                viewport,
+                                safeAreaLeft: safeInset,
+                                safeAreaRight: safeInset,
+                              );
+                          final geometry = ShortcutGridGeometry.forViewport(
+                            viewport: viewport,
+                            gridContentWidth:
+                                ShortcutGridGeometry.contentWidthForViewport(
+                                  viewport,
+                                  safeAreaLeft: safeInset,
+                                  safeAreaRight: safeInset,
+                                ),
+                            keysPerPage: widget
+                                .controller
+                                .config
+                                .preferences
+                                .tabletKeysPerPage,
+                            safeAreaVertical: MediaQuery.viewPaddingOf(
+                              context,
+                            ).vertical,
+                          );
                           return GridView.builder(
                             key: const ValueKey('vibe-shortcut-grid'),
-                            padding: const EdgeInsets.fromLTRB(10, 2, 10, 10),
+                            padding: EdgeInsets.fromLTRB(
+                              gridPadding.left,
+                              2,
+                              gridPadding.right,
+                              10,
+                            ),
                             physics: const BouncingScrollPhysics(),
                             itemCount: visibleButtons.length,
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: columns,
-                                  crossAxisSpacing: spacing,
-                                  mainAxisSpacing: spacing,
-                                  mainAxisExtent: 88,
+                                  crossAxisCount: geometry.columns,
+                                  crossAxisSpacing:
+                                      ShortcutGridGeometry.spacing,
+                                  mainAxisSpacing: ShortcutGridGeometry.spacing,
+                                  childAspectRatio:
+                                      geometry.width / geometry.height,
                                 ),
                             itemBuilder: (context, index) {
                               final button = visibleButtons[index];
@@ -189,6 +219,7 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
                                   !(_pendingOperation == 'button:${button.id}');
                               return _VibeShortcutButton(
                                 button: button,
+                                compact: geometry.height < 72,
                                 enabled: enabled,
                                 platform:
                                     widget.controller.effectiveShortcutPlatform,
@@ -540,6 +571,7 @@ class _VibeStatusCard extends StatelessWidget {
 class _VibeShortcutButton extends StatelessWidget {
   const _VibeShortcutButton({
     required this.button,
+    required this.compact,
     required this.enabled,
     required this.platform,
     required this.pending,
@@ -554,6 +586,7 @@ class _VibeShortcutButton extends StatelessWidget {
   });
 
   final RemoteShortcutButton button;
+  final bool compact;
   final bool enabled;
   final ShortcutPlatform platform;
   final bool pending;
@@ -621,21 +654,23 @@ class _VibeShortcutButton extends StatelessWidget {
                 key: ValueKey('vibe-button-${button.id}'),
                 onTap: onPressed,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
+                  padding: EdgeInsets.symmetric(
                     horizontal: 6,
-                    vertical: 5,
+                    vertical: compact ? 2 : 5,
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (pending)
-                        const SizedBox.square(
-                          dimension: 25,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                        SizedBox.square(
+                          dimension: compact ? 18 : 25,
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
                         )
                       else
-                        Icon(icon, size: 22, color: foreground),
-                      const SizedBox(height: 3),
+                        Icon(icon, size: compact ? 16 : 22, color: foreground),
+                      SizedBox(height: compact ? 1 : 3),
                       Text(
                         projectSetup
                             ? 'Project setup'
@@ -648,10 +683,10 @@ class _VibeShortcutButton extends StatelessWidget {
                         style: TextStyle(
                           color: foreground,
                           fontWeight: FontWeight.w700,
-                          fontSize: 12,
+                          fontSize: compact ? 10 : 12,
                         ),
                       ),
-                      if (shortcut.isNotEmpty)
+                      if (shortcut.isNotEmpty && !compact)
                         Text(
                           shortcut,
                           maxLines: 1,

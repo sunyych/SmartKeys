@@ -20,14 +20,14 @@ void main() {
       addTearDown(() => _dispose(tester, harness));
       await _setDesktop(
         harness,
-        installed: const {'codex', 'claude', 'cursor'},
-        running: const {'codex', 'cursor'},
-        foreground: 'codex',
+        installed: const {'claude', 'cursor'},
+        running: const {'cursor'},
+        foreground: 'cursor',
       );
 
       await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+      await _tapWorkspaceApp(tester, 'cursor');
       await tester.pump();
 
       expect(
@@ -38,36 +38,36 @@ void main() {
         find.byKey(const ValueKey('workspace-app-cursor')),
         findsOneWidget,
       );
-      final codexSend = find.byKey(
-        const ValueKey('vibe-button-vibe.codex.send'),
+      final cursorSend = find.byKey(
+        const ValueKey('vibe-button-vibe.cursor.send'),
       );
       await tester.scrollUntilVisible(
-        codexSend,
+        cursorSend,
         100,
         scrollable: find.descendant(
           of: find.byKey(const ValueKey('vibe-shortcut-grid')),
           matching: find.byType(Scrollable),
         ),
       );
-      expect(codexSend, findsOneWidget);
+      expect(cursorSend, findsOneWidget);
       expect(tester.takeException(), isNull);
 
       tester.view.physicalSize = const Size(390, 844);
       await tester.pumpAndSettle();
       await tester.ensureVisible(
-        find.byKey(const ValueKey('vibe-button-vibe.codex.send')),
+        find.byKey(const ValueKey('vibe-button-vibe.cursor.send')),
       );
       await tester.tap(
-        find.byKey(const ValueKey('vibe-button-vibe.codex.send')),
+        find.byKey(const ValueKey('vibe-button-vibe.cursor.send')),
       );
       await tester.pump();
-      expect(harness.companion.remoteActions.last.buttonId, 'vibe.codex.send');
+      expect(harness.companion.remoteActions.last.buttonId, 'vibe.cursor.send');
       expect(harness.hid.pressedActions, isEmpty);
 
       for (final buttonId in [
-        'vibe.codex.alternateSend',
-        'vibe.codex.deleteToStart',
-        'vibe.codex.screenshot',
+        'vibe.cursor.alternateSend',
+        'vibe.cursor.deleteToStart',
+        'vibe.cursor.screenshot',
       ]) {
         final action = find.byKey(ValueKey('vibe-button-$buttonId'));
         await tester.scrollUntilVisible(
@@ -83,8 +83,8 @@ void main() {
 
       await _setDesktop(
         harness,
-        installed: const {'codex', 'claude', 'cursor'},
-        running: const {'codex', 'cursor'},
+        installed: const {'claude', 'cursor'},
+        running: const {'cursor'},
         foreground: 'cursor',
         activationSequence: 1,
         activatedApplicationId: 'cursor',
@@ -143,27 +143,27 @@ void main() {
     addTearDown(() => _dispose(tester, harness));
     await _setDesktop(
       harness,
-      installed: const {'codex', 'cursor'},
-      running: const {'codex', 'cursor'},
-      foreground: 'cursor',
+      installed: const {'cursor', 'claude'},
+      running: const {'cursor', 'claude'},
+      foreground: 'claude',
     );
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await _tapWorkspaceApp(tester, 'cursor');
     await tester.pump();
     expect(
-      find.text('Tap Codex above to bring it to the front.'),
+      find.text('Tap Cursor above to bring it to the front.'),
       findsOneWidget,
     );
     expect(find.textContaining('is ready'), findsNothing);
     harness.companion.syncedManifest.value = desktopManifest(
-      installed: const {'codex', 'cursor'},
-      running: const {'codex', 'cursor'},
-      foreground: 'codex',
+      installed: const {'cursor', 'claude'},
+      running: const {'cursor', 'claude'},
+      foreground: 'cursor',
     );
     await tester.pumpAndSettle();
     expect(
-      find.text('Tap Codex above to bring it to the front.'),
+      find.text('Tap Cursor above to bring it to the front.'),
       findsNothing,
     );
     expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
@@ -179,17 +179,17 @@ void main() {
     addTearDown(() => _dispose(tester, harness));
     await _setDesktop(
       harness,
-      installed: const {'codex'},
-      running: const {'codex'},
-      foreground: 'codex',
+      installed: const {'cursor'},
+      running: const {'cursor'},
+      foreground: 'cursor',
     );
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await _tapWorkspaceApp(tester, 'cursor');
     await tester.pumpAndSettle();
     final backspace = find.byKey(
-      const ValueKey('vibe-button-vibe.codex.backspace'),
+      const ValueKey('vibe-button-vibe.cursor.backspace'),
     );
     await tester.scrollUntilVisible(
       backspace,
@@ -204,7 +204,7 @@ void main() {
     await tester.pump();
     expect(
       harness.companion.remoteActions.last.buttonId,
-      'vibe.codex.backspace',
+      'vibe.cursor.backspace',
     );
     harness.companion.remoteActions.clear();
     final gesture = await tester.startGesture(tester.getCenter(backspace));
@@ -214,7 +214,7 @@ void main() {
     await tester.pump();
     expect(
       harness.companion.remoteActions
-          .where((action) => action.buttonId == 'vibe.codex.backspace')
+          .where((action) => action.buttonId == 'vibe.cursor.backspace')
           .length,
       greaterThanOrEqualTo(2),
     );
@@ -222,12 +222,12 @@ void main() {
     await gesture.up();
     await tester.pump();
     final countAfterRelease = harness.companion.remoteActions
-        .where((action) => action.buttonId == 'vibe.codex.backspace')
+        .where((action) => action.buttonId == 'vibe.cursor.backspace')
         .length;
     await tester.pump(const Duration(milliseconds: 500));
     expect(
       harness.companion.remoteActions
-          .where((action) => action.buttonId == 'vibe.codex.backspace')
+          .where((action) => action.buttonId == 'vibe.cursor.backspace')
           .length,
       countAfterRelease,
     );
@@ -243,18 +243,18 @@ void main() {
     final harness = await TestHarness.create();
     addTearDown(() => _dispose(tester, harness));
     final manifest = desktopManifest(
-      installed: const {'codex'},
-      running: const {'codex'},
-      foreground: 'codex',
+      installed: const {'cursor'},
+      running: const {'cursor'},
+      foreground: 'cursor',
     );
-    final layout = manifest.layoutById('vibe.codex')!;
+    final layout = manifest.layoutById('vibe.cursor')!;
     harness.companion.syncedManifest.value = manifest.copyWith(
       layouts: [
-        ...manifest.layouts.where((candidate) => candidate.id != 'vibe.codex'),
+        ...manifest.layouts.where((candidate) => candidate.id != 'vibe.cursor'),
         layout.copyWith(
           buttons: layout.buttons
               .map(
-                (button) => button.id == 'vibe.codex.project'
+                (button) => button.id == 'vibe.cursor.project'
                     ? button.copyWith(enabled: false)
                     : button,
               )
@@ -268,31 +268,31 @@ void main() {
     expect(target, isNotNull);
     await harness.controller.saveComputerSetup(
       target!,
-      ComputerSetup(applicationIds: const ['codex']),
+      ComputerSetup(applicationIds: const ['cursor']),
     );
 
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await _tapWorkspaceApp(tester, 'cursor');
     await tester.pump();
 
     expect(
       find.byTooltip(
-        'Project setup required · Desktop → Shortcut Layout → Vibe Coding · Codex',
+        'Project setup required · Desktop → Shortcut Layout → Vibe Coding · Cursor',
       ),
       findsOneWidget,
     );
     expect(
       tester
           .widget<InkWell>(
-            find.byKey(const ValueKey('vibe-button-vibe.codex.project')),
+            find.byKey(const ValueKey('vibe-button-vibe.cursor.project')),
           )
           .onTap,
       isNull,
     );
     harness.companion.remoteActions.clear();
     await tester.tap(
-      find.byKey(const ValueKey('vibe-button-vibe.codex.project')),
+      find.byKey(const ValueKey('vibe-button-vibe.cursor.project')),
       warnIfMissed: false,
     );
     await tester.pump();
@@ -328,6 +328,20 @@ Future<void> _setDesktop(
       ),
     );
   }
+}
+
+Future<void> _tapWorkspaceApp(WidgetTester tester, String applicationId) async {
+  final app = find.byKey(ValueKey('workspace-app-$applicationId'));
+  final appList = find.byKey(const ValueKey('computer-app-scroll-list'));
+  final scrollable = find
+      .descendant(of: appList, matching: find.byType(Scrollable))
+      .first;
+  await tester.scrollUntilVisible(app, 100, scrollable: scrollable);
+  await Scrollable.ensureVisible(tester.element(app), alignment: 0.5);
+  await tester.drag(scrollable, const Offset(-120, 0));
+  await tester.pumpAndSettle();
+  final tapTarget = find.descendant(of: app, matching: find.byType(InkWell));
+  await tester.tap(tapTarget);
 }
 
 Future<void> _dispose(WidgetTester tester, TestHarness harness) async {

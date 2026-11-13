@@ -43,7 +43,7 @@ void main() {
     },
   );
 
-  testWidgets('homepage quick output and Vibe Local Dictation stay separate', (
+  testWidgets('compact local dictation stays available in ChatGPT workspace', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -56,15 +56,15 @@ void main() {
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
     harness.companion.syncedManifest.value = desktopManifest(
-      installed: const {'codex', 'cursor'},
-      running: const {'codex', 'cursor'},
-      foreground: 'codex',
+      installed: const {'chatgpt', 'cursor'},
+      running: const {'chatgpt', 'cursor'},
+      foreground: 'chatgpt',
     );
     final target = harness.controller.activeComputer;
     expect(target, isNotNull);
     await harness.controller.saveComputerSetup(
       target!,
-      ComputerSetup(applicationIds: const ['codex', 'cursor']),
+      ComputerSetup(applicationIds: const ['chatgpt', 'cursor']),
     );
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pumpAndSettle();
@@ -82,12 +82,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(harness.companion.remoteActions, isEmpty);
 
-    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
+    expect(find.byKey(const ValueKey('remote-layout-chatgpt')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-app-codex')), findsNothing);
+    expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);
     expect(find.textContaining('is ready'), findsNothing);
     expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
-    expect(find.byKey(const ValueKey('vibe-coding-title')), findsNothing);
     expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
     expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsNothing);
     expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
@@ -98,8 +99,8 @@ void main() {
       isNotNull,
     );
     harness.companion.syncedManifest.value = desktopManifest(
-      installed: const {'codex', 'cursor'},
-      running: const {'codex', 'cursor'},
+      installed: const {'chatgpt', 'cursor'},
+      running: const {'chatgpt', 'cursor'},
       foreground: 'cursor',
     );
     await tester.pumpAndSettle();
@@ -107,7 +108,7 @@ void main() {
       tester
           .widget<IconButton>(find.byKey(const ValueKey('local-quick-output')))
           .onPressed,
-      isNull,
+      isNotNull,
     );
   });
 }

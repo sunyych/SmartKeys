@@ -800,7 +800,11 @@ class LanCompanionService
         const Duration(seconds: 4),
         256 * 1024,
       );
-      if (_disposed || _selectionEpoch != epoch || _host.value != host) return;
+      if (_disposed ||
+          _selectionEpoch != epoch ||
+          !_sameDesktopSession(_host.value, host)) {
+        return;
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           body.isEmpty ? 'Desktop rejected layout sync' : body,
@@ -813,20 +817,23 @@ class LanCompanionService
       );
       _manifest.value = manifest;
       final manifestId = _validatedComputerId(manifest.computerId);
-      if (host.computerId == null &&
+      final currentHost = _host.value!;
+      if (currentHost.computerId == null &&
           manifestId != null &&
           _selectionEpoch == epoch &&
-          _host.value == host) {
+          _sameDesktopSession(_host.value, host)) {
         final identifiedHost = CompanionHost(
-          name: host.name,
-          platform: host.platform,
-          address: host.address,
-          port: host.port,
-          token: host.token,
+          name: currentHost.name,
+          platform: currentHost.platform,
+          address: currentHost.address,
+          port: currentHost.port,
+          token: currentHost.token,
           computerId: manifestId,
-          protocolVersion: host.protocolVersion,
-          revision: host.revision,
-          capabilities: host.capabilities,
+          protocolVersion: currentHost.protocolVersion,
+          revision: currentHost.revision > manifest.revision
+              ? currentHost.revision
+              : manifest.revision,
+          capabilities: currentHost.capabilities,
         );
         final oldId = _selectedComputerChoiceId;
         final newId = _choiceId(identifiedHost);
@@ -843,11 +850,15 @@ class LanCompanionService
         _host.value = identifiedHost;
         _publishComputerChoices();
       }
-      _pendingRevision = null;
+      if (_pendingRevision == manifest.revision) {
+        _pendingRevision = null;
+      }
       _error.value = null;
       _status.value = CompanionSyncStatus.ready;
     } catch (error) {
-      if (!_disposed && _selectionEpoch == epoch && _host.value == host) {
+      if (!_disposed &&
+          _selectionEpoch == epoch &&
+          _sameDesktopSession(_host.value, host)) {
         _setError('Desktop sync failed: $error');
       }
     } finally {
@@ -861,7 +872,7 @@ class LanCompanionService
           pending != _manifest.value?.revision &&
           pendingEpoch == _selectionEpoch &&
           pendingHost != null &&
-          pendingHost == _host.value) {
+          _sameDesktopSession(pendingHost, _host.value)) {
         _pendingManifestHost = null;
         _pendingManifestEpoch = null;
         unawaited(refreshManifest());
@@ -872,7 +883,9 @@ class LanCompanionService
   @override
   Future<void> executeRemote(RemoteActionRequest request) => _post(
     jsonEncode(request.toJson()),
-    surfaceFailure: request.kind == RemoteActionKind.launchApplication,
+    surfaceFailure:
+        request.kind == RemoteActionKind.launchApplication ||
+        request.kind == RemoteActionKind.button,
   );
 
   @override
@@ -882,7 +895,7 @@ class LanCompanionService
     if (host == null || !host.capabilities.contains('mouse-control-v1')) {
       throw StateError('Selected Desktop does not support mouse control.');
     }
-    if (!_samePointerSession(_pointerQueueHost, host)) {
+    if (!_sameDesktopSession(_pointerQueueHost, host)) {
       _pointerQueue.clear();
       _pointerClient?.close(force: true);
       _pointerClient = null;
@@ -930,8 +943,8 @@ class LanCompanionService
     if (_pointerQueue.isEmpty || _disposed || _pointerFlushing) return;
     final queuedHost = _pointerQueueHost;
     if (queuedHost == null) return;
-    if (!_samePointerSession(_host.value, queuedHost) ||
-        !_samePointerSession(_pointerQueueHost, queuedHost)) {
+    if (!_sameDesktopSession(_host.value, queuedHost) ||
+        !_sameDesktopSession(_pointerQueueHost, queuedHost)) {
       _pointerQueue.clear();
       _pointerQueueHost = null;
       return;
@@ -940,13 +953,13 @@ class LanCompanionService
     final batch = _pointerQueue.take(32).toList(growable: false);
     _pointerQueue.removeRange(0, batch.length);
     try {
-      if (!_samePointerSession(_host.value, queuedHost) || _disposed) return;
+      if (!_sameDesktopSession(_host.value, queuedHost) || _disposed) return;
       final client = _pointerClient ??= (HttpClient()
         ..connectionTimeout = const Duration(seconds: 3));
       final request = await client
           .post(queuedHost.address, queuedHost.port, '/pointer')
           .timeout(const Duration(seconds: 3));
-      if (!_samePointerSession(_host.value, queuedHost) || _disposed) return;
+      if (!_sameDesktopSession(_host.value, queuedHost) || _disposed) return;
       request.followRedirects = false;
       request.headers.contentType = ContentType.json;
       request.headers.set('x-lumiakeys-token', queuedHost.token);
@@ -961,13 +974,13 @@ class LanCompanionService
         const Duration(seconds: 3),
         4096,
       );
-      if (!_samePointerSession(_host.value, queuedHost) || _disposed) return;
+      if (!_sameDesktopSession(_host.value, queuedHost) || _disposed) return;
       if (response.statusCode != HttpStatus.ok) throw HttpException(body);
       _pointerError.value = null;
     } catch (error) {
       if (!_disposed &&
-          _samePointerSession(_host.value, queuedHost) &&
-          _samePointerSession(_pointerQueueHost, queuedHost)) {
+          _sameDesktopSession(_host.value, queuedHost) &&
+          _sameDesktopSession(_pointerQueueHost, queuedHost)) {
         _pointerError.value = 'Desktop mouse input failed: $error';
       }
     } finally {
@@ -980,7 +993,7 @@ class LanCompanionService
     }
   }
 
-  static bool _samePointerSession(
+  static bool _sameDesktopSession(
     CompanionHost? first,
     CompanionHost? second,
   ) =>
@@ -1031,7 +1044,7 @@ class LanCompanionService
           .bind(response)
           .join()
           .timeout(dictationTimeout);
-      if (_host.value != host) {
+      if (!_sameDesktopSession(_host.value, host)) {
         throw const CompanionDictationException(
           'Desktop connection changed before dictation delivery completed.',
         );
@@ -1100,9 +1113,11 @@ class LanCompanionService
         actionTimeout,
         64 * 1024,
       );
-      if (_selectionEpoch != epoch || _host.value != host) {
+      if (_selectionEpoch != epoch || !_sameDesktopSession(_host.value, host)) {
         if (surfaceFailure) {
-          throw StateError('Desktop connection changed during app activation.');
+          throw StateError(
+            'Selected Desktop changed while handling the action.',
+          );
         }
         return;
       }
@@ -1118,9 +1133,9 @@ class LanCompanionService
         unawaited(refreshManifest());
       }
       _error.value = null;
-      _status.value = CompanionSyncStatus.ready;
+      if (!_fetchingManifest) _status.value = CompanionSyncStatus.ready;
     } catch (error, stackTrace) {
-      if (_selectionEpoch == epoch && _host.value == host) {
+      if (_selectionEpoch == epoch && _sameDesktopSession(_host.value, host)) {
         if (surfaceFailure) Error.throwWithStackTrace(error, stackTrace);
         _setError('Desktop action failed: $error');
       }

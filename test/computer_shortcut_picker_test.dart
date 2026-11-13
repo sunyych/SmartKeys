@@ -32,9 +32,11 @@ void main() {
       ),
     );
 
-    final chooseCodex = find.byKey(const ValueKey('computer-app-select-codex'));
+    final chooseChatGpt = find.byKey(
+      const ValueKey('computer-app-select-chatgpt'),
+    );
     await tester.scrollUntilVisible(
-      chooseCodex,
+      chooseChatGpt,
       180,
       scrollable: find
           .descendant(
@@ -44,11 +46,11 @@ void main() {
           .first,
     );
     await tester.pumpAndSettle();
-    await tester.tap(chooseCodex);
+    await tester.tap(chooseChatGpt);
     await tester.pumpAndSettle();
 
     final chooseKeys = find.byKey(
-      const ValueKey('computer-key-picker-codex-launch'),
+      const ValueKey('computer-key-picker-chatgpt-launch'),
     );
     await tester.scrollUntilVisible(
       chooseKeys,
@@ -100,7 +102,7 @@ void main() {
     expect(
       tester
           .widget<TextField>(
-            find.byKey(const ValueKey('computer-key-codex-launch')),
+            find.byKey(const ValueKey('computer-key-chatgpt-launch')),
           )
           .controller
           ?.text,

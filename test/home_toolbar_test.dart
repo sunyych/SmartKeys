@@ -81,15 +81,15 @@ void main() {
       final harness = await TestHarness.create(seedComputerSetup: false);
       addTearDown(harness.dispose);
       harness.companion.syncedManifest.value = desktopManifest(
-        installed: const {'codex'},
-        running: const {'codex'},
-        foreground: 'codex',
+        installed: const {'cursor'},
+        running: const {'cursor'},
+        foreground: 'cursor',
       );
       harness.companion.host.value = connectedCompanionHost;
       harness.companion.status.value = CompanionSyncStatus.ready;
       await harness.controller.saveComputerSetup(
         harness.controller.activeComputer!,
-        ComputerSetup(applicationIds: const ['codex']),
+        ComputerSetup(applicationIds: const ['cursor']),
       );
 
       await tester.pumpWidget(
@@ -105,7 +105,7 @@ void main() {
       expect(find.byKey(const ValueKey('control-menu')), findsOneWidget);
       expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
 
-      final lastApp = find.byKey(const ValueKey('workspace-app-codex'));
+      final lastApp = find.byKey(const ValueKey('workspace-app-cursor'));
       await tester.tap(lastApp);
       await tester.pumpAndSettle();
       _expectControlsInRow(tester, rowRect, [
