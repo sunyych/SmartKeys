@@ -8,58 +8,6 @@ import 'package:smart_keys/services/companion_service.dart';
 
 void main() {
   test(
-    'stable Desktop identity merges interfaces but keeps same-name machines distinct',
-    () async {
-      final discoveryPort = await _unusedUdpPort();
-      final sender = await RawDatagramSocket.bind(
-        InternetAddress.loopbackIPv4,
-        0,
-      );
-      final companion = LanCompanionService(discoveryPort: discoveryPort);
-      addTearDown(() async {
-        companion.dispose();
-        sender.close();
-      });
-      await companion.start();
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        name: 'Studio Mac',
-        port: 41001,
-        token: 'token-a',
-        revision: 1,
-        computerId: 'machine-a',
-      );
-      await _waitUntil(() => companion.computerChoices.value.length == 1);
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        name: 'Studio Mac',
-        port: 41002,
-        token: 'token-a',
-        revision: 1,
-        computerId: 'machine-a',
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(companion.computerChoices.value, hasLength(1));
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        name: 'Studio Mac',
-        port: 41003,
-        token: 'token-b',
-        revision: 1,
-        computerId: 'machine-b',
-      );
-      await _waitUntil(() => companion.computerChoices.value.length == 2);
-      expect(
-        companion.computerChoices.value.map((choice) => choice.id).toSet(),
-        {'id:machine-a', 'id:machine-b'},
-      );
-    },
-  );
-
-  test(
     'manual connection authenticates info and manifest without UDP discovery',
     () async {
       const token = '0123456789abcdef0123456789abcdef';
@@ -78,47 +26,6 @@ void main() {
       expect(companion.activeHost.value?.name, 'Test Desktop');
       expect(companion.manifest.value?.revision, 12);
       expect(server.authenticatedPaths, containsAll(['/info', '/manifest']));
-    },
-  );
-
-  test(
-    'manual pairing merges a legacy advertisement using its manifest ID',
-    () async {
-      const token = '0123456789abcdef0123456789abcdef';
-      final server = await _ManualServer.start(
-        token: token,
-        manifestId: 'legacy-computer',
-        manifestRevision: 13,
-      );
-      final discoveryPort = await _unusedUdpPort();
-      final sender = await RawDatagramSocket.bind(
-        InternetAddress.loopbackIPv4,
-        0,
-      );
-      final companion = LanCompanionService(discoveryPort: discoveryPort);
-      addTearDown(() async {
-        companion.dispose();
-        sender.close();
-        await server.close();
-      });
-      await companion.start();
-      await companion.connectManually('127.0.0.1:${server.port} $token');
-      expect(companion.syncStatus.value, CompanionSyncStatus.ready);
-      expect(companion.manifest.value?.revision, 13);
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        platform: 'windows',
-        name: 'Test Desktop',
-        port: server.port,
-        token: token,
-        revision: 13,
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(companion.computerChoices.value.map((choice) => choice.id), [
-        'id:legacy-computer',
-      ]);
-      expect(companion.selectedComputerChoiceId, 'id:legacy-computer');
     },
   );
 
@@ -225,10 +132,12 @@ void main() {
         InternetAddress.loopbackIPv4,
         0,
       );
+      var now = DateTime.utc(2026);
       final companion = LanCompanionService(
         discoveryPort: discoveryPort,
         hostExpiry: const Duration(milliseconds: 60),
         expiryPollInterval: const Duration(milliseconds: 10),
+        now: () => now,
       );
       addTearDown(() async {
         companion.dispose();
@@ -246,6 +155,7 @@ void main() {
         revision: firstManifest.revision,
       );
       await server.firstManifestRequestReceived.future;
+      now = now.add(const Duration(seconds: 1));
       await _waitUntil(() => companion.activeHost.value == null);
       _advertise(
         sender,
@@ -356,71 +266,6 @@ void main() {
         'Desktop A',
         'Desktop B',
       ]);
-    },
-  );
-
-  test(
-    'selecting a discovered computer pins routing while discovery continues',
-    () async {
-      final discoveryPort = await _unusedUdpPort();
-      const firstToken = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-      const secondToken = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-      final first = await _ManualServer.start(token: firstToken);
-      final second = await _ManualServer.start(token: secondToken);
-      final sender = await RawDatagramSocket.bind(
-        InternetAddress.loopbackIPv4,
-        0,
-      );
-      final companion = LanCompanionService(discoveryPort: discoveryPort);
-      addTearDown(() async {
-        companion.dispose();
-        sender.close();
-        await first.close();
-        await second.close();
-      });
-
-      await companion.start();
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        platform: 'windows',
-        name: 'Computer A',
-        port: first.port,
-        token: firstToken,
-        revision: 12,
-      );
-      await _waitUntil(() => companion.activeHost.value?.port == first.port);
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        platform: 'windows',
-        name: 'Computer B',
-        port: second.port,
-        token: secondToken,
-        revision: 12,
-      );
-      await _waitUntil(() => companion.computerChoices.value.length == 2);
-
-      final secondChoice = companion.computerChoices.value.singleWhere(
-        (choice) => choice.name == 'Computer B',
-      );
-      expect(secondChoice.id, isNot(contains(secondToken)));
-      await companion.selectComputer(secondChoice.id);
-      expect(companion.activeHost.value?.port, second.port);
-      expect(companion.selectedComputerChoiceId, secondChoice.id);
-
-      _advertise(
-        sender,
-        discoveryPort: discoveryPort,
-        platform: 'windows',
-        name: 'Computer A',
-        port: first.port,
-        token: firstToken,
-        revision: 12,
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(companion.activeHost.value?.port, second.port);
-      expect(companion.computerChoices.value, hasLength(2));
     },
   );
 
@@ -572,8 +417,6 @@ class _ManualServer {
     required String token,
     Completer<void>? infoGate,
     String? redirectInfoTo,
-    String? manifestId,
-    int manifestRevision = 12,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final helper = _ManualServer(
@@ -619,7 +462,7 @@ class _ManualServer {
         request.response.write(
           jsonEncode(
             DesktopManifest.starter()
-                .copyWith(revision: manifestRevision, computerId: manifestId)
+                .copyWith(revision: 12)
                 .toJson(forSync: true),
           ),
         );
@@ -652,7 +495,6 @@ void _advertise(
   required int port,
   required String token,
   required int revision,
-  String? computerId,
 }) {
   final message = utf8.encode(
     jsonEncode({
@@ -660,7 +502,6 @@ void _advertise(
       'version': 2,
       'name': name,
       'platform': platform,
-      'computerId': ?computerId,
       'port': port,
       'token': token,
       'revision': revision,

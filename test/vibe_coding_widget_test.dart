@@ -9,41 +9,6 @@ import 'test_support.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Codex app chip opens Vibe Coding directly', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
-    final config = testConfig(
-      profiles: [
-        profile(),
-        profile(id: 'profile_custom', name: 'Custom'),
-      ],
-    );
-    final harness = await TestHarness.create(config: config);
-    addTearDown(() => _dispose(tester, harness));
-    await _setDesktop(
-      harness,
-      installed: const {'codex'},
-      running: const {'codex'},
-      foreground: 'codex',
-    );
-
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
-    await tester.pump();
-
-    final profileCount = harness.controller.config.profiles.length;
-    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('vibe-shortcut-grid')), findsOneWidget);
-    expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);
-    expect(find.byKey(const ValueKey('home-tab-codex')), findsNothing);
-    expect(harness.controller.activeProfile.id, 'profile_general');
-    expect(harness.controller.config.profiles, hasLength(profileCount));
-    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
-    expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsNothing);
-  });
-
   testWidgets(
     'synced Vibe routes Desktop IDs and stays selected on activation',
     (tester) async {

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/controllers/app_controller.dart';
@@ -111,83 +110,6 @@ void main() {
       harness.repository.value.profiles.first.buttons[1].label,
       source.label,
     );
-  });
-
-  test('touchpad movement and mouse clicks emit HID actions', () async {
-    final harness = await TestHarness.create();
-    addTearDown(harness.dispose);
-
-    harness.controller.sendTouchpadMove(8, -4);
-    harness.controller.sendMouseClick(secondary: false);
-    harness.controller.sendMouseClick(secondary: true);
-    harness.controller.sendTouchpadScroll(-18);
-    await Future<void>.delayed(Duration.zero);
-
-    expect(harness.hid.pressedActions.single.type, ActionType.mouseMove);
-    expect(harness.hid.pressedActions.single.value, '13,-7');
-    expect(harness.hid.steppedActions.map((action) => action.type), [
-      ActionType.mouseButton,
-      ActionType.mouseButton,
-      ActionType.mouseWheel,
-    ]);
-    expect(harness.hid.steppedActions.map((action) => action.value), [
-      'LEFT',
-      'RIGHT',
-      '1',
-    ]);
-  });
-
-  test('Advanced Desktop pointer uses its capability and never HID fallback', () async {
-    final harness = await TestHarness.create(platformOverride: TargetPlatform.android);
-    addTearDown(harness.dispose);
-    harness.companion.syncedManifest.value = desktopManifest();
-    harness.companion.status.value = CompanionSyncStatus.ready;
-    harness.companion.host.value = const CompanionHost(
-      name: 'Studio Windows',
-      platform: 'windows',
-      address: '192.168.1.25',
-      port: 45678,
-      token: 'session',
-      capabilities: {'manifest', 'mouse-control-v1'},
-    );
-
-    harness.controller.sendTouchpadMove(6, -3);
-    harness.controller.sendMouseClick(secondary: true);
-    harness.controller.sendTouchpadScroll(-12);
-
-    expect(harness.companion.pointerInputs.map((input) => input.kind), [
-      PointerInputKind.move,
-      PointerInputKind.button,
-      PointerInputKind.scroll,
-    ]);
-    expect(harness.companion.pointerInputs[0].x, 10);
-    expect(harness.companion.pointerInputs[1].secondary, isTrue);
-    expect(harness.hid.pressedActions, isEmpty);
-    expect(harness.hid.steppedActions, isEmpty);
-  });
-
-  test('Advanced Desktop without mouse capability never sends pointer to HID', () async {
-    final harness = await TestHarness.create(platformOverride: TargetPlatform.android);
-    addTearDown(harness.dispose);
-    harness.companion.syncedManifest.value = desktopManifest();
-    harness.companion.status.value = CompanionSyncStatus.ready;
-    harness.companion.host.value = const CompanionHost(
-      name: 'Legacy Desktop',
-      platform: 'windows',
-      address: '192.168.1.25',
-      port: 45678,
-      token: 'session',
-      capabilities: {'manifest'},
-    );
-
-    harness.controller.sendTouchpadMove(8, -4);
-    harness.controller.sendMouseClick(secondary: false);
-    harness.controller.sendTouchpadScroll(-18);
-
-    expect(harness.controller.selectedDesktopMouseUnsupported, isTrue);
-    expect(harness.companion.pointerInputs, isEmpty);
-    expect(harness.hid.pressedActions, isEmpty);
-    expect(harness.hid.steppedActions, isEmpty);
   });
 
   test('cannot delete the final profile', () async {

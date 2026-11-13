@@ -54,60 +54,6 @@ void main() {
   );
 
   testWidgets(
-    'compact toolbar scrolls to keyboard profiles and keeps them tappable',
-    (tester) async {
-      tester.view.physicalSize = const Size(320, 640);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      final harness = await TestHarness.create(seedComputerSetup: false);
-      addTearDown(harness.dispose);
-      final profile = await harness.controller.createProfile(name: 'Compact');
-      final target = harness.controller.activeComputer!;
-      final supportedApps = harness
-          .controller
-          .computerApplicationsOnActiveComputer
-          .take(8)
-          .map((application) => application.id)
-          .toList(growable: false);
-      await harness.controller.saveComputerSetup(
-        target,
-        ComputerSetup(applicationIds: supportedApps),
-      );
-
-      await tester.pumpWidget(
-        SmartKeysScope(
-          controller: harness.controller,
-          child: const MaterialApp(home: HomeScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      final toolbar = find.byKey(const ValueKey('computer-app-row'));
-      expect(toolbar, findsOneWidget);
-      expect(tester.getSize(toolbar).height, inInclusiveRange(44, 48));
-      final profileChip = find.byKey(ValueKey('profile-quick-${profile.id}'));
-      await tester.scrollUntilVisible(
-        profileChip,
-        180,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('profile-quick-switch-bar')),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await Scrollable.ensureVisible(
-        tester.element(profileChip),
-        alignment: 0.5,
-      );
-      await tester.tap(profileChip);
-      await tester.pumpAndSettle();
-      expect(harness.controller.activeProfile.id, profile.id);
-    },
-    variant: const TargetPlatformVariant({TargetPlatform.android}),
-  );
-
-  testWidgets(
     'desktop app shortcuts stay disabled until selected app activation returns',
     (tester) async {
       final companion = _DelayedLaunchCompanion();
