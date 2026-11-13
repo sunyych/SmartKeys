@@ -39,6 +39,11 @@ class AppController extends ChangeNotifier {
     companion.manifest.addListener(_handleCompanionManifestChanged);
     companion.syncStatus.addListener(_handleCompanionManifestChanged);
     companion.errorMessage.addListener(_handleCompanionManifestChanged);
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).pointerError.addListener(
+        notifyListeners,
+      );
+    }
     desktopComputerChoices?.addListener(notifyListeners);
     powerBrightnessService.isPluggedIn.addListener(_handlePowerChanged);
   }
@@ -104,12 +109,31 @@ class AppController extends ChangeNotifier {
   String? get computerSwitchPendingId => _computerSwitchPendingId;
   String? get computerSwitchError => _computerSwitchError;
   bool get hasPinnedDesktopComputer => _pinnedDesktopChoiceId != null;
+  bool get selectedDesktopSupportsMouse {
+    final host = companion.activeHost.value;
+    return host != null &&
+        _isAcceptedCompanionHost(host) &&
+        host.capabilities.contains('mouse-control-v1');
+  }
 
-  List<({String id, String name})> get switchableComputers {
-    final choices = <({String id, String name})>[];
+  bool get selectedDesktopMouseUnsupported =>
+      computerMode == ComputerMode.advanced && !selectedDesktopSupportsMouse;
+  String? get desktopPointerError => companion is CompanionPointerConnection
+      ? (companion as CompanionPointerConnection).pointerError.value
+      : null;
+
+  List<({String id, String name, String platform, String address})>
+  get switchableComputers {
+    final choices =
+        <({String id, String name, String platform, String address})>[];
     for (final host
         in desktopComputerChoices?.value ?? const <CompanionComputerChoice>[]) {
-      choices.add((id: 'desktop:${host.id}', name: host.name));
+      choices.add((
+        id: 'desktop:${host.id}',
+        name: host.name,
+        platform: host.platform,
+        address: host.address,
+      ));
     }
     choices.sort((a, b) {
       final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -129,7 +153,7 @@ class AppController extends ChangeNotifier {
 
   Future<bool> switchComputer(String choiceId) async {
     if (_computerSwitchPendingId != null) return false;
-    ({String id, String name})? target;
+    ({String id, String name, String platform, String address})? target;
     for (final choice in switchableComputers) {
       if (choice.id == choiceId) target = choice;
     }
@@ -137,6 +161,9 @@ class AppController extends ChangeNotifier {
     final epoch = ++_computerSwitchEpoch;
     _computerSwitchPendingId = choiceId;
     _computerSwitchError = null;
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).discardPendingPointerInputs();
+    }
     notifyListeners();
     try {
       await prepareForContextChange();
@@ -177,6 +204,9 @@ class AppController extends ChangeNotifier {
     ++_computerSwitchEpoch;
     _computerSwitchPendingId = null;
     _pinnedDesktopChoiceId = null;
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).discardPendingPointerInputs();
+    }
     notifyListeners();
     await prepareForContextChange();
     if (companion is SwitchableCompanionConnection) {
@@ -1159,11 +1189,21 @@ class AppController extends ChangeNotifier {
 
   void sendTouchpadMove(double deltaX, double deltaY) {
     if (_computerSwitchPendingId != null) return;
-    if (_pinnedDesktopChoiceId != null) return;
     const sensitivity = 1.65;
     final x = (deltaX * sensitivity).round().clamp(-127, 127);
     final y = (deltaY * sensitivity).round().clamp(-127, 127);
     if (x == 0 && y == 0) return;
+    if (_useDesktopPointer) {
+      unawaited(
+        (companion as CompanionPointerConnection).sendPointerInputs([
+          PointerInput.move(x, y),
+        ]),
+      );
+      return;
+    }
+    if (_pinnedDesktopChoiceId != null || computerMode == ComputerMode.advanced) {
+      return;
+    }
     unawaited(
       hid.sendPress(HidAction(type: ActionType.mouseMove, value: '$x,$y')),
     );
@@ -1171,9 +1211,19 @@ class AppController extends ChangeNotifier {
 
   void sendMouseClick({required bool secondary}) {
     if (_computerSwitchPendingId != null) return;
-    if (_pinnedDesktopChoiceId != null) return;
     if (config.preferences.hapticEnabled) {
       unawaited(HapticFeedback.selectionClick());
+    }
+    if (_useDesktopPointer) {
+      unawaited(
+        (companion as CompanionPointerConnection).sendPointerInputs([
+          PointerInput.button(secondary: secondary),
+        ]),
+      );
+      return;
+    }
+    if (_pinnedDesktopChoiceId != null || computerMode == ComputerMode.advanced) {
+      return;
     }
     unawaited(
       hid.sendStep(
@@ -1190,18 +1240,35 @@ class AppController extends ChangeNotifier {
   void sendSecondaryMouseClick() => sendMouseClick(secondary: true);
 
   void sendTouchpadScroll(double deltaY) {
+    if (_computerSwitchPendingId != null) return;
     const pixelsPerWheelStep = 12.0;
     _touchpadScrollAccumulator += deltaY;
     final steps = (_touchpadScrollAccumulator / pixelsPerWheelStep).truncate();
     if (steps == 0) return;
     _touchpadScrollAccumulator -= steps * pixelsPerWheelStep;
     final wheelDelta = (-steps).clamp(-127, 127);
+    if (_useDesktopPointer) {
+      unawaited(
+        (companion as CompanionPointerConnection).sendPointerInputs([
+          PointerInput.scroll(wheelDelta),
+        ]),
+      );
+      return;
+    }
+    if (_pinnedDesktopChoiceId != null || computerMode == ComputerMode.advanced) {
+      return;
+    }
     unawaited(
       hid.sendStep(
         HidAction(type: ActionType.mouseWheel, value: '$wheelDelta'),
       ),
     );
   }
+
+  bool get _useDesktopPointer =>
+      computerMode == ComputerMode.advanced &&
+      selectedDesktopSupportsMouse &&
+      companion is CompanionPointerConnection;
 
   HidAction _resolveShortcutAction(HidAction action) {
     if (action.type != ActionType.keyboard) return action;
@@ -1993,6 +2060,11 @@ class AppController extends ChangeNotifier {
     companion.manifest.removeListener(_handleCompanionManifestChanged);
     companion.syncStatus.removeListener(_handleCompanionManifestChanged);
     companion.errorMessage.removeListener(_handleCompanionManifestChanged);
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).pointerError.removeListener(
+        notifyListeners,
+      );
+    }
     desktopComputerChoices?.removeListener(notifyListeners);
     powerBrightnessService.isPluggedIn.removeListener(_handlePowerChanged);
     hid.dispose();

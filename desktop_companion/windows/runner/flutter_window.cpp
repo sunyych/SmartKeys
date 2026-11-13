@@ -31,6 +31,60 @@ bool ModifierHeld() {
          (GetAsyncKeyState(VK_RWIN) & 0x8000);
 }
 
+EncodableValue ApplyPointerInputs(const EncodableMap* arguments) {
+  if (!arguments) return EncodableValue(false);
+  const auto found = arguments->find(EncodableValue("inputs"));
+  if (found == arguments->end()) return EncodableValue(false);
+  const auto* inputs = std::get_if<flutter::EncodableList>(&found->second);
+  if (!inputs || inputs->empty() || inputs->size() > 32) return EncodableValue(false);
+  std::vector<INPUT> events;
+  for (const auto& value : *inputs) {
+    const auto* item = std::get_if<EncodableMap>(&value);
+    if (!item) return EncodableValue(false);
+    const auto kindIt = item->find(EncodableValue("kind"));
+    if (kindIt == item->end()) return EncodableValue(false);
+    const auto* kind = std::get_if<std::string>(&kindIt->second);
+    if (!kind) return EncodableValue(false);
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    if (*kind == "move" || *kind == "scroll") {
+      const auto yIt = item->find(EncodableValue("y"));
+      if (yIt == item->end()) return EncodableValue(false);
+      const auto* y = std::get_if<int32_t>(&yIt->second);
+      if (!y || *y < -127 || *y > 127) return EncodableValue(false);
+      if (*kind == "move") {
+        const auto xIt = item->find(EncodableValue("x"));
+        if (xIt == item->end()) return EncodableValue(false);
+        const auto* x = std::get_if<int32_t>(&xIt->second);
+        if (!x || *x < -127 || *x > 127) return EncodableValue(false);
+        input.mi.dx = *x;
+        input.mi.dy = *y;
+        input.mi.dwFlags = MOUSEEVENTF_MOVE;
+        events.push_back(input);
+      } else {
+        input.mi.mouseData = static_cast<DWORD>(*y * WHEEL_DELTA);
+        input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+        events.push_back(input);
+      }
+    } else if (*kind == "button") {
+      const auto secondaryIt = item->find(EncodableValue("secondary"));
+      if (secondaryIt == item->end()) return EncodableValue(false);
+      const auto* secondary = std::get_if<bool>(&secondaryIt->second);
+      if (!secondary) return EncodableValue(false);
+      INPUT down{};
+      down.type = INPUT_MOUSE;
+      down.mi.dwFlags = *secondary ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN;
+      INPUT up = down;
+      up.mi.dwFlags = *secondary ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP;
+      events.push_back(down);
+      events.push_back(up);
+    } else {
+      return EncodableValue(false);
+    }
+  }
+  return EncodableValue(SendInput(static_cast<UINT>(events.size()), events.data(), sizeof(INPUT)) == events.size());
+}
+
 std::wstring ForegroundExecutable(HWND target) {
   DWORD process = 0;
   GetWindowThreadProcessId(target, &process);
@@ -241,6 +295,25 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  pointer_channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "lumiakeys/pointer",
+      &flutter::StandardMethodCodec::GetInstance());
+  pointer_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
+        if (call.method_name() != "apply") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* args = std::get_if<EncodableMap>(call.arguments());
+        const auto applied = ApplyPointerInputs(args);
+        if (const auto* success = std::get_if<bool>(&applied); success && *success) {
+          result->Success();
+        } else {
+          result->Error("pointer_rejected", "Pointer input was rejected", nullptr);
+        }
+      });
+
   vibe_system_channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
       flutter_controller_->engine()->messenger(), "lumiakeys/vibe_system_tools",
       &flutter::StandardMethodCodec::GetInstance());
@@ -266,6 +339,7 @@ void FlutterWindow::OnDestroy() {
   if (toggle_hotkey_registered_) UnregisterHotKey(GetHandle(), kToggleHotkeyId);
   toggle_hotkey_registered_ = false;
   dictation_channel_.reset();
+  pointer_channel_.reset();
   vibe_system_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;

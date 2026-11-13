@@ -11,6 +11,13 @@ class _NoopDiscovery implements ApplicationDiscovery {
       apps;
 }
 
+class _RecordingPointerInput implements DesktopPointerInput {
+  final List<PointerInput> inputs = [];
+
+  @override
+  Future<void> apply(List<PointerInput> values) async => inputs.addAll(values);
+}
+
 void main() {
   test(
     'server publishes manifest and accepts identifier-only profile action',
@@ -92,4 +99,63 @@ void main() {
       expect(response.statusCode, HttpStatus.forbidden);
     },
   );
+
+  test('pointer endpoint authenticates, validates, and preserves event order', () async {
+    if (!Platform.isWindows && !Platform.isMacOS) return;
+    final pointer = _RecordingPointerInput();
+    final controller = DesktopController(
+      store: MemoryDesktopConfigStore(),
+      discovery: _NoopDiscovery(),
+      actions: DesktopActions(pointerInput: pointer),
+    );
+    await controller.initialize();
+    final server = CompanionServer(controller: controller, discoveryPort: 45841);
+    addTearDown(server.dispose);
+    await server.start();
+
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    Future<HttpClientResponse> postPointer(Object body, {String? token}) async {
+      final request = await client.post(
+        InternetAddress.loopbackIPv4.address,
+        server.actionPort!,
+        '/pointer',
+      );
+      request.headers.contentType = ContentType.json;
+      if (token != null) request.headers.set('x-lumiakeys-token', token);
+      request.write(jsonEncode(body));
+      return request.close();
+    }
+
+    final unauthorized = await postPointer({'inputs': []});
+    await unauthorized.drain<void>();
+    expect(unauthorized.statusCode, HttpStatus.forbidden);
+
+    final invalid = await postPointer(
+      {'inputs': [{'kind': 'move', 'x': 1000, 'y': 0}]},
+      token: server.token,
+    );
+    await invalid.drain<void>();
+    expect(invalid.statusCode, HttpStatus.badRequest);
+    expect(pointer.inputs, isEmpty);
+
+    final accepted = await postPointer(
+      {
+        'inputs': [
+          const PointerInput.move(7, -2).toJson(),
+          const PointerInput.button(secondary: true).toJson(),
+          const PointerInput.scroll(3).toJson(),
+        ],
+      },
+      token: server.token,
+    );
+    await accepted.drain<void>();
+    expect(accepted.statusCode, HttpStatus.ok);
+    expect(pointer.inputs.map((input) => input.kind), [
+      PointerInputKind.move,
+      PointerInputKind.button,
+      PointerInputKind.scroll,
+    ]);
+    expect(pointer.inputs[1].secondary, isTrue);
+  });
 }

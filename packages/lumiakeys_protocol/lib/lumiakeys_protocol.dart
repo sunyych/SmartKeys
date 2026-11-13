@@ -14,6 +14,56 @@ enum RemoteLayoutKind { keyboard, application, codex }
 
 enum RemoteActionKind { button, launchApplication, switchProfile }
 
+enum PointerInputKind { move, scroll, button }
+
+class PointerInput {
+  const PointerInput.move(this.x, this.y)
+    : kind = PointerInputKind.move, secondary = null;
+  const PointerInput.scroll(this.y)
+    : kind = PointerInputKind.scroll, x = 0, secondary = null;
+  const PointerInput.button({required this.secondary})
+    : kind = PointerInputKind.button, x = 0, y = 0;
+
+  final PointerInputKind kind;
+  final int x;
+  final int y;
+  final bool? secondary;
+
+  Map<String, Object?> toJson() => {
+    'kind': kind.name,
+    if (kind == PointerInputKind.move) 'x': x,
+    if (kind != PointerInputKind.button) 'y': y,
+    if (kind == PointerInputKind.button) 'secondary': secondary,
+  };
+
+  factory PointerInput.fromJson(Map<String, Object?> json) {
+    final kind = PointerInputKind.values.firstWhere(
+      (value) => value.name == json['kind'],
+      orElse: () => throw const FormatException('Unsupported pointer input'),
+    );
+    final x = json['x'];
+    final y = json['y'];
+    final secondary = json['secondary'];
+    switch (kind) {
+      case PointerInputKind.move:
+        if (x is! int || y is! int || x.abs() > 127 || y.abs() > 127) {
+          throw const FormatException('Invalid pointer movement');
+        }
+        return PointerInput.move(x, y);
+      case PointerInputKind.scroll:
+        if (y is! int || y == 0 || y.abs() > 127) {
+          throw const FormatException('Invalid pointer scroll');
+        }
+        return PointerInput.scroll(y);
+      case PointerInputKind.button:
+        if (secondary is! bool) {
+          throw const FormatException('Invalid pointer button');
+        }
+        return PointerInput.button(secondary: secondary);
+    }
+  }
+}
+
 class RemoteShortcutButton {
   const RemoteShortcutButton({
     required this.id,

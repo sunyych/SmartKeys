@@ -75,7 +75,7 @@ void main() {
     expect(find.text('Edit buttons'), findsOneWidget);
     await tester.tap(find.text('Edit buttons'));
     await tester.pumpAndSettle();
-    expect(find.text('Editing'), findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-navigation-control')), findsOneWidget);
     await shots.capture(
       id: 'phone-home-editing',
       title: 'Home control surface · editing',

@@ -954,6 +954,9 @@ class DesktopController extends ChangeNotifier {
   Future<void> executeLegacy(Map<String, Object?> request) =>
       actions.executeLegacy(request);
 
+  Future<void> applyPointerInputs(List<PointerInput> inputs) =>
+      actions.applyPointerInputs(inputs);
+
   Future<void> _commit(DesktopManifest next) async {
     final revised = next.copyWith(revision: _manifest.revision + 1);
     revised.validate();

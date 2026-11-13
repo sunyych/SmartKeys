@@ -17,13 +17,15 @@ void main() {
         ..choices.value = const [
           CompanionComputerChoice(
             id: 'desktop-b',
-            name: 'Beta workstation',
+            name: 'Studio Mac',
             platform: 'windows',
+            address: '192.168.1.20',
           ),
           CompanionComputerChoice(
             id: 'desktop-a',
-            name: 'Alpha workstation',
+            name: 'Studio Mac',
             platform: 'macos',
+            address: '192.168.1.21',
           ),
         ];
       final hid = RecordingHidService()
@@ -49,18 +51,18 @@ void main() {
       expect(find.text('KVM'), findsOneWidget);
       expect(
         find.byTooltip(
-          'Choose a Desktop computer. Current: Alpha workstation.',
+          'Choose a Desktop computer. Current: Studio Mac · macos · 192.168.1.21.',
         ),
         findsOneWidget,
       );
 
       await tester.tap(find.byKey(const ValueKey('computer-kvm-switch')));
       await tester.pumpAndSettle();
-      expect(find.text('Alpha workstation'), findsOneWidget);
-      expect(find.text('Beta workstation'), findsOneWidget);
+      expect(find.text('Studio Mac · macos · 192.168.1.21'), findsOneWidget);
+      expect(find.text('Studio Mac · windows · 192.168.1.20'), findsOneWidget);
       expect(find.text('Windows PC'), findsNothing);
       expect(find.text('Wireless Headphones'), findsNothing);
-      await tester.tap(find.text('Beta workstation'));
+      await tester.tap(find.text('Studio Mac · windows · 192.168.1.20'));
       await tester.pumpAndSettle();
       expect(companion.selections, ['desktop-b']);
 

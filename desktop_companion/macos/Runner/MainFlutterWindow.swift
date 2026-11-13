@@ -6,6 +6,7 @@ import Carbon
 class MainFlutterWindow: NSWindow {
   private var systemControlChannel: FlutterMethodChannel?
   private var dictationChannel: FlutterMethodChannel?
+  private var pointerChannel: FlutterMethodChannel?
   private var vibeSystemChannel: FlutterMethodChannel?
   private var hotKey: EventHotKeyRef?
   private var eventHandler: EventHandlerRef?
@@ -87,6 +88,76 @@ class MainFlutterWindow: NSWindow {
       }
     }
     dictationChannel = dictation
+
+    let pointer = FlutterMethodChannel(
+      name: "lumiakeys/pointer",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    pointer.setMethodCallHandler { call, result in
+      guard call.method == "apply",
+            let arguments = call.arguments as? [String: Any],
+            let inputs = arguments["inputs"] as? [[String: Any]],
+            !inputs.isEmpty, inputs.count <= 32 else {
+        result(FlutterError(code: "pointer_rejected", message: "Invalid pointer batch", details: nil))
+        return
+      }
+      guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else {
+        result(FlutterError(code: "pointer_permission_missing", message: "Allow LumiaKey Desktop in macOS Accessibility settings", details: nil))
+        return
+      }
+      for input in inputs {
+        guard let kind = input["kind"] as? String else {
+          result(FlutterError(code: "pointer_rejected", message: "Invalid pointer input", details: nil))
+          return
+        }
+        switch kind {
+        case "move":
+          guard let x = input["x"] as? Int, let y = input["y"] as? Int,
+                (-127...127).contains(x), (-127...127).contains(y),
+                let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                                    mouseCursorPosition: CGEvent(source: nil)?.location ?? .zero,
+                                    mouseButton: .left) else {
+            result(FlutterError(code: "pointer_rejected", message: "Invalid movement", details: nil))
+            return
+          }
+          event.setIntegerValueField(.mouseEventDeltaX, value: Int64(x))
+          event.setIntegerValueField(.mouseEventDeltaY, value: Int64(y))
+          event.post(tap: .cghidEventTap)
+        case "scroll":
+          guard let y = input["y"] as? Int, y != 0, (-127...127).contains(y),
+                let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                                    wheelCount: 1, wheel1: Int32(y * 10),
+                                    wheel2: 0, wheel3: 0) else {
+            result(FlutterError(code: "pointer_rejected", message: "Invalid scroll", details: nil))
+            return
+          }
+          event.post(tap: .cghidEventTap)
+        case "button":
+          guard let secondary = input["secondary"] as? Bool else {
+            result(FlutterError(code: "pointer_rejected", message: "Invalid button", details: nil))
+            return
+          }
+          let button: CGMouseButton = secondary ? .right : .left
+          let down: CGEventType = secondary ? .rightMouseDown : .leftMouseDown
+          let up: CGEventType = secondary ? .rightMouseUp : .leftMouseUp
+          let location = CGEvent(source: nil)?.location ?? .zero
+          guard let downEvent = CGEvent(mouseEventSource: nil, mouseType: down,
+                                        mouseCursorPosition: location, mouseButton: button),
+                let upEvent = CGEvent(mouseEventSource: nil, mouseType: up,
+                                      mouseCursorPosition: location, mouseButton: button) else {
+            result(FlutterError(code: "pointer_rejected", message: "Could not create button event", details: nil))
+            return
+          }
+          downEvent.post(tap: .cghidEventTap)
+          upEvent.post(tap: .cghidEventTap)
+        default:
+          result(FlutterError(code: "pointer_rejected", message: "Unsupported pointer input", details: nil))
+          return
+        }
+      }
+      result(nil)
+    }
+    pointerChannel = pointer
 
     let vibeSystem = FlutterMethodChannel(
       name: "lumiakeys/vibe_system_tools",

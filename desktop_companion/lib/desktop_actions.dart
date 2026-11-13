@@ -9,6 +9,24 @@ abstract interface class MacSystemControl {
   Future<void> setDark(bool enabled);
 }
 
+abstract interface class DesktopPointerInput {
+  Future<void> apply(List<PointerInput> inputs);
+}
+
+class MethodChannelDesktopPointerInput implements DesktopPointerInput {
+  const MethodChannelDesktopPointerInput({
+    this.channel = const MethodChannel('lumiakeys/pointer'),
+  });
+
+  final MethodChannel channel;
+
+  @override
+  Future<void> apply(List<PointerInput> inputs) => channel.invokeMethod<void>(
+    'apply',
+    {'inputs': inputs.map((input) => input.toJson()).toList(growable: false)},
+  );
+}
+
 class MethodChannelMacSystemControl implements MacSystemControl {
   const MethodChannelMacSystemControl({
     this.channel = const MethodChannel('lumiakeys/system_control'),
@@ -42,16 +60,22 @@ class DesktopActions {
   DesktopActions({
     DesktopProcessRunner? runner,
     MacSystemControl? macSystemControl,
+    DesktopPointerInput? pointerInput,
     VibeSystemTools? vibeSystemTools,
   }) : runner = runner ?? const SystemDesktopProcessRunner(),
        macSystemControl =
            macSystemControl ?? const MethodChannelMacSystemControl(),
+       pointerInput = pointerInput ?? const MethodChannelDesktopPointerInput(),
        vibeSystemTools = vibeSystemTools ?? VibeSystemTools();
 
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;
+  final DesktopPointerInput pointerInput;
   final VibeSystemTools vibeSystemTools;
   int? _windowsBrightnessBeforeDark;
+
+  Future<void> applyPointerInputs(List<PointerInput> inputs) =>
+      pointerInput.apply(inputs);
   Future<bool> Function()? confirmVoiceInputFirstUse;
 
   static final Set<String> allowedKeys = {

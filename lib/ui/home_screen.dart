@@ -479,36 +479,44 @@ class _HomeScreenState extends State<HomeScreen> {
                       _ComputerApplicationBar(
                         controller: controller,
                         applications: availableApps,
+                        reservedRightInset: 126,
+                        profiles: effectiveTab == _HomeTab.keyboard
+                            ? visibleProfiles
+                            : const [],
+                        activeProfileId: controller.activeProfile.id,
                         selectedApplicationId: effectiveApplication?.id,
                         onSelectApplication: selectApplication,
+                        onSelectProfile: (id) async {
+                          await selectTab(_HomeTab.keyboard);
+                          await controller.switchProfile(id);
+                        },
                         onSelectKeyboard: () => selectTab(_HomeTab.keyboard),
-                        onManage: editComputerSetup,
+                        onTouchpad: isDesktopVibeWorkspace
+                            ? () => _showDesktopTouchpad(context, controller)
+                            : null,
                       ),
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(10, 10, 190, 6),
-                      child: Row(
-                        children: [
-                          if (!showComputerAppBar) ...[
+                    if (!showComputerAppBar)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 5, 190, 5),
+                        child: Row(
+                          children: [
                             ComputerSwitcher(
                               controller: controller,
                               compact: true,
+                              iconOnly: true,
                             ),
                             const SizedBox(width: 4),
+                            Expanded(
+                              child: _HomeTabBar(
+                                controller: controller,
+                                profiles: visibleProfiles,
+                                activeProfileId: controller.activeProfile.id,
+                                onSelectTab: selectTab,
+                              ),
+                            ),
                           ],
-                          Expanded(
-                            child: effectiveTab == _HomeTab.keyboard
-                                ? _HomeTabBar(
-                                    controller: controller,
-                                    profiles: visibleProfiles,
-                                    activeProfileId:
-                                        controller.activeProfile.id,
-                                    onSelectTab: selectTab,
-                                  )
-                                : const SizedBox(height: 34),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
                     const Divider(height: 1),
                     Expanded(
                       child: ValueListenableBuilder<String?>(
@@ -567,12 +575,14 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               if (iOSGateContent == null && !showFirstSetup)
                 Positioned(
-                  top: showComputerAppBar ? 47 : 7,
+                  top: 4,
                   right: 10,
                   child: _CompactControlMenu(
                     controller: controller,
                     editing: editing,
                     inApplicationWorkspace: effectiveTab != _HomeTab.keyboard,
+                    compactToolbar: showComputerAppBar,
+                    onManage: editComputerSetup,
                     onToggleEditing: () => setState(() => editing = !editing),
                   ),
                 ),
@@ -590,8 +600,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             foreground?.id == selectedVibeApplicationId &&
                             _pendingDesktopActivationApplicationId !=
                                 selectedVibeApplicationId,
-                    rightInset: effectiveTab == _HomeTab.keyboard ? 142 : 82,
-                    topOffset: showComputerAppBar ? 47 : 7,
+                    rightInset: showComputerAppBar
+                        ? 82
+                        : effectiveTab == _HomeTab.keyboard
+                        ? 142
+                        : 82,
+                    topOffset: 4,
                     companion: controller.companion,
                     modelManager: widget.dictationModelManager,
                     capture: widget.dictationCapture,
@@ -601,6 +615,87 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDesktopTouchpad(
+    BuildContext context,
+    AppController controller,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: false,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * .76,
+        width: double.infinity,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: controller.selectedDesktopSupportsMouse
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 40),
+                          child: MouseTouchpad(
+                            config: controller.activeProfile.wheel,
+                            inputEpoch: controller.inputEpoch,
+                            onMove: (delta) =>
+                                controller.sendTouchpadMove(delta.dx, delta.dy),
+                            onScroll: controller.sendTouchpadScroll,
+                            onPrimaryTap: controller.sendPrimaryMouseClick,
+                            onSecondaryTap: controller.sendSecondaryMouseClick,
+                          ),
+                        )
+                      : Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text(
+                              controller.selectedDesktopMouseUnsupported
+                                  ? 'This LumiaKey Desktop version does not provide mouse control. Update Desktop, then reconnect.'
+                                  : 'Choose a connected LumiaKey Desktop computer to use pointer controls.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                ),
+                Align(
+                  alignment: Alignment.topRight,
+                  child: IconButton(
+                    tooltip: 'Close pointer controls',
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                ListenableBuilder(
+                  listenable: controller,
+                  builder: (context, _) {
+                    final error = controller.desktopPointerError;
+                    if (error == null || error.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Card(
+                        key: const ValueKey('desktop-pointer-error'),
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Text(
+                            '$error\nCheck LumiaKey Desktop permissions and connection, then try again.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1015,62 +1110,107 @@ class _ComputerApplicationBar extends StatelessWidget {
   const _ComputerApplicationBar({
     required this.controller,
     required this.applications,
+    required this.reservedRightInset,
+    required this.profiles,
+    required this.activeProfileId,
     required this.selectedApplicationId,
     required this.onSelectApplication,
+    required this.onSelectProfile,
     required this.onSelectKeyboard,
-    required this.onManage,
+    this.onTouchpad,
   });
 
   final AppController controller;
   final List<ComputerApplication> applications;
+  final double reservedRightInset;
+  final List<ProfileConfig> profiles;
+  final String activeProfileId;
   final String? selectedApplicationId;
   final ValueChanged<ComputerApplication> onSelectApplication;
+  final ValueChanged<String> onSelectProfile;
   final VoidCallback onSelectKeyboard;
-  final VoidCallback onManage;
+  final VoidCallback? onTouchpad;
 
   @override
   Widget build(BuildContext context) => SizedBox(
     key: const ValueKey('computer-app-row'),
-    height: 42,
-    child: Row(
-      children: [
-        if (selectedApplicationId != null)
-          IconButton(
-            key: const ValueKey('home-tab-keyboard'),
-            tooltip: 'Keyboard shortcuts',
-            visualDensity: VisualDensity.compact,
-            onPressed: onSelectKeyboard,
-            icon: const Icon(Icons.keyboard_alt_outlined),
+    height: 46,
+    child: Padding(
+      padding: EdgeInsets.only(right: reservedRightInset),
+      child: Row(
+        children: [
+          if (selectedApplicationId != null)
+            IconButton(
+              key: const ValueKey('home-tab-keyboard'),
+              tooltip: 'Keyboard shortcuts',
+              visualDensity: VisualDensity.compact,
+              onPressed: onSelectKeyboard,
+              icon: const Icon(Icons.keyboard_alt_outlined),
+            ),
+          Expanded(
+            child: KeyedSubtree(
+              key: profiles.isEmpty
+                  ? const ValueKey('computer-app-tab-strip')
+                  : const ValueKey('profile-quick-switch-bar'),
+              child: ListView.separated(
+                key: const ValueKey('computer-app-scroll-list'),
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                itemCount: applications.length + profiles.length,
+                separatorBuilder: (_, index) =>
+                    index == applications.length - 1 && profiles.isNotEmpty
+                    ? const SizedBox(
+                        width: 12,
+                        height: 22,
+                        child: VerticalDivider(width: 1),
+                      )
+                    : const SizedBox(width: 6),
+                itemBuilder: (context, index) {
+                  if (index >= applications.length) {
+                    final profile = profiles[index - applications.length];
+                    return _HomeTabChip(
+                      key: ValueKey('profile-quick-${profile.id}'),
+                      label: profile.name,
+                      icon: Icon(
+                        BuiltinIconCatalog.find(
+                              profile.profileIcon.value,
+                            )?.icon ??
+                            Icons.dashboard_outlined,
+                      ),
+                      selected: profile.id == activeProfileId,
+                      onTap: () => onSelectProfile(profile.id),
+                    );
+                  }
+                  final application = applications[index];
+                  final remote = computerApplicationById(application.id);
+                  final selected = application.id == selectedApplicationId;
+                  final icon = _computerApplicationIcon(application.id);
+                  return _HomeTabChip(
+                    key: ValueKey('workspace-app-${application.id}'),
+                    label: remote?.name ?? application.name,
+                    icon: Icon(icon),
+                    selected: selected,
+                    onTap: () => onSelectApplication(application),
+                  );
+                },
+              ),
+            ),
           ),
-        Expanded(
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            itemCount: applications.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 6),
-            itemBuilder: (context, index) {
-              final application = applications[index];
-              final remote = computerApplicationById(application.id);
-              final selected = application.id == selectedApplicationId;
-              final icon = _computerApplicationIcon(application.id);
-              return _HomeTabChip(
-                key: ValueKey('workspace-app-${application.id}'),
-                label: remote?.name ?? application.name,
-                icon: Icon(icon),
-                selected: selected,
-                onTap: () => onSelectApplication(application),
-              );
-            },
+          ComputerSwitcher(
+            controller: controller,
+            compact: true,
+            iconOnly: true,
           ),
-        ),
-        ComputerSwitcher(controller: controller, compact: true),
-        IconButton(
-          key: const ValueKey('computer-app-manage'),
-          tooltip: 'Choose computer apps and set up shortcuts',
-          onPressed: onManage,
-          icon: const Icon(Icons.tune),
-        ),
-      ],
+          if (onTouchpad != null)
+            IconButton(
+              key: const ValueKey('vibe-touchpad-toggle'),
+              tooltip: 'Open pointer controls',
+              onPressed: onTouchpad,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.mouse_outlined, size: 20),
+            ),
+        ],
+      ),
     ),
   );
 }
@@ -1120,7 +1260,7 @@ class _HomeTabChip extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 13),
+            padding: const EdgeInsets.symmetric(horizontal: 9),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1298,7 +1438,7 @@ class _RemoteButtonGrid extends StatelessWidget {
                         : null,
                     child: LayoutBuilder(
                       builder: (context, cellConstraints) {
-                        final compact = cellConstraints.maxHeight < 64;
+                        final compact = cellConstraints.maxHeight < 82;
                         final title = appVoiceInput
                             ? 'App voice input'
                             : button.name;
@@ -1629,14 +1769,21 @@ class _WheelPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final wheel = controller.activeProfile.wheel;
     final isTouchpad = wheel.controlType == WheelControlType.mousePad;
-    final desktopKeyboardOnly = controller.hid is IosCompanionHidService;
+    final desktopKeyboardOnly =
+        controller.selectedDesktopMouseUnsupported ||
+        (controller.hid is IosCompanionHidService &&
+            !controller.selectedDesktopSupportsMouse);
     final panel = Stack(
       fit: StackFit.expand,
       children: [
         AbsorbPointer(
           absorbing: editing,
           child: isTouchpad && desktopKeyboardOnly
-              ? const _DesktopKeyboardOnlyHint()
+              ? _DesktopKeyboardOnlyHint(
+                  message: controller.selectedDesktopMouseUnsupported
+                      ? 'This LumiaKey Desktop version does not provide mouse control. Update Desktop, then reconnect.'
+                      : 'Mouse controls are unavailable on iPad. Connect to LumiaKey Desktop to use keyboard shortcuts.',
+                )
               : isTouchpad
               ? MouseTouchpad(
                   config: wheel,
@@ -1689,7 +1836,14 @@ class _WheelPanel extends StatelessWidget {
   }
 
   void _sendMouseClick(BuildContext context, {required bool secondary}) {
-    if (controller.hid is IosCompanionHidService) return;
+    if (controller.selectedDesktopSupportsMouse) {
+      controller.sendMouseClick(secondary: secondary);
+      return;
+    }
+    if (controller.selectedDesktopMouseUnsupported ||
+        controller.hid is IosCompanionHidService) {
+      return;
+    }
     if (controller.hid.connectionStatus.value !=
         HidConnectionStatus.connected) {
       showBluetoothConnectionSheet(
@@ -1704,23 +1858,22 @@ class _WheelPanel extends StatelessWidget {
 }
 
 class _DesktopKeyboardOnlyHint extends StatelessWidget {
-  const _DesktopKeyboardOnlyHint();
+  const _DesktopKeyboardOnlyHint({required this.message});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) => Center(
     child: Card(
       key: const ValueKey('desktop-keyboard-only-hint'),
-      child: const Padding(
-        padding: EdgeInsets.all(20),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.desktop_windows_outlined, size: 28),
-            SizedBox(height: 10),
-            Text(
-              'Mouse controls are unavailable on iPad. Connect to LumiaKey Desktop to use keyboard shortcuts.',
-              textAlign: TextAlign.center,
-            ),
+            const Icon(Icons.desktop_windows_outlined, size: 28),
+            const SizedBox(height: 10),
+            Text(message, textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -1730,6 +1883,7 @@ class _DesktopKeyboardOnlyHint extends StatelessWidget {
 
 enum _ControlMenuAction {
   profiles,
+  computerSetup,
   bluetooth,
   desktopConnection,
   importExport,
@@ -1742,12 +1896,16 @@ class _CompactControlMenu extends StatelessWidget {
     required this.controller,
     required this.editing,
     required this.inApplicationWorkspace,
+    this.compactToolbar = false,
+    this.onManage,
     required this.onToggleEditing,
   });
 
   final AppController controller;
   final bool editing;
   final bool inApplicationWorkspace;
+  final bool compactToolbar;
+  final VoidCallback? onManage;
   final VoidCallback onToggleEditing;
 
   @override
@@ -1765,7 +1923,7 @@ class _CompactControlMenu extends StatelessWidget {
             status,
           );
           return SizedBox(
-            width: inApplicationWorkspace ? 64 : 124,
+            width: compactToolbar || inApplicationWorkspace ? 64 : 124,
             height: 40,
             child: PopupMenuButton<_ControlMenuAction>(
               key: const ValueKey('control-menu'),
@@ -1826,6 +1984,15 @@ class _CompactControlMenu extends StatelessWidget {
                       title: Text(editing ? 'Done editing' : 'Edit buttons'),
                     ),
                   ),
+                if (onManage != null)
+                  const PopupMenuItem(
+                    value: _ControlMenuAction.computerSetup,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.tune),
+                      title: Text('Choose apps and shortcuts'),
+                    ),
+                  ),
                 const PopupMenuItem(
                   value: _ControlMenuAction.importExport,
                   child: ListTile(
@@ -1862,7 +2029,7 @@ class _CompactControlMenu extends StatelessWidget {
                         size: 17,
                         color: display.color,
                       ),
-                      if (!inApplicationWorkspace) ...[
+                      if (!inApplicationWorkspace && !compactToolbar) ...[
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
@@ -1877,7 +2044,8 @@ class _CompactControlMenu extends StatelessWidget {
                           ),
                         ),
                       ],
-                      if (inApplicationWorkspace) const Spacer(),
+                      if (inApplicationWorkspace || compactToolbar)
+                        const Spacer(),
                       Tooltip(
                         message: switch (pluggedIn) {
                           true => 'External power connected',
@@ -1960,6 +2128,8 @@ class _CompactControlMenu extends StatelessWidget {
     switch (action) {
       case _ControlMenuAction.profiles:
         _showProfileSelector(context, controller);
+      case _ControlMenuAction.computerSetup:
+        onManage?.call();
       case _ControlMenuAction.bluetooth:
         showBluetoothConnectionSheet(
           context,

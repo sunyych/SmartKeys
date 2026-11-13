@@ -588,12 +588,16 @@ class _VibeShortcutButton extends StatelessWidget {
     final foreground = enabled
         ? Theme.of(context).colorScheme.onSurface
         : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.42);
+    final actionHelp = alternateHint;
+    final description = projectSetup
+        ? 'Project setup required · Desktop → Shortcut Layout → $projectLayoutName'
+        : button.description.isEmpty
+        ? button.name
+        : '${button.name} · ${button.description}';
     return Tooltip(
-      message: projectSetup
-          ? 'Project setup required · Desktop → Shortcut Layout → $projectLayoutName'
-          : button.description.isEmpty
-          ? button.name
-          : '${button.name} · ${button.description}',
+      message: actionHelp == null ? description : '$description · $actionHelp',
+      // Alternate actions stay discoverable without adding a second tiny hint
+      // line to every shortcut card.
       child: MouseRegion(
         onExit: onPointerStop == null ? null : (_) => onPointerStop!(),
         child: Listener(
@@ -617,7 +621,10 @@ class _VibeShortcutButton extends StatelessWidget {
                 key: ValueKey('vibe-button-${button.id}'),
                 onTap: onPressed,
                 child: Padding(
-                  padding: const EdgeInsets.all(7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 5,
+                  ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -627,8 +634,8 @@ class _VibeShortcutButton extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       else
-                        Icon(icon, size: 25, color: foreground),
-                      const SizedBox(height: 4),
+                        Icon(icon, size: 22, color: foreground),
+                      const SizedBox(height: 3),
                       Text(
                         projectSetup
                             ? 'Project setup'
@@ -652,18 +659,7 @@ class _VibeShortcutButton extends StatelessWidget {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: foreground.withValues(alpha: 0.68),
-                            fontSize: 9,
-                          ),
-                        ),
-                      if (alternateHint != null)
-                        Text(
-                          alternateHint!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: foreground.withValues(alpha: 0.58),
-                            fontSize: 8,
+                            fontSize: 10,
                           ),
                         ),
                     ],
@@ -703,7 +699,7 @@ class _VibeShortcutButton extends StatelessWidget {
       'play' => Icons.play_arrow,
       'mic' => Icons.mic,
       'code' => Icons.code,
-      _ => Icons.keyboard_alt_outlined,
+      _ => Icons.bolt_outlined,
     };
   }
 }

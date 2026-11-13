@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -38,7 +39,7 @@ class CompanionServer extends ChangeNotifier {
       ? 'windows'
       : 'linux';
 
-  List<String> get capabilities => const [
+  List<String> get capabilities => [
     'manifest',
     'apps',
     'codex',
@@ -46,6 +47,7 @@ class CompanionServer extends ChangeNotifier {
     'foreground-app',
     'app-activation',
     'local-dictation-v1',
+    if (Platform.isWindows || Platform.isMacOS) 'mouse-control-v1',
   ];
 
   late final DictationReceiver _dictationReceiver = DictationReceiver(
@@ -85,6 +87,7 @@ class CompanionServer extends ChangeNotifier {
         'version': 2,
         'name': Platform.localHostname,
         'platform': platform,
+        'computerId': controller.manifest.computerId,
         'port': http.port,
         'token': token,
         'revision': controller.manifest.revision,
@@ -105,6 +108,7 @@ class CompanionServer extends ChangeNotifier {
         jsonEncode({
           'name': Platform.localHostname,
           'platform': platform,
+          'computerId': controller.manifest.computerId,
           'version': 2,
           'capabilities': capabilities,
           'revision': controller.manifest.revision,
@@ -130,6 +134,55 @@ class CompanionServer extends ChangeNotifier {
       } catch (caught) {
         request.response.statusCode = HttpStatus.conflict;
         request.response.write(jsonEncode({'error': 'insertion_failed'}));
+      }
+      await request.response.close();
+      return;
+    }
+    if (request.method == 'POST' && request.uri.path == '/pointer') {
+      if ((!Platform.isWindows && !Platform.isMacOS) ||
+          !capabilities.contains('mouse-control-v1')) {
+        await _reject(
+          request,
+          HttpStatus.notImplemented,
+          'pointer unsupported',
+        );
+        return;
+      }
+      try {
+        final bytes = BytesBuilder(copy: false);
+        await for (final chunk in request.timeout(const Duration(seconds: 3))) {
+          if (bytes.length + chunk.length > 16 * 1024) {
+            throw const FormatException('pointer request too large');
+          }
+          bytes.add(chunk);
+        }
+        final raw = utf8.decode(bytes.takeBytes());
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map || decoded['inputs'] is! List) {
+          throw const FormatException('invalid pointer request');
+        }
+        final values = decoded['inputs'] as List;
+        if (values.isEmpty || values.length > 32) {
+          throw const FormatException('invalid pointer batch size');
+        }
+        final inputs = values
+            .map((value) {
+              if (value is! Map) {
+                throw const FormatException('invalid pointer input');
+              }
+              return PointerInput.fromJson(
+                value.map((key, value) => MapEntry(key.toString(), value)),
+              );
+            })
+            .toList(growable: false);
+        await controller.applyPointerInputs(inputs);
+        controller.recordConnectedPhone(
+          request.connectionInfo?.remoteAddress.address ?? 'Android phone',
+        );
+        request.response.write(jsonEncode({'ok': true}));
+      } catch (caught) {
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.write(jsonEncode({'error': '$caught'}));
       }
       await request.response.close();
       return;

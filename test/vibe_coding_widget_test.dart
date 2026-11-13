@@ -126,13 +126,35 @@ void main() {
       );
       await tester.pump();
       expect(find.byKey(const ValueKey('vibe-coding-title')), findsNothing);
-      expect(
-        find.byKey(const ValueKey('workspace-app-cursor')),
-        findsOneWidget,
+      final appStrip = find.byKey(const ValueKey('computer-app-scroll-list'));
+      final appScrollable = find.descendant(
+        of: appStrip,
+        matching: find.byType(Scrollable),
       );
+      final cursorChip = find.byKey(const ValueKey('workspace-app-cursor'));
+      await tester.scrollUntilVisible(
+        cursorChip,
+        120,
+        scrollable: appScrollable,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(cursorChip),
+        alignment: 0.5,
+      );
+      expect(cursorChip, findsOneWidget);
       expect(tester.takeException(), isNull);
 
-      await tester.tap(find.byKey(const ValueKey('workspace-app-claude')));
+      final claudeChip = find.byKey(const ValueKey('workspace-app-claude'));
+      await tester.scrollUntilVisible(
+        claudeChip,
+        120,
+        scrollable: appScrollable,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(claudeChip),
+        alignment: 0.5,
+      );
+      await tester.tap(claudeChip);
       await tester.pumpAndSettle();
       expect(harness.companion.remoteActions.last.applicationId, 'claude');
       expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);

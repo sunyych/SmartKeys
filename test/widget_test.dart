@@ -59,7 +59,7 @@ void main() {
       findsNothing,
     );
     expect(find.byKey(const ValueKey('status-mode-hid')), findsOneWidget);
-    expect(find.text('HID'), findsOneWidget);
+    expect(find.text('HID'), findsNothing);
     expect(find.byKey(const ValueKey('control-menu')), findsOneWidget);
     final statusRect = tester.getRect(
       find.byKey(const ValueKey('control-menu')),
@@ -67,7 +67,7 @@ void main() {
     final tabsRect = tester.getRect(
       find.byKey(const ValueKey('profile-quick-switch-bar')),
     );
-    expect(statusRect.top, lessThanOrEqualTo(tabsRect.top));
+    expect(statusRect.center.dy, closeTo(tabsRect.center.dy, 8));
     expect(390 - statusRect.right, lessThanOrEqualTo(10));
     await _openControlMenu(tester);
     expect(find.text('Import / export JSON'), findsOneWidget);
@@ -155,13 +155,19 @@ void main() {
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pump();
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('workspace-app-vscode')),
-    );
-    expect(find.byKey(const ValueKey('workspace-app-vscode')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workspace-app-codex')), findsOneWidget);
     expect(find.byKey(const ValueKey('computer-app-row')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('workspace-app-vscode')));
+    final appStrip = find.descendant(
+      of: find.byKey(const ValueKey('computer-app-row')),
+      matching: find.byKey(const ValueKey('computer-app-scroll-list')),
+    );
+    final appScrollable = find.descendant(
+      of: appStrip,
+      matching: find.byType(Scrollable),
+    );
+    final vscode = find.byKey(const ValueKey('workspace-app-vscode'));
+    await tester.scrollUntilVisible(vscode, 120, scrollable: appScrollable);
+    await Scrollable.ensureVisible(tester.element(vscode), alignment: 0.5);
+    await tester.tap(vscode);
     await tester.pumpAndSettle();
 
     expect(harness.companion.remoteActions.single.applicationId, 'vscode');
@@ -175,7 +181,10 @@ void main() {
     await tester.pump();
     expect(harness.companion.remoteActions.last.buttonId, 'vscode.save');
 
-    await tester.tap(find.byKey(const ValueKey('workspace-app-codex')));
+    final codex = find.byKey(const ValueKey('workspace-app-codex'));
+    await tester.scrollUntilVisible(codex, 120, scrollable: appScrollable);
+    await Scrollable.ensureVisible(tester.element(codex), alignment: 0.5);
+    await tester.tap(codex);
     await tester.pumpAndSettle();
     expect(harness.companion.remoteActions.last.applicationId, 'codex');
     expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);

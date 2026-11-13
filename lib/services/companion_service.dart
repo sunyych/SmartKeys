@@ -37,6 +37,7 @@ class CompanionHost {
     required this.address,
     required this.port,
     required this.token,
+    this.computerId,
     this.protocolVersion = 1,
     this.revision = 0,
     this.capabilities = const {},
@@ -47,6 +48,7 @@ class CompanionHost {
   final String address;
   final int port;
   final String token;
+  final String? computerId;
   final int protocolVersion;
   final int revision;
   final Set<String> capabilities;
@@ -63,6 +65,7 @@ class CompanionHost {
       other.address == address &&
       other.port == port &&
       other.token == token &&
+      other.computerId == computerId &&
       other.protocolVersion == protocolVersion &&
       other.revision == revision &&
       other.capabilities.length == capabilities.length &&
@@ -75,6 +78,7 @@ class CompanionHost {
     address,
     port,
     token,
+    computerId,
     protocolVersion,
     revision,
     Object.hashAll(capabilities.toList()..sort()),
@@ -89,11 +93,13 @@ class CompanionComputerChoice {
     required this.id,
     required this.name,
     required this.platform,
+    this.address = '',
   });
 
   final String id;
   final String name;
   final String platform;
+  final String address;
 }
 
 abstract interface class SwitchableCompanionConnection {
@@ -126,10 +132,17 @@ abstract interface class ManualCompanionConnection {
   Future<void> disconnect();
 }
 
+abstract interface class CompanionPointerConnection {
+  ValueListenable<String?> get pointerError;
+  Future<void> sendPointerInputs(List<PointerInput> inputs);
+  void discardPendingPointerInputs();
+}
+
 class LanCompanionService
     implements
         CompanionService,
         ManualCompanionConnection,
+        CompanionPointerConnection,
         SwitchableCompanionConnection {
   LanCompanionService({
     this.discoveryPort = 45832,
@@ -152,11 +165,18 @@ class LanCompanionService
     CompanionSyncStatus.disconnected,
   );
   final ValueNotifier<String?> _error = ValueNotifier(null);
+  final ValueNotifier<String?> _pointerError = ValueNotifier(null);
   final ValueNotifier<List<CompanionComputerChoice>> _computerChoices =
       ValueNotifier(const []);
   final Map<String, _KnownCompanion> _knownComputers = {};
+  final Map<String, List<CompanionHost>> _alternateHosts = {};
   RawDatagramSocket? _socket;
   Timer? _expiryTimer;
+  Timer? _pointerFlushTimer;
+  final List<PointerInput> _pointerQueue = [];
+  CompanionHost? _pointerQueueHost;
+  HttpClient? _pointerClient;
+  bool _pointerFlushing = false;
   DateTime? _lastSeen;
   bool _fetchingManifest = false;
   bool _manualHeartbeatRunning = false;
@@ -170,6 +190,9 @@ class LanCompanionService
   Timer? _manualHeartbeat;
   int _selectionEpoch = 0;
   bool _disposed = false;
+
+  @override
+  ValueListenable<String?> get pointerError => _pointerError;
 
   /// Ephemeral listener port, also useful to bind an in-process loopback peer.
   int? get boundDiscoveryPort => _socket?.port;
@@ -260,6 +283,7 @@ class LanCompanionService
       final version = info['version'];
       final revision = info['revision'];
       final capabilities = info['capabilities'];
+      final computerId = _validatedComputerId(info['computerId']);
       if (info['name'] is! String ||
           (info['name'] as String).isEmpty ||
           !['windows', 'macos', 'linux'].contains(platform) ||
@@ -270,27 +294,17 @@ class LanCompanionService
           !capabilities.map((value) => value.toString()).contains('manifest')) {
         throw const FormatException('This LumiaKey Desktop is not compatible.');
       }
-      final host = CompanionHost(
+      var host = CompanionHost(
         name: info['name'] as String,
         platform: platform as String,
         address: parsed.address,
         port: parsed.port,
         token: parsed.token,
+        computerId: computerId,
         protocolVersion: version,
         revision: revision,
         capabilities: capabilities.map((value) => value.toString()).toSet(),
       );
-      final choiceId = _choiceId(host.platform, host.address, host.port);
-      _knownComputers[choiceId] = _KnownCompanion(
-        host,
-        _now(),
-        manuallyPaired: true,
-      );
-      _selectedComputerChoiceId = choiceId;
-      _selectionPinned = true;
-      _selectionSuspended = false;
-      _publishComputerChoices();
-      _host.value = host;
       final manifestJson = await _getJson(
         host.address,
         host.port,
@@ -301,11 +315,37 @@ class LanCompanionService
       final manifest = DesktopManifest.fromJson(
         manifestJson.map((key, value) => MapEntry(key.toString(), value)),
       );
-      if (manifest.revision != host.revision) {
+      final manifestId = _validatedComputerId(manifest.computerId);
+      if (computerId != null &&
+          manifestId != null &&
+          computerId != manifestId) {
         throw const FormatException(
-          'Desktop layout changed during pairing. Retry connection.',
+          'Desktop identity changed during pairing. Retry connection.',
         );
       }
+      host = CompanionHost(
+        name: host.name,
+        platform: host.platform,
+        address: host.address,
+        port: host.port,
+        token: host.token,
+        computerId: computerId ?? manifestId,
+        protocolVersion: host.protocolVersion,
+        revision: manifest.revision,
+        capabilities: host.capabilities,
+      );
+      final choiceId = _choiceId(host);
+      _removeAliasesFor(host, preserve: choiceId);
+      _knownComputers[choiceId] = _KnownCompanion(
+        host,
+        _now(),
+        manuallyPaired: true,
+      );
+      _selectedComputerChoiceId = choiceId;
+      _selectionPinned = true;
+      _selectionSuspended = false;
+      _publishComputerChoices();
+      _host.value = host;
       _manifest.value = manifest;
       _lastSeen = _now();
       _status.value = CompanionSyncStatus.ready;
@@ -328,6 +368,7 @@ class LanCompanionService
       final info = await _getJson(host.address, host.port, '/info', host.token);
       if (epoch != _selectionEpoch || _host.value != host) return;
       final revision = info['revision'];
+      final computerId = _validatedComputerId(info['computerId']);
       if (revision is! int) {
         throw const FormatException('Invalid Desktop revision.');
       }
@@ -339,6 +380,7 @@ class LanCompanionService
           address: host.address,
           port: host.port,
           token: host.token,
+          computerId: computerId ?? host.computerId,
           protocolVersion: host.protocolVersion,
           revision: revision,
           capabilities: host.capabilities,
@@ -367,6 +409,8 @@ class LanCompanionService
     } catch (_) {
       if (epoch != _selectionEpoch) return;
       _host.value = null;
+      if (await _recoverAlternative(host, epoch)) return;
+      _host.value = null;
       _manifest.value = null;
       _lastSeen = null;
       _status.value = CompanionSyncStatus.disconnected;
@@ -375,6 +419,71 @@ class LanCompanionService
     } finally {
       _manualHeartbeatRunning = false;
     }
+  }
+
+  Future<bool> _recoverAlternative(CompanionHost failedHost, int epoch) async {
+    final id = failedHost.computerId;
+    if (id == null || _disposed || epoch != _selectionEpoch) return false;
+    final candidates = _alternateHosts['id:$id'] ?? const <CompanionHost>[];
+    for (final candidate in candidates.reversed) {
+      try {
+        final info = await _getJson(
+          candidate.address,
+          candidate.port,
+          '/info',
+          candidate.token,
+        );
+        if (epoch != _selectionEpoch ||
+            _disposed ||
+            (_host.value != null && _host.value != failedHost)) {
+          return false;
+        }
+        if (_validatedComputerId(info['computerId']) != id) continue;
+        final revision = info['revision'];
+        if (revision is! int) continue;
+        final manifestJson = await _getJson(
+          candidate.address,
+          candidate.port,
+          '/manifest',
+          candidate.token,
+        );
+        if (epoch != _selectionEpoch || _disposed) return false;
+        final manifest = DesktopManifest.fromJson(
+          manifestJson.map((key, value) => MapEntry(key.toString(), value)),
+        );
+        if (manifest.computerId != id || manifest.revision != revision) {
+          continue;
+        }
+        final current = CompanionHost(
+          name: info['name'] is String
+              ? info['name'] as String
+              : candidate.name,
+          platform: candidate.platform,
+          address: candidate.address,
+          port: candidate.port,
+          token: candidate.token,
+          computerId: id,
+          protocolVersion: candidate.protocolVersion,
+          revision: revision,
+          capabilities: candidate.capabilities,
+        );
+        _host.value = current;
+        _manifest.value = manifest;
+        _knownComputers['id:$id'] = _KnownCompanion(
+          current,
+          _now(),
+          manuallyPaired: true,
+        );
+        _lastSeen = _now();
+        _status.value = CompanionSyncStatus.ready;
+        _error.value = null;
+        _publishComputerChoices();
+        return true;
+      } catch (_) {
+        // Try another endpoint for this same authenticated desktop identity.
+      }
+    }
+    return false;
   }
 
   @override
@@ -412,7 +521,7 @@ class LanCompanionService
     await connectManually('${host.address}:${host.port} ${host.token}');
     _manualConnectionSelected = known.manuallyPaired;
     if (_disposed ||
-        _selectedComputerChoiceId != id ||
+        (host.computerId != null && _selectedComputerChoiceId != id) ||
         _host.value?.address != host.address ||
         _host.value?.port != host.port ||
         _status.value != CompanionSyncStatus.ready) {
@@ -548,20 +657,64 @@ class LanCompanionService
           .map((value) => value.toString())
           .toSet();
       final address = packet.address.address;
+      var computerId = _validatedComputerId(data['computerId']);
+      if (computerId == null) {
+        for (final known in _knownComputers.values) {
+          final oldHost = known.host;
+          if (oldHost.computerId != null &&
+              oldHost.platform == platform &&
+              oldHost.address == address &&
+              oldHost.port == port &&
+              oldHost.token == token) {
+            computerId = oldHost.computerId;
+            break;
+          }
+        }
+      }
       final host = CompanionHost(
         name: data['name']?.toString() ?? address,
         platform: platform!,
         address: address,
         port: port,
         token: token,
+        computerId: computerId,
         protocolVersion: version,
         revision: revision,
         capabilities: capabilities,
       );
-      final choiceId = _choiceId(platform, address, port);
+      final choiceId = _choiceId(host);
+      _removeAliasesFor(host, preserve: choiceId);
+      final previous = _host.value;
+      final sameActiveComputer =
+          previous != null &&
+          host.computerId != null &&
+          previous.computerId == host.computerId;
+      if (sameActiveComputer &&
+          (previous.address != host.address ||
+              previous.port != host.port ||
+              previous.token != host.token)) {
+        final alternatives = _alternateHosts.putIfAbsent(choiceId, () => []);
+        alternatives.removeWhere(
+          (candidate) =>
+              candidate.address == host.address &&
+              candidate.port == host.port &&
+              candidate.token == host.token,
+        );
+        if (alternatives.length == 4) {
+          alternatives.removeAt(0);
+        }
+        alternatives.add(host);
+      }
+      final retainedHost =
+          sameActiveComputer &&
+              (previous.address != host.address ||
+                  previous.port != host.port ||
+                  previous.token != host.token)
+          ? previous
+          : host;
       final oldChoice = _knownComputers[choiceId];
       _knownComputers[choiceId] = _KnownCompanion(
-        host,
+        retainedHost,
         _now(),
         manuallyPaired: oldChoice?.manuallyPaired ?? false,
       );
@@ -569,15 +722,27 @@ class LanCompanionService
       if (_selectionSuspended) return;
       if (_selectionPinned && _selectedComputerChoiceId != choiceId) return;
       if (!_selectionPinned) _selectedComputerChoiceId = choiceId;
-      final previous = _host.value;
       final matchesCurrent =
+          previous != null &&
+          ((host.computerId != null &&
+                  previous.computerId == host.computerId) ||
+              (previous.address == address &&
+                  previous.port == port &&
+                  previous.token == token));
+      if (_manualConnectionSelected && !matchesCurrent) return;
+      if (previous != null && !matchesCurrent) return;
+      final sameEndpoint =
           previous != null &&
           previous.address == address &&
           previous.port == port &&
           previous.token == token;
-      if (_manualConnectionSelected && !matchesCurrent) return;
-      if (previous != null && !matchesCurrent) return;
-      final hostChanged = previous == null || !matchesCurrent;
+      final hostChanged = previous == null || !sameEndpoint;
+      if (sameActiveComputer && !sameEndpoint) {
+        if (_status.value == CompanionSyncStatus.error) {
+          unawaited(_recoverAlternative(previous, _selectionEpoch));
+        }
+        return;
+      }
       final recoverSession = _status.value == CompanionSyncStatus.error;
       if (hostChanged) {
         ++_selectionEpoch;
@@ -643,9 +808,41 @@ class LanCompanionService
       }
       final decoded = jsonDecode(body);
       if (decoded is! Map) throw const FormatException('Invalid manifest');
-      _manifest.value = DesktopManifest.fromJson(
+      final manifest = DesktopManifest.fromJson(
         decoded.map((key, value) => MapEntry(key.toString(), value)),
       );
+      _manifest.value = manifest;
+      final manifestId = _validatedComputerId(manifest.computerId);
+      if (host.computerId == null &&
+          manifestId != null &&
+          _selectionEpoch == epoch &&
+          _host.value == host) {
+        final identifiedHost = CompanionHost(
+          name: host.name,
+          platform: host.platform,
+          address: host.address,
+          port: host.port,
+          token: host.token,
+          computerId: manifestId,
+          protocolVersion: host.protocolVersion,
+          revision: host.revision,
+          capabilities: host.capabilities,
+        );
+        final oldId = _selectedComputerChoiceId;
+        final newId = _choiceId(identifiedHost);
+        final oldEntry = oldId == null ? null : _knownComputers.remove(oldId);
+        _removeAliasesFor(identifiedHost, preserve: newId);
+        _knownComputers[newId] = _KnownCompanion(
+          identifiedHost,
+          _now(),
+          manuallyPaired: oldEntry?.manuallyPaired ?? true,
+        );
+        if (_selectionPinned || oldId != null) {
+          _selectedComputerChoiceId = newId;
+        }
+        _host.value = identifiedHost;
+        _publishComputerChoices();
+      }
       _pendingRevision = null;
       _error.value = null;
       _status.value = CompanionSyncStatus.ready;
@@ -677,6 +874,122 @@ class LanCompanionService
     jsonEncode(request.toJson()),
     surfaceFailure: request.kind == RemoteActionKind.launchApplication,
   );
+
+  @override
+  Future<void> sendPointerInputs(List<PointerInput> inputs) async {
+    if (_disposed || inputs.isEmpty) return;
+    final host = _host.value;
+    if (host == null || !host.capabilities.contains('mouse-control-v1')) {
+      throw StateError('Selected Desktop does not support mouse control.');
+    }
+    if (!_samePointerSession(_pointerQueueHost, host)) {
+      _pointerQueue.clear();
+      _pointerClient?.close(force: true);
+      _pointerClient = null;
+      _pointerQueueHost = host;
+    }
+    for (final input in inputs) {
+      if (input.kind == PointerInputKind.move &&
+          _pointerQueue.isNotEmpty &&
+          _pointerQueue.last.kind == PointerInputKind.move) {
+        final previous = _pointerQueue.removeLast();
+        _pointerQueue.add(
+          PointerInput.move(
+            (previous.x + input.x).clamp(-127, 127),
+            (previous.y + input.y).clamp(-127, 127),
+          ),
+        );
+      } else if (_pointerQueue.length < 64) {
+        _pointerQueue.add(input);
+      }
+    }
+    if (_pointerFlushTimer == null) {
+      _schedulePointerFlush();
+    }
+  }
+
+  @override
+  void discardPendingPointerInputs() {
+    _pointerFlushTimer?.cancel();
+    _pointerFlushTimer = null;
+    _pointerQueue.clear();
+    _pointerQueueHost = null;
+    _pointerClient?.close(force: true);
+    _pointerClient = null;
+    _pointerError.value = null;
+  }
+
+  void _schedulePointerFlush() {
+    _pointerFlushTimer = Timer(const Duration(milliseconds: 16), () {
+      _pointerFlushTimer = null;
+      unawaited(_flushPointerQueue());
+    });
+  }
+
+  Future<void> _flushPointerQueue() async {
+    if (_pointerQueue.isEmpty || _disposed || _pointerFlushing) return;
+    final queuedHost = _pointerQueueHost;
+    if (queuedHost == null) return;
+    if (!_samePointerSession(_host.value, queuedHost) ||
+        !_samePointerSession(_pointerQueueHost, queuedHost)) {
+      _pointerQueue.clear();
+      _pointerQueueHost = null;
+      return;
+    }
+    _pointerFlushing = true;
+    final batch = _pointerQueue.take(32).toList(growable: false);
+    _pointerQueue.removeRange(0, batch.length);
+    try {
+      if (!_samePointerSession(_host.value, queuedHost) || _disposed) return;
+      final client = _pointerClient ??= (HttpClient()
+        ..connectionTimeout = const Duration(seconds: 3));
+      final request = await client
+          .post(queuedHost.address, queuedHost.port, '/pointer')
+          .timeout(const Duration(seconds: 3));
+      if (!_samePointerSession(_host.value, queuedHost) || _disposed) return;
+      request.followRedirects = false;
+      request.headers.contentType = ContentType.json;
+      request.headers.set('x-lumiakeys-token', queuedHost.token);
+      request.write(
+        jsonEncode({'inputs': batch.map((input) => input.toJson()).toList()}),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 3),
+      );
+      final body = await _readBoundedResponse(
+        response,
+        const Duration(seconds: 3),
+        4096,
+      );
+      if (!_samePointerSession(_host.value, queuedHost) || _disposed) return;
+      if (response.statusCode != HttpStatus.ok) throw HttpException(body);
+      _pointerError.value = null;
+    } catch (error) {
+      if (!_disposed &&
+          _samePointerSession(_host.value, queuedHost) &&
+          _samePointerSession(_pointerQueueHost, queuedHost)) {
+        _pointerError.value = 'Desktop mouse input failed: $error';
+      }
+    } finally {
+      _pointerFlushing = false;
+      if (_pointerQueue.isNotEmpty &&
+          _pointerFlushTimer == null &&
+          _pointerQueueHost != null) {
+        _schedulePointerFlush();
+      }
+    }
+  }
+
+  static bool _samePointerSession(
+    CompanionHost? first,
+    CompanionHost? second,
+  ) =>
+      first != null &&
+      second != null &&
+      first.address == second.address &&
+      first.port == second.port &&
+      first.token == second.token &&
+      first.platform == second.platform;
 
   @override
   Future<void> sendDictation({
@@ -832,6 +1145,7 @@ class LanCompanionService
     _knownComputers.removeWhere(
       (_, entry) => !entry.manuallyPaired && entry.lastSeen.isBefore(cutoff),
     );
+    _alternateHosts.removeWhere((id, _) => !_knownComputers.containsKey(id));
     _publishComputerChoices();
   }
 
@@ -843,6 +1157,7 @@ class LanCompanionService
                 id: entry.key,
                 name: entry.value.host.name,
                 platform: entry.value.host.platform,
+                address: entry.value.host.address,
               ),
             )
             .toList()
@@ -852,8 +1167,40 @@ class LanCompanionService
     _computerChoices.value = List.unmodifiable(choices);
   }
 
-  static String _choiceId(String platform, String address, int port) =>
-      base64Url.encode(utf8.encode('$platform|$address|$port'));
+  static String _choiceId(CompanionHost host) => host.computerId != null
+      ? 'id:${host.computerId}'
+      : base64Url.encode(
+          utf8.encode('${host.platform}|${host.address}|${host.port}'),
+        );
+
+  static String? _validatedComputerId(Object? value) =>
+      value is String && RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(value)
+      ? value
+      : null;
+
+  void _removeAliasesFor(CompanionHost host, {String? preserve}) {
+    final aliases = _knownComputers.entries
+        .where(
+          (entry) =>
+              entry.key != preserve &&
+              entry.value.host.platform == host.platform &&
+              entry.value.host.token == host.token &&
+              (entry.value.host.computerId == null ||
+                  entry.value.host.computerId == host.computerId),
+        )
+        .map((entry) => entry.key)
+        .toList();
+    for (final alias in aliases) {
+      final old = _knownComputers.remove(alias)!;
+      final selected = _selectedComputerChoiceId == alias;
+      _knownComputers[preserve ?? _choiceId(host)] = _KnownCompanion(
+        host,
+        _now(),
+        manuallyPaired: old.manuallyPaired,
+      );
+      if (selected) _selectedComputerChoiceId = preserve ?? _choiceId(host);
+    }
+  }
 
   @override
   void dispose() {
@@ -863,11 +1210,14 @@ class LanCompanionService
     _clearPendingManifestRefresh();
     _manualHeartbeat?.cancel();
     _expiryTimer?.cancel();
+    _pointerFlushTimer?.cancel();
+    _pointerClient?.close(force: true);
     _socket?.close();
     _host.dispose();
     _manifest.dispose();
     _status.dispose();
     _error.dispose();
+    _pointerError.dispose();
     _computerChoices.dispose();
   }
 }
@@ -884,19 +1234,30 @@ class _KnownCompanion {
   final bool manuallyPaired;
 }
 
-class RecordingCompanionService implements CompanionService {
+class RecordingCompanionService
+    implements CompanionService, CompanionPointerConnection {
   final ValueNotifier<CompanionHost?> host = ValueNotifier(null);
   final ValueNotifier<DesktopManifest?> syncedManifest = ValueNotifier(null);
   final ValueNotifier<CompanionSyncStatus> status = ValueNotifier(
     CompanionSyncStatus.disconnected,
   );
   final ValueNotifier<String?> errors = ValueNotifier(null);
+  final ValueNotifier<String?> pointerErrors = ValueNotifier(null);
   final List<String> commands = [];
   final List<RemoteActionRequest> remoteActions = [];
+  final List<PointerInput> pointerInputs = [];
   final List<({String sessionId, int sequence, String text})>
   dictationRequests = [];
   String? dictationError;
   int refreshCount = 0;
+
+  @override
+  ValueListenable<String?> get pointerError => pointerErrors;
+  @override
+  Future<void> sendPointerInputs(List<PointerInput> inputs) async =>
+      pointerInputs.addAll(inputs);
+  @override
+  void discardPendingPointerInputs() {}
 
   @override
   ValueListenable<CompanionHost?> get activeHost => host;
@@ -943,6 +1304,7 @@ class RecordingCompanionService implements CompanionService {
     syncedManifest.dispose();
     status.dispose();
     errors.dispose();
+    pointerErrors.dispose();
   }
 }
 

@@ -8,6 +8,58 @@ import 'package:smart_keys/services/companion_service.dart';
 
 void main() {
   test(
+    'stable Desktop identity merges interfaces but keeps same-name machines distinct',
+    () async {
+      final discoveryPort = await _unusedUdpPort();
+      final sender = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final companion = LanCompanionService(discoveryPort: discoveryPort);
+      addTearDown(() async {
+        companion.dispose();
+        sender.close();
+      });
+      await companion.start();
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        name: 'Studio Mac',
+        port: 41001,
+        token: 'token-a',
+        revision: 1,
+        computerId: 'machine-a',
+      );
+      await _waitUntil(() => companion.computerChoices.value.length == 1);
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        name: 'Studio Mac',
+        port: 41002,
+        token: 'token-a',
+        revision: 1,
+        computerId: 'machine-a',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(companion.computerChoices.value, hasLength(1));
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        name: 'Studio Mac',
+        port: 41003,
+        token: 'token-b',
+        revision: 1,
+        computerId: 'machine-b',
+      );
+      await _waitUntil(() => companion.computerChoices.value.length == 2);
+      expect(
+        companion.computerChoices.value.map((choice) => choice.id).toSet(),
+        {'id:machine-a', 'id:machine-b'},
+      );
+    },
+  );
+
+  test(
     'manual connection authenticates info and manifest without UDP discovery',
     () async {
       const token = '0123456789abcdef0123456789abcdef';
@@ -26,6 +78,47 @@ void main() {
       expect(companion.activeHost.value?.name, 'Test Desktop');
       expect(companion.manifest.value?.revision, 12);
       expect(server.authenticatedPaths, containsAll(['/info', '/manifest']));
+    },
+  );
+
+  test(
+    'manual pairing merges a legacy advertisement using its manifest ID',
+    () async {
+      const token = '0123456789abcdef0123456789abcdef';
+      final server = await _ManualServer.start(
+        token: token,
+        manifestId: 'legacy-computer',
+        manifestRevision: 13,
+      );
+      final discoveryPort = await _unusedUdpPort();
+      final sender = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final companion = LanCompanionService(discoveryPort: discoveryPort);
+      addTearDown(() async {
+        companion.dispose();
+        sender.close();
+        await server.close();
+      });
+      await companion.start();
+      await companion.connectManually('127.0.0.1:${server.port} $token');
+      expect(companion.syncStatus.value, CompanionSyncStatus.ready);
+      expect(companion.manifest.value?.revision, 13);
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        platform: 'windows',
+        name: 'Test Desktop',
+        port: server.port,
+        token: token,
+        revision: 13,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(companion.computerChoices.value.map((choice) => choice.id), [
+        'id:legacy-computer',
+      ]);
+      expect(companion.selectedComputerChoiceId, 'id:legacy-computer');
     },
   );
 
@@ -479,6 +572,8 @@ class _ManualServer {
     required String token,
     Completer<void>? infoGate,
     String? redirectInfoTo,
+    String? manifestId,
+    int manifestRevision = 12,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final helper = _ManualServer(
@@ -524,7 +619,7 @@ class _ManualServer {
         request.response.write(
           jsonEncode(
             DesktopManifest.starter()
-                .copyWith(revision: 12)
+                .copyWith(revision: manifestRevision, computerId: manifestId)
                 .toJson(forSync: true),
           ),
         );
@@ -557,6 +652,7 @@ void _advertise(
   required int port,
   required String token,
   required int revision,
+  String? computerId,
 }) {
   final message = utf8.encode(
     jsonEncode({
@@ -564,6 +660,7 @@ void _advertise(
       'version': 2,
       'name': name,
       'platform': platform,
+      'computerId': ?computerId,
       'port': port,
       'token': token,
       'revision': revision,

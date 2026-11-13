@@ -9,14 +9,19 @@ class ComputerSwitcher extends StatelessWidget {
     super.key,
     required this.controller,
     this.compact = false,
+    this.iconOnly = false,
   });
 
   final AppController controller;
   final bool compact;
+  final bool iconOnly;
 
-  static String _name(List<({String id, String name})> choices, String id) {
+  static String _name(
+    List<({String id, String name, String platform, String address})> choices,
+    String id,
+  ) {
     for (final choice in choices) {
-      if (choice.id == id) return choice.name;
+      if (choice.id == id) return '${choice.name} · ${choice.address}';
     }
     return 'computer';
   }
@@ -27,14 +32,33 @@ class ComputerSwitcher extends StatelessWidget {
     builder: (context, _) {
       final choices = controller.switchableComputers;
       final selectedId = controller.selectedSwitchableComputerId;
-      ({String id, String name})? selected;
+      ({String id, String name, String platform, String address})? selected;
       for (final choice in choices) {
         if (choice.id == selectedId) selected = choice;
       }
       final pending = controller.computerSwitchPendingId;
       if (compact) {
-        if (choices.isEmpty) return const SizedBox.shrink();
-        final currentName = selected?.name ?? 'No computer selected';
+        if (choices.isEmpty && !iconOnly) return const SizedBox.shrink();
+        final currentName = selected == null
+            ? 'No computer selected'
+            : _choiceLabel(choices, selected);
+        if (iconOnly) {
+          return Tooltip(
+            message: 'Choose a Desktop computer. Current: $currentName.',
+            child: IconButton(
+              key: const ValueKey('computer-kvm-switch'),
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Switch computer · $currentName',
+              onPressed: pending != null ? null : () => _showPicker(context),
+              icon: pending != null
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.devices_other),
+            ),
+          );
+        }
         return Tooltip(
           message: 'Choose a Desktop computer. Current: $currentName.',
           child: TextButton.icon(
@@ -141,8 +165,10 @@ class ComputerSwitcher extends StatelessWidget {
                   for (final choice in choices)
                     ListTile(
                       leading: Icon(Icons.desktop_windows),
-                      title: Text(choice.name),
-                      subtitle: const Text('LumiaKey Desktop'),
+                      title: Text(_choiceLabel(choices, choice)),
+                      subtitle: Text(
+                        '${choice.platform} · ${choice.address} · LumiaKey Desktop',
+                      ),
                       trailing: controller.computerSwitchPendingId == choice.id
                           ? const SizedBox.square(
                               dimension: 20,
@@ -199,5 +225,21 @@ class ComputerSwitcher extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static String _choiceLabel(
+    List<({String id, String name, String platform, String address})> choices,
+    ({String id, String name, String platform, String address}) choice,
+  ) {
+    final duplicates =
+        choices
+            .where(
+              (item) => item.name.toLowerCase() == choice.name.toLowerCase(),
+            )
+            .length >
+        1;
+    return duplicates
+        ? '${choice.name} · ${choice.platform} · ${choice.address}'
+        : choice.name;
   }
 }
