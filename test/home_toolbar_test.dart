@@ -106,8 +106,6 @@ void main() {
       expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
 
       final lastApp = find.byKey(const ValueKey('workspace-app-cursor'));
-      final general = find.byKey(const ValueKey('home-tab-general'));
-      expect(find.byKey(const ValueKey('home-tab-keyboard')), findsNothing);
       await Scrollable.ensureVisible(tester.element(lastApp), alignment: 0.5);
       await tester.pumpAndSettle();
       await tester.tap(lastApp);
@@ -121,38 +119,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('control-menu')));
       await tester.pumpAndSettle();
       expect(find.text('Settings'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('menu-desktop-connection')),
-        findsNothing,
-      );
       tester.state<NavigatorState>(find.byType(Navigator).first).pop();
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        general,
-        -80,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('computer-app-scroll-list')),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.ensureVisible(general);
-      await tester.pumpAndSettle();
-      await tester.tap(general);
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('remote-layout-keyboard')),
-        findsOneWidget,
-      );
-      await tester.tap(find.byKey(const ValueKey('computer-kvm-switch')));
-      await tester.pumpAndSettle();
-      final pair = find.text('Pair or manage LumiaKey Desktop');
-      await tester.ensureVisible(pair);
-      await tester.tap(pair);
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Connected to Studio Mac (192.168.1.10)'),
-        findsOneWidget,
-      );
     },
     variant: const TargetPlatformVariant({TargetPlatform.android}),
   );

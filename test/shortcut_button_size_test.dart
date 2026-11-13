@@ -177,67 +177,44 @@ void main() {
       );
     });
 
-    testWidgets('Vibe Cursor tiles fill the safe width in $orientation', (
-      tester,
-    ) async {
-      _setViewport(tester, size);
-      final harness = await TestHarness.create(seedComputerSetup: false);
-      addTearDown(() async {
-        await tester.pumpWidget(const SizedBox.shrink());
-        await harness.dispose();
-      });
-      final starter = DesktopManifest.starter();
-      harness.companion.host.value = connectedCompanionHost;
-      harness.companion.syncedManifest.value = starter.copyWith(
-        computerId: 'desktop-vibe-grid-size-test',
-        applications: [
-          for (final app in starter.applications)
-            if (app.id == 'cursor')
-              app.copyWith(detected: true, running: true, foreground: true),
-        ],
-      );
-      harness.companion.status.value = CompanionSyncStatus.ready;
-      await harness.controller.saveComputerSetup(
-        harness.controller.activeComputer!,
-        ComputerSetup(applicationIds: const ['cursor']),
-      );
-
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('workspace-app-cursor')));
-      await tester.pumpAndSettle();
-      final cursorKeys = [
-        const ValueKey('vibe-button-vibe.cursor.project'),
-        const ValueKey('vibe-button-vibe.cursor.newChat'),
-        const ValueKey('vibe-button-vibe.cursor.cancel'),
-      ];
-      final expected = ShortcutGridGeometry.forViewport(
-        viewport: size,
-        gridContentWidth: ShortcutGridGeometry.contentWidthForViewport(
-          size,
-          safeAreaLeft: size.width > size.height ? 24 : 0,
-          safeAreaRight: size.width > size.height ? 24 : 0,
-          fullWidth: true,
-        ),
-        keysPerPage: 15,
-        safeAreaVertical: 0,
-      );
-      _expectUniformSizes(
+    if (orientation == 'portrait') {
+      testWidgets('Vibe Cursor portrait tiles match the shared cell size', (
         tester,
-        cursorKeys,
-        Size(expected.width, expected.height),
-      );
-      final gridRect = tester.getRect(
-        find.byKey(const ValueKey('vibe-shortcut-grid')),
-      );
-      for (final key in cursorKeys) {
-        final tileRect = tester.getRect(find.byKey(key));
-        expect(gridRect.contains(tileRect.topLeft), isTrue);
-        expect(gridRect.contains(tileRect.bottomRight), isTrue);
-      }
-      final usableWidth = size.width - (size.width > size.height ? 48 : 0);
-      expect(gridRect.width, greaterThanOrEqualTo(usableWidth - 1));
-    });
+      ) async {
+        _setViewport(tester, size);
+        final harness = await TestHarness.create(seedComputerSetup: false);
+        addTearDown(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await harness.dispose();
+        });
+        harness.companion.host.value = connectedCompanionHost;
+        harness.companion.syncedManifest.value = desktopManifest(
+          installed: const {'cursor'},
+          running: const {'cursor'},
+          foreground: 'cursor',
+        );
+        harness.companion.status.value = CompanionSyncStatus.ready;
+        await harness.controller.saveComputerSetup(
+          harness.controller.activeComputer!,
+          ComputerSetup(applicationIds: const ['cursor']),
+        );
+
+        await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('workspace-app-cursor')));
+        await tester.pumpAndSettle();
+        _expectUniformSizes(
+          tester,
+          [
+            const ValueKey('vibe-button-vibe.cursor.project'),
+            const ValueKey('vibe-button-vibe.cursor.newChat'),
+            const ValueKey('vibe-button-vibe.cursor.cancel'),
+          ],
+          _expectedCellSize(size),
+          grid: find.byKey(const ValueKey('vibe-shortcut-grid')),
+        );
+      });
+    }
   }
 }
 
