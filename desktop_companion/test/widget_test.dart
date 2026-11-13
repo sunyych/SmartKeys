@@ -135,6 +135,11 @@ void main() {
     );
     expect(chatGptRunner.calls, hasLength(2));
     expect(chatGptRunner.calls.first.$2[6], "'ChatGPT'");
+    final activationScript = chatGptRunner.calls.first.$2[3];
+    expect(activationScript, contains('GetForegroundWindow'));
+    expect(activationScript, contains('GetAsyncKeyState'));
+    expect(activationScript, contains('ShowWindowAsync'));
+    expect(activationScript, contains('no view shortcut was sent'));
     expect(chatGptRunner.calls.last.$2.last, "'%1'");
 
     final codexRunner = _FocusedRecordingRunner();

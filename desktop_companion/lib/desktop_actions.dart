@@ -325,8 +325,59 @@ class DesktopActions {
       Start-Sleep -Milliseconds 150
     } while ([DateTime]::UtcNow -lt $focusDeadline)
   }
-  if (-not $p) { Write-Output 'STARTING'; return }
+  if (-not $p) {
+    if ($startAppNames -contains 'ChatGPT') {
+      throw 'ChatGPT did not expose a main window; refusing to report activation success.'
+    }
+    Write-Output 'STARTING'
+    return
+  }
   $w = New-Object -ComObject WScript.Shell
+  # AppActivate can report success without changing the foreground window.
+  # ChatGPT view shortcuts are only safe after verifying its actual HWND.
+  if ($startAppNames -contains 'ChatGPT') {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LumiaWindowActivation {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+'@
+    $hwnd = [IntPtr]$p.MainWindowHandle
+    if (-not [LumiaWindowActivation]::IsWindowVisible($hwnd)) {
+      throw 'ChatGPT main window is not visible; refusing to send view shortcuts.'
+    }
+    if ([LumiaWindowActivation]::IsIconic($hwnd)) {
+      [void][LumiaWindowActivation]::ShowWindowAsync($hwnd, 9)
+      Start-Sleep -Milliseconds 100
+    }
+    [void]$w.AppActivate($p.Id)
+    Start-Sleep -Milliseconds 100
+    if ([LumiaWindowActivation]::GetForegroundWindow() -ne $hwnd) {
+      # Do not synthesize Alt if the user is physically holding it.
+      if (([LumiaWindowActivation]::GetAsyncKeyState(0x12) -band 0x8000) -ne 0) {
+        throw 'ChatGPT could not be focused while Alt is held; no view shortcut was sent.'
+      }
+      [LumiaWindowActivation]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+      try {
+        [void][LumiaWindowActivation]::SetForegroundWindow($hwnd)
+        Start-Sleep -Milliseconds 100
+      } finally {
+        [LumiaWindowActivation]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+      }
+    }
+    if ([LumiaWindowActivation]::GetForegroundWindow() -ne $hwnd) {
+      throw 'Windows did not activate the ChatGPT main window; no view shortcut was sent.'
+    }
+    Write-Output 'FOCUSED'
+    return
+  }
   if ($w.AppActivate($p.Id)) { Write-Output 'FOCUSED' }
   else { Write-Output 'STARTING' }
 }
