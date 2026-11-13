@@ -97,16 +97,24 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.byKey(const ValueKey('remote-button-chatgpt.startVoice')),
-        apple ? findsOneWidget : findsNothing,
-      );
-      expect(
         find.byKey(const ValueKey('remote-button-chatgpt.codex.searchChats')),
         findsNothing,
       );
       await tester.tap(newChat);
       await tester.pump();
       expect(harness.companion.remoteActions.last.buttonId, 'chatgpt.newChat');
+      if (!authoritative) {
+        await tester.tap(find.byTooltip('Next bank'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('remote-button-chatgpt.startVoice')),
+          apple ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('remote-button-chatgpt.codex.searchChats')),
+          findsNothing,
+        );
+      }
     }
   });
 }

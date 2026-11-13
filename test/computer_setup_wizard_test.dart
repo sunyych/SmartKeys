@@ -238,6 +238,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
+      await tester.tap(
+        find.byKey(const ValueKey('standalone-chatgpt-next-page')),
+      );
+      await tester.pumpAndSettle();
       final voiceInput = find.byKey(
         const ValueKey('standalone-action-chatgpt-codex.voiceInput'),
       );
@@ -309,6 +313,53 @@ void main() {
     },
   );
 
+  testWidgets('ChatGPT Bluetooth pages keep Review on page two', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(seedComputerSetup: false);
+    addTearDown(harness.dispose);
+    final target = harness.controller.activeComputer!.withOperatingSystem(
+      ComputerOperatingSystem.windows,
+    );
+    await harness.controller.saveComputerSetup(
+      target,
+      ComputerSetup(
+        applicationIds: const ['chatgpt'],
+        operatingSystem: ComputerOperatingSystem.windows,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StandaloneAppPanel(
+            controller: harness.controller,
+            target: target,
+            application: computerApplicationById('chatgpt')!,
+          ),
+        ),
+      ),
+    );
+
+    for (final action in ['codex.send', 'codex.copy', 'codex.paste']) {
+      expect(
+        find.byKey(ValueKey('standalone-action-chatgpt-$action')),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('standalone-action-chatgpt-codex.review')),
+      findsNothing,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('standalone-chatgpt-next-page')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('standalone-action-chatgpt-codex.review')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('ChatGPT Bluetooth controls follow the selected computer OS', (
     tester,
   ) async {
@@ -348,8 +399,18 @@ void main() {
       );
       expect(
         find.byKey(const ValueKey('standalone-action-chatgpt-startVoice')),
-        os == ComputerOperatingSystem.macos ? findsOneWidget : findsNothing,
+        findsNothing,
       );
+      if (os == ComputerOperatingSystem.macos) {
+        await tester.tap(
+          find.byKey(const ValueKey('standalone-chatgpt-next-page')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('standalone-action-chatgpt-startVoice')),
+          findsOneWidget,
+        );
+      }
     }
 
     final windows = original.withOperatingSystem(
@@ -376,6 +437,14 @@ void main() {
         ),
       ),
     );
+    expect(
+      find.byKey(const ValueKey('standalone-action-chatgpt-stopVoice')),
+      findsNothing,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('standalone-chatgpt-next-page')),
+    );
+    await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('standalone-action-chatgpt-stopVoice')),
       findsOneWidget,

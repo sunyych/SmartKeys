@@ -20,11 +20,13 @@ abstract final class ShortcutGridGeometry {
     Size viewport, {
     double safeAreaLeft = 0,
     double safeAreaRight = 0,
+    bool fullWidth = false,
   }) {
     return surfaceWidthForViewport(
           viewport,
           safeAreaLeft: safeAreaLeft,
           safeAreaRight: safeAreaRight,
+          fullWidth: fullWidth,
         ) -
         horizontalInset * 2;
   }
@@ -33,11 +35,13 @@ abstract final class ShortcutGridGeometry {
     Size viewport, {
     double safeAreaLeft = 0,
     double safeAreaRight = 0,
+    bool fullWidth = false,
   }) {
     final surfaceWidth = surfaceWidthForViewport(
       viewport,
       safeAreaLeft: safeAreaLeft,
       safeAreaRight: safeAreaRight,
+      fullWidth: fullWidth,
     );
     final centerGap =
         (viewport.width - safeAreaLeft - safeAreaRight - surfaceWidth) / 2;
@@ -51,9 +55,12 @@ abstract final class ShortcutGridGeometry {
     Size viewport, {
     double safeAreaLeft = 0,
     double safeAreaRight = 0,
+    bool fullWidth = false,
   }) {
     final usableWidth = viewport.width - safeAreaLeft - safeAreaRight;
-    return viewport.shortestSide < 600 && viewport.width > viewport.height
+    return !fullWidth &&
+            viewport.shortestSide < 600 &&
+            viewport.width > viewport.height
         ? (usableWidth - 1) * 2 / 3
         : usableWidth;
   }

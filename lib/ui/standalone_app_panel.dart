@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../controllers/app_controller.dart';
 import '../models/computer_setup.dart';
 import 'shortcut_grid_geometry.dart';
 
 /// Controls for the app selected in the home row.
-class StandaloneAppPanel extends StatelessWidget {
+class StandaloneAppPanel extends StatefulWidget {
   const StandaloneAppPanel({
     super.key,
     required this.controller,
@@ -20,8 +21,28 @@ class StandaloneAppPanel extends StatelessWidget {
   final VoidCallback? onConfigure;
 
   @override
+  State<StandaloneAppPanel> createState() => _StandaloneAppPanelState();
+}
+
+class _StandaloneAppPanelState extends State<StandaloneAppPanel> {
+  int _chatGptPage = 0;
+
+  @override
+  void didUpdateWidget(covariant StandaloneAppPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.application.id != widget.application.id ||
+        oldWidget.target.id != widget.target.id ||
+        oldWidget.target.operatingSystem != widget.target.operatingSystem) {
+      _chatGptPage = 0;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final viewport = MediaQuery.sizeOf(context);
+    final controller = widget.controller;
+    final target = widget.target;
+    final application = widget.application;
     final setup = controller.activeComputerSetup;
     final shortcuts = computerShortcutsFor(application.category)
         .where((shortcut) => shortcut.id != 'launch')
@@ -34,6 +55,25 @@ class StandaloneAppPanel extends StatelessWidget {
               defaultComputerShortcut(target, application, shortcut.id) != null;
         })
         .toList(growable: false);
+    final orderedShortcuts = application.id == 'chatgpt'
+        ? _orderChatGptShortcuts(shortcuts)
+        : shortcuts;
+    final hasChatGptPages =
+        application.id == 'chatgpt' &&
+        orderedShortcuts.any(
+          (shortcut) =>
+              !chatGptPrimaryShortcutIds.contains('chatgpt.${shortcut.id}'),
+        );
+    final pageShortcuts = hasChatGptPages
+        ? orderedShortcuts
+              .where((shortcut) {
+                final primary = chatGptPrimaryShortcutIds.contains(
+                  'chatgpt.${shortcut.id}',
+                );
+                return _chatGptPage == 0 ? primary : !primary;
+              })
+              .toList(growable: false)
+        : orderedShortcuts;
     return LayoutBuilder(
       builder: (context, pageConstraints) {
         final safeInset =
@@ -46,81 +86,151 @@ class StandaloneAppPanel extends StatelessWidget {
           viewport,
           safeAreaLeft: safeInset,
           safeAreaRight: safeInset,
+          fullWidth: application.id == 'cursor',
         );
-        return CustomScrollView(
-          key: ValueKey('standalone-app-${application.id}'),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-              sliver: SliverToBoxAdapter(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      application.name,
-                      key: const ValueKey('standalone-app-title'),
-                      style: Theme.of(context).textTheme.titleLarge,
+        return Column(
+          children: [
+            Expanded(
+              child: CustomScrollView(
+                key: ValueKey('standalone-app-${application.id}'),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            application.name,
+                            key: const ValueKey('standalone-app-title'),
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Bluetooth controls for ${target.name}.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Bluetooth controls for ${target.name}.',
-                      style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  SliverPadding(
+                    padding: EdgeInsets.only(
+                      left: gridPadding.left,
+                      right: gridPadding.right,
+                    ),
+                    sliver: SliverLayoutBuilder(
+                      builder: (context, constraints) {
+                        final geometry = ShortcutGridGeometry.forViewport(
+                          viewport: viewport,
+                          gridContentWidth: constraints.crossAxisExtent,
+                          keysPerPage:
+                              controller.config.preferences.tabletKeysPerPage,
+                          safeAreaVertical: MediaQuery.viewPaddingOf(
+                            context,
+                          ).vertical,
+                        );
+                        return SliverGrid.builder(
+                          itemCount: pageShortcuts.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: geometry.columns,
+                                crossAxisSpacing: ShortcutGridGeometry.spacing,
+                                mainAxisSpacing: ShortcutGridGeometry.spacing,
+                                childAspectRatio:
+                                    geometry.width / geometry.height,
+                              ),
+                          itemBuilder: (context, index) =>
+                              _StandaloneShortcutTile(
+                                controller: controller,
+                                target: target,
+                                application: application,
+                                shortcut: pageShortcuts[index],
+                                compact: geometry.height < 104,
+                              ),
+                        );
+                      },
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
+                    sliver: SliverToBoxAdapter(
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('edit-computer-setup'),
+                        onPressed: widget.onConfigure,
+                        icon: const Icon(Icons.tune),
+                        label: const Text('Computer app settings'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (hasChatGptPages)
+              SizedBox(
+                height: 48,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      key: const ValueKey('standalone-chatgpt-previous-page'),
+                      onPressed: _chatGptPage == 0
+                          ? null
+                          : () => setState(() => _chatGptPage = 0),
+                      tooltip: 'Previous page',
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    Text('Page ${_chatGptPage + 1} of 2'),
+                    IconButton(
+                      key: const ValueKey('standalone-chatgpt-next-page'),
+                      onPressed: _chatGptPage == 1
+                          ? null
+                          : () => setState(() => _chatGptPage = 1),
+                      tooltip: 'Next page',
+                      icon: const Icon(Icons.arrow_forward),
                     ),
                   ],
                 ),
               ),
-            ),
-            SliverPadding(
-              padding: EdgeInsets.only(
-                left: gridPadding.left,
-                right: gridPadding.right,
-              ),
-              sliver: SliverLayoutBuilder(
-                builder: (context, constraints) {
-                  final geometry = ShortcutGridGeometry.forViewport(
-                    viewport: viewport,
-                    gridContentWidth: constraints.crossAxisExtent,
-                    keysPerPage:
-                        controller.config.preferences.tabletKeysPerPage,
-                    safeAreaVertical: MediaQuery.viewPaddingOf(
-                      context,
-                    ).vertical,
-                  );
-                  return SliverGrid.builder(
-                    itemCount: shortcuts.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: geometry.columns,
-                      crossAxisSpacing: ShortcutGridGeometry.spacing,
-                      mainAxisSpacing: ShortcutGridGeometry.spacing,
-                      childAspectRatio: geometry.width / geometry.height,
-                    ),
-                    itemBuilder: (context, index) => _StandaloneShortcutTile(
-                      controller: controller,
-                      target: target,
-                      application: application,
-                      shortcut: shortcuts[index],
-                      compact: geometry.height < 104,
-                    ),
-                  );
-                },
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
-              sliver: SliverToBoxAdapter(
-                child: OutlinedButton.icon(
-                  key: const ValueKey('edit-computer-setup'),
-                  onPressed: onConfigure,
-                  icon: const Icon(Icons.tune),
-                  label: const Text('Computer app settings'),
-                ),
-              ),
-            ),
           ],
         );
       },
     );
   }
+}
+
+List<ComputerShortcut> _orderChatGptShortcuts(
+  List<ComputerShortcut> shortcuts,
+) {
+  final primaryRank = {
+    for (var index = 0; index < chatGptPrimaryShortcutIds.length; index++)
+      chatGptPrimaryShortcutIds[index].substring('chatgpt.'.length): index,
+  };
+  final secondaryRank = {
+    for (var index = 0; index < chatGptSecondaryShortcutIds.length; index++)
+      chatGptSecondaryShortcutIds[index].substring('chatgpt.'.length): index,
+  };
+  final primary =
+      shortcuts
+          .where((shortcut) => primaryRank.containsKey(shortcut.id))
+          .toList(growable: false)
+        ..sort(
+          (left, right) =>
+              primaryRank[left.id]!.compareTo(primaryRank[right.id]!),
+        );
+  final secondary =
+      shortcuts
+          .where((shortcut) => !primaryRank.containsKey(shortcut.id))
+          .toList(growable: false)
+        ..sort((left, right) {
+          final leftRank =
+              secondaryRank[left.id] ?? chatGptSecondaryShortcutIds.length;
+          final rightRank =
+              secondaryRank[right.id] ?? chatGptSecondaryShortcutIds.length;
+          final rankOrder = leftRank.compareTo(rightRank);
+          return rankOrder == 0 ? left.id.compareTo(right.id) : rankOrder;
+        });
+  return [...primary, ...secondary];
 }
 
 class _StandaloneShortcutTile extends StatelessWidget {

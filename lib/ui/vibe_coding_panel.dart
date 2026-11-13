@@ -160,6 +160,7 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
                                 viewport,
                                 safeAreaLeft: safeInset,
                                 safeAreaRight: safeInset,
+                                fullWidth: appId == 'cursor',
                               );
                           final geometry = ShortcutGridGeometry.forViewport(
                             viewport: viewport,
@@ -168,6 +169,7 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
                                   viewport,
                                   safeAreaLeft: safeInset,
                                   safeAreaRight: safeInset,
+                                  fullWidth: appId == 'cursor',
                                 ),
                             keysPerPage: widget
                                 .controller

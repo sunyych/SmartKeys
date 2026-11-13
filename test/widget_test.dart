@@ -198,7 +198,11 @@ void main() {
     );
     await tester.pump();
     expect(harness.companion.remoteActions.last.buttonId, 'chatgpt.newChat');
-    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
+    final general = find.byKey(const ValueKey('home-tab-general'));
+    await tester.scrollUntilVisible(general, -120, scrollable: appScrollable);
+    await tester.ensureVisible(general);
+    await tester.pumpAndSettle();
+    await tester.tap(general);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('remote-layout-keyboard')),
@@ -238,7 +242,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
+    await tester.tap(find.byKey(const ValueKey('home-tab-general')));
     await tester.pump();
     expect(
       find.byKey(const ValueKey('remote-layout-keyboard')),
@@ -384,7 +388,7 @@ void main() {
     expect(harness.companion.remoteActions.last.applicationId, 'chatgpt');
     expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
     expect(find.byKey(const ValueKey('remote-layout-chatgpt')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
+    await tester.tap(find.byKey(const ValueKey('home-tab-general')));
     await tester.pump();
     expect(find.byKey(const ValueKey('landscape-layout')), findsOneWidget);
   });

@@ -46,8 +46,6 @@ void main() {
       expect(harness.controller.activeProfile.id, 'profile_general');
       expect(harness.controller.config.profiles, hasLength(profileCount));
       expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
-      await tester.tap(find.byTooltip('Next bank'));
-      await tester.pumpAndSettle();
       final send = find.byKey(
         const ValueKey('remote-button-chatgpt.codex.send'),
       );
@@ -77,10 +75,70 @@ void main() {
       );
       expect(tester.getSize(send).width, greaterThan(80));
       expect(tester.getSize(send).height, greaterThan(70));
+      expect(
+        find.byKey(const ValueKey('remote-button-chatgpt.codex.copy')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('remote-button-chatgpt.codex.paste')),
+        findsOneWidget,
+      );
+      final review = find.byKey(
+        const ValueKey('remote-button-chatgpt.codex.review'),
+      );
+      expect(review, findsNothing);
+      await tester.tap(find.byTooltip('Next bank'));
+      await tester.pumpAndSettle();
+      expect(send, findsNothing);
+      expect(review.hitTestable(), findsOneWidget);
+      await tester.tap(review);
+      await tester.pumpAndSettle();
+      expect(
+        harness.companion.remoteActions.last.buttonId,
+        'chatgpt.codex.review',
+      );
 
       expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsNothing);
     },
   );
+
+  testWidgets('ChatGPT keeps the same two pages in tablet board mode', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(920, 760);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final harness = await TestHarness.create();
+    addTearDown(() => _dispose(tester, harness));
+    await _setDesktop(
+      harness,
+      installed: const {'chatgpt'},
+      running: const {'chatgpt'},
+      foreground: 'chatgpt',
+    );
+
+    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('shortcut-board-layout')), findsOneWidget);
+    expect(find.text('Bank 1 of 2'), findsOneWidget);
+    expect(
+      find
+          .byKey(const ValueKey('remote-button-chatgpt.codex.send'))
+          .hitTestable(),
+      findsOneWidget,
+    );
+    final review = find.byKey(
+      const ValueKey('remote-button-chatgpt.codex.review'),
+    );
+    expect(review, findsNothing);
+    await tester.tap(find.byKey(const ValueKey('board-bank-next')));
+    await tester.pumpAndSettle();
+    expect(find.text('Bank 2 of 2'), findsOneWidget);
+    expect(review.hitTestable(), findsOneWidget);
+  });
 
   testWidgets('another Desktop app opens its own shortcut layout', (
     tester,

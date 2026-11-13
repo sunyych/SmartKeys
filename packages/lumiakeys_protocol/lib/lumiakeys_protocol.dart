@@ -15,6 +15,84 @@ enum RemoteLayoutKind { keyboard, application, codex }
 /// Host families used when resolving portable shortcut defaults.
 enum RemoteShortcutPlatform { apple, windows, other }
 
+const int chatGptShortcutsPerPage = 15;
+
+/// Fixed page-one controls, ordered by expected everyday use. IDs remain the
+/// source of truth so custom names and shortcut bindings do not affect order.
+const List<String> chatGptPrimaryShortcutIds = <String>[
+  'chatgpt.newChat',
+  'chatgpt.codex.send',
+  'chatgpt.codex.copy',
+  'chatgpt.codex.paste',
+  'chatgpt.codex.alternateSend',
+  'chatgpt.codex.focusInput',
+  'chatgpt.codex.backspace',
+  'chatgpt.codex.cut',
+  'chatgpt.codex.deleteToStart',
+  'chatgpt.find',
+  'chatgpt.sidebar',
+  'chatgpt.chatView',
+  'chatgpt.codexMode',
+  'chatgpt.codex.project',
+  'chatgpt.previousChat',
+];
+
+const List<String> chatGptSecondaryShortcutIds = <String>[
+  'chatgpt.codex.review',
+  'chatgpt.codex.openFolder',
+  'chatgpt.codex.commandMenu',
+  'chatgpt.codex.terminal',
+  'chatgpt.codex.voiceMode',
+  'chatgpt.codex.toggleVoiceMode',
+  'chatgpt.codex.voiceInput',
+  'chatgpt.codex.cancelClear',
+  'chatgpt.codex.nextChat',
+  'chatgpt.codex.nextProject',
+  'chatgpt.nextChat',
+  'chatgpt.codex.searchChats',
+  'chatgpt.codex.findInChat',
+  'chatgpt.codex.screenshot',
+  'chatgpt.startVoice',
+  'chatgpt.codex.voice',
+  'chatgpt.codex.comma',
+  'chatgpt.codex.period',
+  'chatgpt.codex.exclamation',
+  'chatgpt.codex.quote',
+];
+
+/// Orders the ChatGPT layout for fixed-frequency use on phone/tablet pages.
+/// This changes presentation order only; IDs, shortcut bindings, and user
+/// supplied actions are retained. Review is first among secondary controls.
+RemoteShortcutLayout orderChatGptLayout(RemoteShortcutLayout layout) {
+  if (layout.id != 'chatgpt') return layout;
+
+  final rank = {
+    for (var index = 0; index < chatGptPrimaryShortcutIds.length; index++)
+      chatGptPrimaryShortcutIds[index]: index,
+  };
+  final primary =
+      layout.buttons
+          .where((button) => rank.containsKey(button.id))
+          .toList(growable: false)
+        ..sort((left, right) => rank[left.id]!.compareTo(rank[right.id]!));
+  final secondary = layout.buttons
+      .where((button) => !rank.containsKey(button.id))
+      .toList(growable: true);
+  final secondaryRank = {
+    for (var index = 0; index < chatGptSecondaryShortcutIds.length; index++)
+      chatGptSecondaryShortcutIds[index]: index,
+  };
+  secondary.sort((left, right) {
+    final leftRank =
+        secondaryRank[left.id] ?? chatGptSecondaryShortcutIds.length;
+    final rightRank =
+        secondaryRank[right.id] ?? chatGptSecondaryShortcutIds.length;
+    final rankOrder = leftRank.compareTo(rightRank);
+    return rankOrder == 0 ? left.id.compareTo(right.id) : rankOrder;
+  });
+  return layout.copyWith(buttons: [...primary, ...secondary]);
+}
+
 /// Replaces the portable PRIMARY modifier with the host's native modifier.
 List<String> resolvePrimaryShortcut(
   Iterable<String> keys,
@@ -91,7 +169,7 @@ RemoteShortcutLayout projectChatGptLayout(
       ),
     );
   }
-  return layout.copyWith(buttons: buttons);
+  return orderChatGptLayout(layout.copyWith(buttons: buttons));
 }
 
 bool _isUnassignedSearchDefault(List<String> keys) => [

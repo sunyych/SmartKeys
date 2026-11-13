@@ -12,10 +12,30 @@ void main() {
         RemoteShortcutPlatform.windows,
       );
 
-      expect(apple.buttons.first.shortcut, ['CTRL', '1']);
-      expect(apple.buttons[1].shortcut, ['CTRL', '3']);
-      expect(windows.buttons.first.shortcut, ['ALT', '1']);
-      expect(windows.buttons[1].shortcut, ['ALT', '3']);
+      expect(
+        apple.buttons
+            .firstWhere((button) => button.id == 'chatgpt.chatView')
+            .shortcut,
+        ['CTRL', '1'],
+      );
+      expect(
+        apple.buttons
+            .firstWhere((button) => button.id == 'chatgpt.codexMode')
+            .shortcut,
+        ['CTRL', '3'],
+      );
+      expect(
+        windows.buttons
+            .firstWhere((button) => button.id == 'chatgpt.chatView')
+            .shortcut,
+        ['ALT', '1'],
+      );
+      expect(
+        windows.buttons
+            .firstWhere((button) => button.id == 'chatgpt.codexMode')
+            .shortcut,
+        ['ALT', '3'],
+      );
       expect(
         apple.buttons.any((button) => button.id == 'chatgpt.startVoice'),
         isTrue,
@@ -107,6 +127,68 @@ void main() {
       ['CTRL', 'SHIFT', 'N'],
     );
   });
+
+  test('ChatGPT fixed order puts everyday actions first and Review second', () {
+    final starter = DesktopManifest.starter().layoutById('chatgpt')!;
+    expect(chatGptShortcutsPerPage, 15);
+    expect(chatGptPrimaryShortcutIds, hasLength(chatGptShortcutsPerPage));
+
+    for (final platform in [
+      RemoteShortcutPlatform.apple,
+      RemoteShortcutPlatform.windows,
+    ]) {
+      final projected = projectChatGptLayout(starter, platform);
+      final ids = projected.buttons.map((button) => button.id).toList();
+      expect(
+        ids.take(chatGptShortcutsPerPage).toList(),
+        chatGptPrimaryShortcutIds,
+      );
+      expect(ids[chatGptShortcutsPerPage], 'chatgpt.codex.review');
+      expect(ids.indexOf('chatgpt.codex.send'), lessThan(3));
+      expect(ids.indexOf('chatgpt.codex.copy'), lessThan(4));
+      expect(ids.indexOf('chatgpt.codex.paste'), lessThan(5));
+    }
+  });
+
+  test(
+    'ChatGPT order is stable and keeps imported custom button properties',
+    () {
+      final starter = DesktopManifest.starter().layoutById('chatgpt')!;
+      const customButton = RemoteShortcutButton(
+        id: 'chatgpt.custom.extra',
+        name: 'Custom Action',
+        icon: 'star',
+        targetType: RemoteTargetType.keyboardShortcut,
+        shortcut: ['ALT', 'Z'],
+        description: 'Imported custom action',
+        enabled: false,
+      );
+      final firstInput = starter.copyWith(
+        buttons: [...starter.buttons, customButton],
+      );
+      final secondInput = starter.copyWith(
+        buttons: [...starter.buttons.reversed, customButton],
+      );
+      final first = orderChatGptLayout(firstInput);
+      final second = orderChatGptLayout(secondInput);
+      expect(
+        first.buttons.map((button) => button.id).toList(),
+        second.buttons.map((button) => button.id).toList(),
+      );
+      final restored = first.buttons.firstWhere(
+        (button) => button.id == customButton.id,
+      );
+      expect(restored.shortcut, ['ALT', 'Z']);
+      expect(restored.description, 'Imported custom action');
+      expect(restored.enabled, isFalse);
+      expect(
+        first.buttons.indexWhere(
+          (button) => button.id == 'chatgpt.codex.review',
+        ),
+        chatGptShortcutsPerPage,
+      );
+    },
+  );
 
   test(
     'projection omits unsupported OS actions without exporting them away',

@@ -945,7 +945,7 @@ class AppController extends ChangeNotifier {
     if (layout == null || layout.id != 'chatgpt') return layout;
     final host = companion.activeHost.value;
     if (host?.capabilities.contains('chatgpt-platform-layout-v1') == true) {
-      return layout;
+      return orderChatGptLayout(layout);
     }
     final platform = switch (host?.platform) {
       'macos' => RemoteShortcutPlatform.apple,

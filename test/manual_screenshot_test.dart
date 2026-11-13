@@ -150,7 +150,7 @@ void main() {
     for (final id in ['chatgpt', 'claude', 'cursor']) {
       expect(find.byKey(ValueKey('workspace-app-$id')), findsOneWidget);
     }
-    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
+    await tester.tap(find.byKey(const ValueKey('home-tab-general')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('remote-layout-keyboard')),

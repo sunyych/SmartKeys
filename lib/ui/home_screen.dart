@@ -179,9 +179,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       );
     }
-    final keysPerPage = boardMode
+    final configuredKeysPerPage = boardMode
         ? controller.config.preferences.tabletKeysPerPage
         : controlButtonCount;
+    final keysPerPage = remoteLayout?.id == 'chatgpt'
+        ? chatGptShortcutsPerPage
+        : configuredKeysPerPage;
     final scopeToken =
         '${mediaSize.width.round()}x${mediaSize.height.round()}:$boardMode:'
         '${controller.activeProfile.id}:${remoteLayout?.id}:$keysPerPage';
@@ -203,8 +206,14 @@ class _HomeScreenState extends State<HomeScreen> {
           );
     final effectiveBankCount = remoteLayout == null
         ? (localCapacity / keysPerPage).ceil()
-        : (remoteLayout.buttons.length / keysPerPage).ceil().clamp(1, 99);
+        : _remoteLayoutPageCount(remoteLayout, keysPerPage);
     if (_activeBank >= effectiveBankCount) _activeBank = 0;
+    final remoteStartIndex = remoteLayout == null
+        ? _activeBank * keysPerPage
+        : _remoteLayoutPageStart(remoteLayout, _activeBank, keysPerPage);
+    final remoteVisibleCount = remoteLayout == null
+        ? 0
+        : _remoteLayoutPageVisibleCount(remoteLayout, _activeBank, keysPerPage);
     final keyboardSurface = boardMode
         ? _ShortcutBoard(
             key: const ValueKey('shortcut-board-layout'),
@@ -212,6 +221,9 @@ class _HomeScreenState extends State<HomeScreen> {
             editing: remoteLayout == null && editing,
             remoteLayout: remoteLayout,
             keysPerPage: keysPerPage,
+            geometryKeysPerPage: remoteLayout?.id == 'chatgpt'
+                ? controller.config.preferences.tabletKeysPerPage
+                : keysPerPage,
             bank: _activeBank,
             onSelectBank: (bank) async {
               if (bank == _activeBank) return;
@@ -231,15 +243,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller: controller,
                         editing: remoteLayout == null && editing,
                         remoteLayout: remoteLayout,
-                        startPosition: _activeBank * keysPerPage,
+                        startPosition: remoteStartIndex,
                         visibleCount: remoteLayout == null
                             ? (localCapacity - _activeBank * keysPerPage)
                                   .clamp(0, keysPerPage)
                                   .toInt()
-                            : (remoteLayout.buttons.length -
-                                      _activeBank * keysPerPage)
-                                  .clamp(0, keysPerPage)
-                                  .toInt(),
+                            : remoteVisibleCount,
                         rowCountOverride: landscape ? 3 : 5,
                         onToggleEditing: () =>
                             setState(() => editing = !editing),
@@ -249,15 +258,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller: controller,
                         editing: remoteLayout == null && editing,
                         remoteLayout: remoteLayout,
-                        startPosition: _activeBank * keysPerPage,
+                        startPosition: remoteStartIndex,
                         visibleCount: remoteLayout == null
                             ? (localCapacity - _activeBank * keysPerPage)
                                   .clamp(0, keysPerPage)
                                   .toInt()
-                            : (remoteLayout.buttons.length -
-                                      _activeBank * keysPerPage)
-                                  .clamp(0, keysPerPage)
-                                  .toInt(),
+                            : remoteVisibleCount,
                         rowCountOverride: landscape ? 3 : 5,
                         onToggleEditing: () =>
                             setState(() => editing = !editing),
@@ -491,7 +497,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           await selectTab(_HomeTab.keyboard);
                           await controller.switchProfile(id);
                         },
-                        onSelectKeyboard: () => selectTab(_HomeTab.keyboard),
+                        onSelectGeneral: () => selectTab(_HomeTab.keyboard),
                         onTouchpad: isDesktopVibeWorkspace
                             ? () => _showDesktopTouchpad(context, controller)
                             : null,
@@ -795,6 +801,42 @@ int _boardColumns(int keysPerPage, bool landscape) {
   return (sqrt(keysPerPage) * scale).round();
 }
 
+int _chatGptPrimaryCount(RemoteShortcutLayout layout) => layout.buttons
+    .where((button) => chatGptPrimaryShortcutIds.contains(button.id))
+    .length;
+
+int _remoteLayoutPageCount(RemoteShortcutLayout layout, int pageCapacity) {
+  if (layout.id != 'chatgpt') {
+    return (layout.buttons.length / pageCapacity).ceil().clamp(1, 99).toInt();
+  }
+  final secondaryCount = layout.buttons.length - _chatGptPrimaryCount(layout);
+  return 1 + (secondaryCount / pageCapacity).ceil();
+}
+
+int _remoteLayoutPageStart(
+  RemoteShortcutLayout layout,
+  int page,
+  int pageCapacity,
+) {
+  if (layout.id != 'chatgpt' || page == 0) return page * pageCapacity;
+  return _chatGptPrimaryCount(layout) + (page - 1) * pageCapacity;
+}
+
+int _remoteLayoutPageVisibleCount(
+  RemoteShortcutLayout layout,
+  int page,
+  int pageCapacity,
+) {
+  if (layout.id != 'chatgpt') {
+    final start = page * pageCapacity;
+    return (layout.buttons.length - start).clamp(0, pageCapacity).toInt();
+  }
+  if (page == 0) return _chatGptPrimaryCount(layout);
+  final secondaryCount = layout.buttons.length - _chatGptPrimaryCount(layout);
+  final start = (page - 1) * pageCapacity;
+  return (secondaryCount - start).clamp(0, pageCapacity).toInt();
+}
+
 enum _HomeTab { keyboard, application, vibeCoding }
 
 class _ShortcutBoard extends StatelessWidget {
@@ -804,6 +846,7 @@ class _ShortcutBoard extends StatelessWidget {
     required this.editing,
     required this.remoteLayout,
     required this.keysPerPage,
+    required this.geometryKeysPerPage,
     required this.bank,
     required this.onSelectBank,
     required this.onToggleEditing,
@@ -813,6 +856,7 @@ class _ShortcutBoard extends StatelessWidget {
   final bool editing;
   final RemoteShortcutLayout? remoteLayout;
   final int keysPerPage;
+  final int geometryKeysPerPage;
   final int bank;
   final ValueChanged<int> onSelectBank;
   final VoidCallback onToggleEditing;
@@ -821,15 +865,17 @@ class _ShortcutBoard extends StatelessWidget {
   Widget build(BuildContext context) {
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    final columns = _boardColumns(keysPerPage, landscape);
-    final rows = (keysPerPage / columns).ceil();
+    final columns = _boardColumns(geometryKeysPerPage, landscape);
+    final rows = (geometryKeysPerPage / columns).ceil();
     final banks = remoteLayout == null
         ? (maxControlButtonCount / keysPerPage).ceil()
-        : (remoteLayout!.buttons.length / keysPerPage).ceil().clamp(1, 99);
-    final start = bank * keysPerPage;
+        : _remoteLayoutPageCount(remoteLayout!, keysPerPage);
+    final start = remoteLayout == null
+        ? bank * keysPerPage
+        : _remoteLayoutPageStart(remoteLayout!, bank, keysPerPage);
     final visibleCount = remoteLayout == null
         ? (maxControlButtonCount - start).clamp(0, keysPerPage).toInt()
-        : (remoteLayout!.buttons.length - start).clamp(1, keysPerPage).toInt();
+        : _remoteLayoutPageVisibleCount(remoteLayout!, bank, keysPerPage);
     return Column(
       children: [
         Expanded(
@@ -1119,7 +1165,7 @@ class _ComputerApplicationBar extends StatelessWidget {
     required this.selectedApplicationId,
     required this.onSelectApplication,
     required this.onSelectProfile,
-    required this.onSelectKeyboard,
+    required this.onSelectGeneral,
     this.onTouchpad,
   });
 
@@ -1131,7 +1177,7 @@ class _ComputerApplicationBar extends StatelessWidget {
   final String? selectedApplicationId;
   final ValueChanged<ComputerApplication> onSelectApplication;
   final ValueChanged<String> onSelectProfile;
-  final VoidCallback onSelectKeyboard;
+  final VoidCallback onSelectGeneral;
   final VoidCallback? onTouchpad;
 
   @override
@@ -1142,14 +1188,6 @@ class _ComputerApplicationBar extends StatelessWidget {
       padding: EdgeInsets.only(right: reservedRightInset),
       child: Row(
         children: [
-          if (selectedApplicationId != null)
-            IconButton(
-              key: const ValueKey('home-tab-keyboard'),
-              tooltip: 'Keyboard shortcuts',
-              visualDensity: VisualDensity.compact,
-              onPressed: onSelectKeyboard,
-              icon: const Icon(Icons.keyboard_alt_outlined),
-            ),
           Expanded(
             child: KeyedSubtree(
               key: profiles.isEmpty
@@ -1159,7 +1197,10 @@ class _ComputerApplicationBar extends StatelessWidget {
                 key: const ValueKey('computer-app-scroll-list'),
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(vertical: 3),
-                itemCount: applications.length + profiles.length,
+                itemCount:
+                    applications.length +
+                    profiles.length +
+                    (selectedApplicationId == null ? 0 : 1),
                 separatorBuilder: (_, index) =>
                     index == applications.length - 1 && profiles.isNotEmpty
                     ? const SizedBox(
@@ -1169,8 +1210,18 @@ class _ComputerApplicationBar extends StatelessWidget {
                       )
                     : const SizedBox(width: 6),
                 itemBuilder: (context, index) {
-                  if (index >= applications.length) {
-                    final profile = profiles[index - applications.length];
+                  final hasGeneral = selectedApplicationId != null;
+                  if (hasGeneral && index == 0) {
+                    return _HomeTabChip(
+                      key: const ValueKey('home-tab-general'),
+                      label: 'General',
+                      selected: false,
+                      onTap: onSelectGeneral,
+                    );
+                  }
+                  final itemIndex = index - (hasGeneral ? 1 : 0);
+                  if (itemIndex >= applications.length) {
+                    final profile = profiles[itemIndex - applications.length];
                     return _HomeTabChip(
                       key: ValueKey('profile-quick-${profile.id}'),
                       label: profile.name,
@@ -1184,7 +1235,7 @@ class _ComputerApplicationBar extends StatelessWidget {
                       onTap: () => onSelectProfile(profile.id),
                     );
                   }
-                  final application = applications[index];
+                  final application = applications[itemIndex];
                   final remote = computerApplicationById(application.id);
                   final selected = application.id == selectedApplicationId;
                   final icon = _computerApplicationIcon(application.id);
@@ -1232,13 +1283,13 @@ class _HomeTabChip extends StatelessWidget {
   const _HomeTabChip({
     super.key,
     required this.label,
-    required this.icon,
+    this.icon,
     required this.selected,
     required this.onTap,
   });
 
   final String label;
-  final Widget icon;
+  final Widget? icon;
   final bool selected;
   final VoidCallback onTap;
 
@@ -1267,16 +1318,18 @@ class _HomeTabChip extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconTheme(
-                  data: IconThemeData(
-                    size: 16,
-                    color: selected
-                        ? Theme.of(context).colorScheme.onPrimaryContainer
-                        : Colors.white60,
+                if (icon != null) ...[
+                  IconTheme(
+                    data: IconThemeData(
+                      size: 16,
+                      color: selected
+                          ? Theme.of(context).colorScheme.onPrimaryContainer
+                          : Colors.white60,
+                    ),
+                    child: SizedBox.square(dimension: 16, child: icon),
                   ),
-                  child: SizedBox.square(dimension: 16, child: icon),
-                ),
-                const SizedBox(width: 6),
+                  const SizedBox(width: 6),
+                ],
                 Text(
                   label,
                   style: TextStyle(
@@ -1931,7 +1984,6 @@ enum _ControlMenuAction {
   profiles,
   computerSetup,
   bluetooth,
-  desktopConnection,
   importExport,
   toggleEditing,
   settings,
@@ -1989,17 +2041,7 @@ class _CompactControlMenu extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (desktopKeyboardOnly)
-                  const PopupMenuItem(
-                    key: ValueKey('menu-desktop-connection'),
-                    value: _ControlMenuAction.desktopConnection,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.desktop_windows_outlined),
-                      title: Text('Desktop connection'),
-                    ),
-                  )
-                else ...[
+                if (!desktopKeyboardOnly) ...[
                   PopupMenuItem(
                     key: const ValueKey('menu-bluetooth-connection'),
                     value: _ControlMenuAction.bluetooth,
@@ -2007,15 +2049,6 @@ class _CompactControlMenu extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(_connectionIcon(status)),
                       title: Text('Bluetooth · ${_connectionLabel(status)}'),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    key: ValueKey('menu-desktop-connection'),
-                    value: _ControlMenuAction.desktopConnection,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.desktop_windows_outlined),
-                      title: Text('LumiaKey Desktop'),
                     ),
                   ),
                 ],
@@ -2181,22 +2214,6 @@ class _CompactControlMenu extends StatelessWidget {
           context,
           controller.hid,
           beforeConnect: controller.prepareForBluetoothHostSelection,
-        );
-      case _ControlMenuAction.desktopConnection:
-        showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          builder: (context) => AnimatedPadding(
-            duration: const Duration(milliseconds: 180),
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            child: SafeArea(
-              child: SingleChildScrollView(
-                child: DesktopConnectionPanel(companion: controller.companion),
-              ),
-            ),
-          ),
         );
       case _ControlMenuAction.toggleEditing:
         onToggleEditing();

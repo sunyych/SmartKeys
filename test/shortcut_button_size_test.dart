@@ -177,7 +177,7 @@ void main() {
       );
     });
 
-    testWidgets('Vibe app shortcut tiles match in $orientation', (
+    testWidgets('Vibe Cursor tiles fill the safe width in $orientation', (
       tester,
     ) async {
       _setViewport(tester, size);
@@ -206,11 +206,37 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('workspace-app-cursor')));
       await tester.pumpAndSettle();
-      _expectUniformSizes(tester, [
+      final cursorKeys = [
         const ValueKey('vibe-button-vibe.cursor.project'),
         const ValueKey('vibe-button-vibe.cursor.newChat'),
         const ValueKey('vibe-button-vibe.cursor.cancel'),
-      ], _expectedCellSize(size));
+      ];
+      final expected = ShortcutGridGeometry.forViewport(
+        viewport: size,
+        gridContentWidth: ShortcutGridGeometry.contentWidthForViewport(
+          size,
+          safeAreaLeft: size.width > size.height ? 24 : 0,
+          safeAreaRight: size.width > size.height ? 24 : 0,
+          fullWidth: true,
+        ),
+        keysPerPage: 15,
+        safeAreaVertical: 0,
+      );
+      _expectUniformSizes(
+        tester,
+        cursorKeys,
+        Size(expected.width, expected.height),
+      );
+      final gridRect = tester.getRect(
+        find.byKey(const ValueKey('vibe-shortcut-grid')),
+      );
+      for (final key in cursorKeys) {
+        final tileRect = tester.getRect(find.byKey(key));
+        expect(gridRect.contains(tileRect.topLeft), isTrue);
+        expect(gridRect.contains(tileRect.bottomRight), isTrue);
+      }
+      final usableWidth = size.width - (size.width > size.height ? 48 : 0);
+      expect(gridRect.width, greaterThanOrEqualTo(usableWidth - 1));
     });
   }
 }
