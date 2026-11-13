@@ -668,6 +668,29 @@ class DesktopManifest {
         shortcut('codex.sidebar', 'Sidebar', 'menu_open', ['PRIMARY', 'B']),
       ],
     );
+    final chatgpt = appLayout('chatgpt', 'ChatGPT', [
+      shortcut('chatgpt.chatView', 'Chat View', 'chat', ['ALT', '1']),
+      shortcut('chatgpt.startVoice', 'Start Voice Chat', 'mic', [
+        'CTRL',
+        'SHIFT',
+        'V',
+      ]),
+      shortcut('chatgpt.newChat', 'New Chat', 'add', ['PRIMARY', 'N']),
+      shortcut('chatgpt.previousChat', 'Previous Chat', 'arrow_back', [
+        'CTRL',
+        'SHIFT',
+        'TAB',
+      ]),
+      shortcut('chatgpt.nextChat', 'Next Chat', 'arrow_forward', [
+        'CTRL',
+        'TAB',
+      ]),
+      shortcut('chatgpt.find', 'Find', 'search', ['PRIMARY', 'F']),
+      shortcut('chatgpt.sidebar', 'Show / Hide Sidebar', 'menu_open', [
+        'PRIMARY',
+        'B',
+      ]),
+    ]);
     RemoteShortcutLayout vibeLayout(
       String id,
       String name,
@@ -901,6 +924,7 @@ class DesktopManifest {
         illustrator,
         solidworks,
         codex,
+        chatgpt,
         vibeCodex,
         vibeClaude,
         vibeCursor,
@@ -913,6 +937,13 @@ class DesktopManifest {
         finder,
       ],
       applications: const [
+        RemoteApplication(
+          id: 'chatgpt',
+          name: 'ChatGPT',
+          icon: 'chat',
+          executable: 'ChatGPT',
+          layoutId: 'chatgpt',
+        ),
         RemoteApplication(
           id: 'codex',
           name: 'Codex / ChatGPT',

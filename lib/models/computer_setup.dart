@@ -59,7 +59,7 @@ class ComputerTarget {
   int get hashCode => Object.hash(id, name, mode, isApple, operatingSystem);
 }
 
-enum ComputerAppCategory { browser, meetings, vibeCoding, other }
+enum ComputerAppCategory { browser, meetings, vibeCoding, chat, other }
 
 @immutable
 class ComputerApplication {
@@ -111,6 +111,11 @@ const computerApplications = <ComputerApplication>[
     category: ComputerAppCategory.vibeCoding,
   ),
   ComputerApplication(
+    id: 'chatgpt',
+    name: 'ChatGPT',
+    category: ComputerAppCategory.chat,
+  ),
+  ComputerApplication(
     id: 'claude',
     name: 'Claude',
     category: ComputerAppCategory.vibeCoding,
@@ -135,8 +140,8 @@ bool isComputerApplicationSupportedOn(
   ComputerApplication application,
   ComputerOperatingSystem? operatingSystem,
 ) =>
-    application.id != 'safari' ||
-    operatingSystem == ComputerOperatingSystem.macos;
+    (application.id != 'safari' ||
+    operatingSystem == ComputerOperatingSystem.macos);
 
 ComputerApplication? computerApplicationById(String id) => computerApplications
     .cast<ComputerApplication?>()
@@ -200,6 +205,11 @@ const _vibeShortcuts = <ComputerShortcut>[
     id: 'voiceMode',
     label: 'Start voice mode',
     requiredForSetup: true,
+  ),
+  ComputerShortcut(
+    id: 'toggleVoiceMode',
+    label: 'Toggle voice mode',
+    requiredForSetup: false,
   ),
   ComputerShortcut(
     id: 'voiceInput',
@@ -274,11 +284,48 @@ const _vibeShortcuts = <ComputerShortcut>[
   ),
 ];
 
+const _chatShortcuts = <ComputerShortcut>[
+  ComputerShortcut(
+    id: 'launch',
+    label: 'Open ChatGPT Chat Bar',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'chatView',
+    label: 'Open Chat view',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(id: 'newChat', label: 'New chat', requiredForSetup: false),
+  ComputerShortcut(
+    id: 'startVoice',
+    label: 'Start voice chat',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'stopVoice',
+    label: 'Stop voice chat',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(
+    id: 'previousChat',
+    label: 'Previous chat',
+    requiredForSetup: false,
+  ),
+  ComputerShortcut(id: 'nextChat', label: 'Next chat', requiredForSetup: false),
+  ComputerShortcut(id: 'find', label: 'Find', requiredForSetup: false),
+  ComputerShortcut(
+    id: 'sidebar',
+    label: 'Show or hide sidebar',
+    requiredForSetup: false,
+  ),
+];
+
 List<ComputerShortcut> computerShortcutsFor(ComputerAppCategory category) =>
     switch (category) {
       ComputerAppCategory.browser => _browserShortcuts,
       ComputerAppCategory.meetings => _meetingShortcuts,
       ComputerAppCategory.vibeCoding => _vibeShortcuts,
+      ComputerAppCategory.chat => _chatShortcuts,
       ComputerAppCategory.other => const [],
     };
 
@@ -289,6 +336,29 @@ String? defaultComputerShortcut(
 ) {
   final primary = target.isApple ? 'Command' : 'Ctrl';
   if (application.category == ComputerAppCategory.vibeCoding) {
+    if (application.id == 'cursor') {
+      return switch (actionId) {
+        'toggleVoiceMode' => '$primary+Shift+Space',
+        'cancelClear' => '$primary+Shift+Backspace',
+        'previousChat' => '$primary+[',
+        'nextChat' => '$primary+]',
+        'newChat' => '$primary+N',
+        _ => switch (actionId) {
+          'send' => 'Enter',
+          'alternateSend' => '$primary+Enter',
+          'backspace' => 'Backspace',
+          'copy' => '$primary+C',
+          'paste' => '$primary+V',
+          'cut' => '$primary+X',
+          'comma' => 'Comma',
+          'period' => 'Period',
+          'exclamation' => 'Shift+1',
+          'quote' => "Shift+'",
+          'screenshot' => target.isApple ? 'Command+Shift+4' : null,
+          _ => null,
+        },
+      };
+    }
     return switch (actionId) {
       'send' => 'Enter',
       'alternateSend' => '$primary+Enter',
@@ -301,6 +371,74 @@ String? defaultComputerShortcut(
       'exclamation' => 'Shift+1',
       'quote' => "Shift+'",
       'screenshot' => target.isApple ? 'Command+Shift+4' : null,
+      _ => null,
+    };
+  }
+  if (application.category == ComputerAppCategory.meetings) {
+    if (application.id == 'teams') {
+      final primaryKey = target.isApple ? 'Command' : 'Ctrl';
+      return switch (actionId) {
+        'mute' => '$primaryKey+Shift+M',
+        'camera' => '$primaryKey+Shift+O',
+        'raiseHand' => '$primaryKey+Shift+K',
+        _ => null,
+      };
+    }
+    if (application.id == 'zoom') {
+      if (target.isApple) {
+        return switch (actionId) {
+          'mute' => 'Command+Shift+A',
+          'camera' => 'Command+Shift+V',
+          'raiseHand' => 'Option+Y',
+          _ => null,
+        };
+      }
+      return switch (actionId) {
+        'mute' => 'Alt+A',
+        'camera' => 'Alt+V',
+        'raiseHand' => 'Alt+Y',
+        _ => null,
+      };
+    }
+  }
+  if (application.category == ComputerAppCategory.chat) {
+    // These defaults follow OpenAI's documented macOS app shortcuts. The
+    // Windows app does not document a corresponding voice-chat chord, so leave
+    // it unset for the user to supply if their installed version exposes one.
+    if (target.operatingSystem == ComputerOperatingSystem.windows) {
+      return switch (actionId) {
+        'chatView' => 'Alt+1',
+        'newChat' => 'Ctrl+N',
+        'previousChat' => 'Ctrl+Shift+Tab',
+        'nextChat' => 'Ctrl+Tab',
+        'find' => 'Ctrl+F',
+        'sidebar' => 'Ctrl+B',
+        _ => null,
+      };
+    }
+    if (target.operatingSystem == ComputerOperatingSystem.linux) {
+      return switch (actionId) {
+        'chatView' => 'Alt+1',
+        'newChat' => 'Ctrl+N',
+        'previousChat' => 'Ctrl+Shift+Tab',
+        'nextChat' => 'Ctrl+Tab',
+        'find' => 'Ctrl+F',
+        'sidebar' => 'Ctrl+B',
+        _ => null,
+      };
+    }
+    if (target.operatingSystem != ComputerOperatingSystem.macos) return null;
+    return switch (actionId) {
+      // This opens ChatGPT's configurable Chat Bar, not its full main window.
+      // A user's explicit full-window launch binding can override it.
+      'launch' => 'Option+Space',
+      'chatView' => 'Ctrl+1',
+      'newChat' => 'Command+N',
+      'startVoice' => 'Ctrl+Shift+V',
+      'previousChat' => 'Ctrl+Shift+Tab',
+      'nextChat' => 'Ctrl+Tab',
+      'find' => 'Command+F',
+      'sidebar' => 'Command+B',
       _ => null,
     };
   }

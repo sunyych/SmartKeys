@@ -99,6 +99,7 @@ class CompanionComputerChoice {
 abstract interface class SwitchableCompanionConnection {
   ValueListenable<List<CompanionComputerChoice>> get computerChoices;
   String? get selectedComputerChoiceId;
+  bool get isComputerSelectionPinned;
   Future<void> selectComputer(String id);
   Future<void> suspendComputerSelection();
 }
@@ -191,6 +192,8 @@ class LanCompanionService
 
   @override
   String? get selectedComputerChoiceId => _selectedComputerChoiceId;
+  @override
+  bool get isComputerSelectionPinned => _selectionPinned;
 
   @override
   Future<void> start() async {

@@ -1090,6 +1090,7 @@ IconData _computerApplicationIcon(String id) => switch (id) {
   'codex' => Icons.auto_awesome,
   'claude' => Icons.psychology_outlined,
   'cursor' => Icons.code,
+  'chatgpt' => Icons.chat_bubble_outline,
   _ => Icons.apps,
 };
 
@@ -1700,7 +1701,11 @@ class _WheelPanel extends StatelessWidget {
     if (controller.hid is IosCompanionHidService) return;
     if (controller.hid.connectionStatus.value !=
         HidConnectionStatus.connected) {
-      showBluetoothConnectionSheet(context, controller.hid);
+      showBluetoothConnectionSheet(
+        context,
+        controller.hid,
+        beforeConnect: controller.prepareForBluetoothHostSelection,
+      );
       return;
     }
     controller.sendMouseClick(secondary: secondary);
@@ -1954,7 +1959,11 @@ class _CompactControlMenu extends StatelessWidget {
       case _ControlMenuAction.profiles:
         _showProfileSelector(context, controller);
       case _ControlMenuAction.bluetooth:
-        showBluetoothConnectionSheet(context, controller.hid);
+        showBluetoothConnectionSheet(
+          context,
+          controller.hid,
+          beforeConnect: controller.prepareForBluetoothHostSelection,
+        );
       case _ControlMenuAction.desktopConnection:
         showModalBottomSheet<void>(
           context: context,

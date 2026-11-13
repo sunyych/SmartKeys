@@ -245,6 +245,53 @@ void main() {
     },
   );
 
+  testWidgets(
+    'app shortcut grid shows platform defaults and literal Meta keys',
+    (tester) async {
+      final harness = await TestHarness.create(seedComputerSetup: false);
+      addTearDown(harness.dispose);
+      final original = harness.controller.activeComputer!;
+      final target = original.withOperatingSystem(
+        ComputerOperatingSystem.macos,
+      );
+      await harness.controller.saveComputerSetup(
+        target,
+        ComputerSetup(
+          applicationIds: const ['chatgpt'],
+          operatingSystem: ComputerOperatingSystem.macos,
+          bindings: const {
+            'chatgpt': {'find': 'Meta+F'},
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StandaloneAppPanel(
+              controller: harness.controller,
+              target: target,
+              application: computerApplicationById('chatgpt')!,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('⌘'), findsWidgets);
+      expect(find.text('Ctrl'), findsWidgets);
+      expect(find.text('⇧'), findsWidgets);
+      expect(find.text('V'), findsWidgets);
+      expect(find.text('Default'), findsWidgets);
+      final findButton = find.byKey(
+        const ValueKey('standalone-action-chatgpt-find'),
+      );
+      await tester.ensureVisible(findButton);
+      expect(
+        find.descendant(of: findButton, matching: find.text('F')),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('General-only setup stores an explicit empty app list', (
     tester,
   ) async {

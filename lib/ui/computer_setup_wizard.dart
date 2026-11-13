@@ -290,7 +290,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
   Widget _applicationCard(ComputerApplication app) {
     final expanded = _expandedAppId == app.id;
     final shortcuts = computerShortcutsFor(app.category);
-    final launch = _bindingEditor(app, 'launch').text.trim();
+    final launch = _effectiveChord(app, 'launch') ?? '';
     final launchConfigured = parseComputerShortcut(launch) != null;
     final launchConfirmed = _confirmedAppLaunches.contains(app.id);
     return Card(
@@ -349,11 +349,9 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                                   ? 'Launch app · key combination'
                                   : '${shortcut.label} · key combination',
                               hintText: _shortcutHint(app, shortcut),
-                              helperText:
-                                  shortcut.requiredForSetup ||
-                                      _shortcutHint(app, shortcut) == null
-                                  ? null
-                                  : 'Default: ${_shortcutHint(app, shortcut)}. Leave blank to use it.',
+                              helperText: _shortcutHint(app, shortcut) == null
+                                  ? 'Optional. Leave blank until you want to add this key.'
+                                  : 'Leave blank to use the computer’s default key.',
                               helperMaxLines: 2,
                               suffixIcon: IconButton(
                                 tooltip: 'Clear ${shortcut.label}',
@@ -370,6 +368,33 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
                               ),
                             ),
                           ),
+                          if (_effectiveChord(app, shortcut.id)
+                              case final hint?) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: _ShortcutKeycaps(
+                                    chord: hint,
+                                    operatingSystem: _operatingSystem,
+                                    key: ValueKey(
+                                      'computer-effective-${app.id}-${shortcut.id}',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _bindingEditor(
+                                        app,
+                                        shortcut.id,
+                                      ).text.trim().isEmpty
+                                      ? 'Default'
+                                      : 'Custom',
+                                  style: Theme.of(context).textTheme.labelSmall,
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -515,7 +540,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
     ComputerApplication app,
     ComputerShortcut shortcut,
   ) async {
-    final chord = await showDialog<String>(
+    final route = DialogRoute<String>(
       context: context,
       builder: (context) => _ShortcutChordPicker(
         initialChord: _bindingEditor(app, shortcut.id).text,
@@ -523,6 +548,8 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
         title: shortcut.label,
       ),
     );
+    final chord = await Navigator.of(context, rootNavigator: true).push(route);
+    await route.completed;
     if (!mounted || chord == null) return;
     _bindingEditor(app, shortcut.id).text = chord;
     _bindingChanged(app, shortcut);
@@ -586,7 +613,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
   }
 
   Future<void> _testLaunch(ComputerApplication app) async {
-    final chord = _bindingEditor(app, 'launch').text.trim();
+    final chord = _effectiveChord(app, 'launch')?.trim() ?? '';
     if (_operatingSystem == null || parseComputerShortcut(chord) == null) {
       return;
     }
@@ -599,7 +626,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
       await widget.controller.testComputerLaunch(widget.target, app.id, chord);
       if (!mounted) return;
       if (!_applicationIds.contains(app.id) ||
-          _bindingEditor(app, 'launch').text.trim() != chord) {
+          _effectiveChord(app, 'launch')?.trim() != chord) {
         return;
       }
       setState(() {
@@ -611,6 +638,20 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
     } finally {
       if (mounted) setState(() => _testingLaunch = false);
     }
+  }
+
+  String? _effectiveChord(ComputerApplication app, String actionId) {
+    final override = _bindingEditor(app, actionId).text.trim();
+    if (override.isNotEmpty && parseComputerShortcut(override) != null) {
+      return override;
+    }
+    final os = _operatingSystem;
+    if (os == null) return null;
+    return defaultComputerShortcut(
+      widget.target.withOperatingSystem(os),
+      app,
+      actionId,
+    );
   }
 
   bool _canSave(List<ComputerApplication> selected, bool standalone) {
@@ -674,6 +715,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
         ComputerAppCategory.browser => 'Web browser shortcuts',
         ComputerAppCategory.meetings => 'Meeting controls',
         ComputerAppCategory.vibeCoding => 'Vibe Coding actions',
+        ComputerAppCategory.chat => 'ChatGPT controls',
         ComputerAppCategory.other => 'Application shortcuts',
       };
 }
@@ -986,6 +1028,56 @@ class _ShortcutChordPickerState extends State<_ShortcutChordPicker> {
           modifier == 'System' ? _systemModifier : modifier,
       _key!,
     ].join('+');
+  }
+}
+
+class _ShortcutKeycaps extends StatelessWidget {
+  const _ShortcutKeycaps({
+    super.key,
+    required this.chord,
+    required this.operatingSystem,
+  });
+  final String chord;
+  final ComputerOperatingSystem? operatingSystem;
+
+  @override
+  Widget build(BuildContext context) {
+    final mac = operatingSystem == ComputerOperatingSystem.macos;
+    final color = Theme.of(context).colorScheme;
+    final keys = chord.split('+').map((part) {
+      final value = part.trim();
+      return switch (value.toLowerCase()) {
+        'command' || 'cmd' || 'meta' || 'win' || 'windows' =>
+          mac
+              ? '⌘'
+              : operatingSystem == ComputerOperatingSystem.linux
+              ? 'Super'
+              : 'Win',
+        'ctrl' || 'control' => 'Ctrl',
+        'option' || 'alt' => mac ? '⌥' : 'Alt',
+        'shift' => mac ? '⇧' : 'Shift',
+        'primary' => mac ? '⌘' : 'Ctrl',
+        _ => value.length == 1 ? value.toUpperCase() : value,
+      };
+    });
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        for (final key in keys)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: color.surfaceContainerHighest,
+              border: Border.all(color: color.outlineVariant),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+              child: Text(key, style: Theme.of(context).textTheme.labelMedium),
+            ),
+          ),
+      ],
+    );
   }
 }
 

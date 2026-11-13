@@ -88,7 +88,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             candidates.any(foregroundProcess.contains);
         if (Platform.isMacOS) {
           final chatGptDetected =
-              app.id == 'codex' &&
+              (app.id == 'codex' || app.id == 'chatgpt') &&
               (installedMacApps.any(
                     (installed) => installed.contains('chatgpt'),
                   ) ||
@@ -115,7 +115,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             (installed) => candidates.any(installed.contains),
           );
           final chatGptDetected =
-              app.id == 'codex' &&
+              (app.id == 'codex' || app.id == 'chatgpt') &&
               (installedWindowsApps.any(
                     (installed) => installed.contains('chatgpt'),
                   ) ||
@@ -201,6 +201,8 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
       if (app.id == 'codex') 'codex.exe',
       if (app.id == 'codex') 'chatgpt',
       if (app.id == 'codex') 'chatgpt.app',
+      if (app.id == 'chatgpt') 'chatgpt.exe',
+      if (app.id == 'chatgpt') 'chatgpt.app',
       if (app.id == 'claude') 'claude.exe',
       if (app.id == 'cursor') 'cursor.exe',
     ];
@@ -292,6 +294,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     'photoshop' => 'Photoshop.exe',
     'illustrator' => 'Illustrator.exe',
     'premiere' => 'Adobe Premiere Pro.exe',
+    'chatgpt' => 'ChatGPT.exe',
     'codex' =>
       app.executable.toLowerCase().contains('chatgpt')
           ? 'ChatGPT.exe'
@@ -312,6 +315,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
       };
 
   static String _linuxExecutable(RemoteApplication app) => switch (app.id) {
+    'chatgpt' => 'chatgpt',
     'edge' => 'microsoft-edge',
     'firefox' => 'firefox',
     'teams' => 'teams-for-linux',
@@ -607,6 +611,52 @@ class DesktopController extends ChangeNotifier {
     DesktopManifest manifest,
     DesktopManifest original,
   ) {
+    final chatGptLayout = manifest.layoutById('chatgpt');
+    if (chatGptLayout != null) {
+      final originalChatGptLayout = original.layoutById('chatgpt');
+      final originalVoice = originalChatGptLayout?.buttons
+          .where((button) => button.id == 'chatgpt.startVoice')
+          .firstOrNull;
+      final originalChatView = originalChatGptLayout?.buttons
+          .where((button) => button.id == 'chatgpt.chatView')
+          .firstOrNull;
+      final defaultVoice =
+          originalVoice == null ||
+          _sameKeys(originalVoice.shortcut, const ['CTRL', 'SHIFT', 'V']);
+      final customVoice = originalVoice != null && !defaultVoice;
+      final buttons = chatGptLayout.buttons
+          .where(
+            (button) =>
+                button.id != 'chatgpt.startVoice' ||
+                Platform.isMacOS ||
+                customVoice,
+          )
+          .map((button) {
+            if (button.id == 'chatgpt.startVoice' && defaultVoice) {
+              return button.copyWith(
+                shortcut: const ['CTRL', 'SHIFT', 'V'],
+                description: 'Start ChatGPT voice chat',
+              );
+            }
+            if (button.id == 'chatgpt.chatView' &&
+                Platform.isMacOS &&
+                (originalChatView == null ||
+                    _sameKeys(originalChatView.shortcut, const ['ALT', '1']))) {
+              return button.copyWith(shortcut: const ['CTRL', '1']);
+            }
+            return button;
+          })
+          .toList(growable: false);
+      manifest = manifest.copyWith(
+        layouts: manifest.layouts
+            .map(
+              (layout) => layout.id == 'chatgpt'
+                  ? layout.copyWith(buttons: buttons)
+                  : layout,
+            )
+            .toList(growable: false),
+      );
+    }
     if (!Platform.isMacOS) return manifest;
     const layoutsWithMacDefaults = {
       'app.edge',
@@ -660,6 +710,13 @@ class DesktopController extends ChangeNotifier {
         back.single.shortcut.join(',') == 'ALT,LEFT' &&
         forward.single.shortcut.join(',') == 'ALT,RIGHT';
   }
+
+  static bool _sameKeys(List<String> left, List<String> right) =>
+      left.length == right.length &&
+      List.generate(
+        left.length,
+        (index) => left[index] == right[index],
+      ).every((matches) => matches);
 
   static String _newComputerId() {
     final random = Random.secure();
@@ -761,6 +818,7 @@ class DesktopController extends ChangeNotifier {
     'safari',
     'teams',
     'zoom',
+    'chatgpt',
   };
 
   static const _managedLaunchApps = {

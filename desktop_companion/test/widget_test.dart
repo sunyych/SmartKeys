@@ -74,6 +74,14 @@ class _SuccessfulRecordingRunner implements DesktopProcessRunner {
       throw UnsupportedError('This test only uses run');
 }
 
+class _FocusedRecordingRunner extends _SuccessfulRecordingRunner {
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async {
+    calls.add((executable, arguments));
+    return ProcessResult(0, 0, 'FOCUSED', '');
+  }
+}
+
 class _EdgeStartRunner implements DesktopProcessRunner {
   final starts = <(String, List<String>)>[];
 
@@ -113,6 +121,36 @@ class _RecordingMacSystemControl implements MacSystemControl {
 }
 
 void main() {
+  test('ChatGPT and legacy Codex activation select their own views', () async {
+    if (!Platform.isWindows) return;
+    final chatGptRunner = _FocusedRecordingRunner();
+    await DesktopActions(runner: chatGptRunner).activateApplication(
+      const RemoteApplication(
+        id: 'chatgpt',
+        name: 'ChatGPT',
+        icon: 'chat',
+        executable: 'ChatGPT',
+        layoutId: 'chatgpt',
+      ),
+    );
+    expect(chatGptRunner.calls, hasLength(2));
+    expect(chatGptRunner.calls.first.$2[6], "'ChatGPT'");
+    expect(chatGptRunner.calls.last.$2.last, "'%1'");
+
+    final codexRunner = _FocusedRecordingRunner();
+    await DesktopActions(runner: codexRunner).activateApplication(
+      const RemoteApplication(
+        id: 'codex',
+        name: 'Codex / ChatGPT',
+        icon: 'code',
+        executable: 'ChatGPT',
+        layoutId: 'codex',
+      ),
+    );
+    expect(codexRunner.calls, hasLength(2));
+    expect(codexRunner.calls.last.$2.last, "'%3'");
+  });
+
   test('launches Microsoft Edge through the native app entry', () async {
     final app = RemoteApplication(
       id: 'edge',

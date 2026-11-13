@@ -105,21 +105,11 @@ class AppController extends ChangeNotifier {
   String? get computerSwitchError => _computerSwitchError;
   bool get hasPinnedDesktopComputer => _pinnedDesktopChoiceId != null;
 
-  List<({String id, String name, bool desktop})> get switchableComputers {
-    final choices = <({String id, String name, bool desktop})>[];
-    if (_isAndroid) {
-      for (final host in hid.pairedHosts.value) {
-        if (!host.computerCandidate) continue;
-        choices.add((
-          id: 'bluetooth:${host.id}',
-          name: host.name,
-          desktop: false,
-        ));
-      }
-    }
+  List<({String id, String name})> get switchableComputers {
+    final choices = <({String id, String name})>[];
     for (final host
         in desktopComputerChoices?.value ?? const <CompanionComputerChoice>[]) {
-      choices.add((id: 'desktop:${host.id}', name: host.name, desktop: true));
+      choices.add((id: 'desktop:${host.id}', name: host.name));
     }
     choices.sort((a, b) {
       final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -134,17 +124,12 @@ class AppController extends ChangeNotifier {
       final selectedId = selectedDesktopComputerChoiceId;
       return 'desktop:${selectedId ?? _desktopComputerSetupId(host).substring('desktop:'.length)}';
     }
-    final bluetooth = hid.activeHost.value;
-    if (bluetooth != null &&
-        hid.connectionStatus.value == HidConnectionStatus.connected) {
-      return 'bluetooth:${bluetooth.id}';
-    }
     return null;
   }
 
   Future<bool> switchComputer(String choiceId) async {
     if (_computerSwitchPendingId != null) return false;
-    ({String id, String name, bool desktop})? target;
+    ({String id, String name})? target;
     for (final choice in switchableComputers) {
       if (choice.id == choiceId) target = choice;
     }
@@ -156,48 +141,17 @@ class AppController extends ChangeNotifier {
     try {
       await prepareForContextChange();
       if (epoch != _computerSwitchEpoch) return false;
-      if (target.desktop) {
-        _pinnedDesktopChoiceId = choiceId.substring('desktop:'.length);
-        if (_isAndroid &&
-            (hid.activeHost.value != null ||
-                hid.connectionStatus.value == HidConnectionStatus.connected ||
-                hid.connectionStatus.value == HidConnectionStatus.connecting)) {
-          await hid.disconnectHost();
-        }
-        if (epoch != _computerSwitchEpoch) return false;
-        final switchable = companion as SwitchableCompanionConnection;
-        await switchable.selectComputer(choiceId.substring('desktop:'.length));
-        return epoch == _computerSwitchEpoch;
+      _pinnedDesktopChoiceId = choiceId.substring('desktop:'.length);
+      if (_isAndroid &&
+          (hid.activeHost.value != null ||
+              hid.connectionStatus.value == HidConnectionStatus.connected ||
+              hid.connectionStatus.value == HidConnectionStatus.connecting)) {
+        await hid.disconnectHost();
       }
-      _pinnedDesktopChoiceId = null;
-      final switchable = companion is SwitchableCompanionConnection
-          ? companion as SwitchableCompanionConnection
-          : null;
-      if (switchable != null) {
-        await switchable.suspendComputerSelection();
-      }
-      final hostId = choiceId.substring('bluetooth:'.length);
-      await hid.connectHost(hostId);
-      var disconnectedPolls = 0;
-      for (var poll = 0; poll < 120 && epoch == _computerSwitchEpoch; poll++) {
-        if (hid.connectionStatus.value == HidConnectionStatus.connected &&
-            hid.activeHost.value?.id == hostId) {
-          return true;
-        }
-        if (hid.connectionStatus.value == HidConnectionStatus.disconnected) {
-          disconnectedPolls++;
-          if (disconnectedPolls >= 10) break;
-        } else {
-          disconnectedPolls = 0;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
-      if (epoch == _computerSwitchEpoch) {
-        throw StateError(
-          'Could not connect to ${target.name}. Check that it is nearby and Bluetooth is on.',
-        );
-      }
-      return false;
+      if (epoch != _computerSwitchEpoch) return false;
+      final switchable = companion as SwitchableCompanionConnection;
+      await switchable.selectComputer(choiceId.substring('desktop:'.length));
+      return epoch == _computerSwitchEpoch;
     } catch (error) {
       if (epoch == _computerSwitchEpoch) {
         _computerSwitchError = error.toString().replaceFirst('Exception: ', '');
@@ -215,7 +169,22 @@ class AppController extends ChangeNotifier {
       (platformOverride ?? defaultTargetPlatform) == TargetPlatform.android;
   bool get _isIos =>
       (platformOverride ?? defaultTargetPlatform) == TargetPlatform.iOS;
-  bool get supportsBluetoothComputerSwitch => _isAndroid;
+  bool get hasDesktopComputerChoices => switchableComputers.isNotEmpty;
+
+  /// Called only when the user explicitly chooses an Android Bluetooth host.
+  /// This clears a prior Desktop KVM pin so HID input can resume directly.
+  Future<void> prepareForBluetoothHostSelection() async {
+    ++_computerSwitchEpoch;
+    _computerSwitchPendingId = null;
+    _pinnedDesktopChoiceId = null;
+    notifyListeners();
+    await prepareForContextChange();
+    if (companion is SwitchableCompanionConnection) {
+      await (companion as SwitchableCompanionConnection)
+          .suspendComputerSelection();
+    }
+    notifyListeners();
+  }
 
   ComputerMode get computerMode =>
       activeComputer?.mode ?? ComputerMode.disconnected;
@@ -1357,6 +1326,14 @@ class AppController extends ChangeNotifier {
 
   void _handleCompanionHostChanged() {
     _rememberAcceptedCompanionSession();
+    final choiceId = selectedDesktopComputerChoiceId;
+    if (choiceId != null &&
+        companion.activeHost.value != null &&
+        companion is SwitchableCompanionConnection &&
+        (companion as SwitchableCompanionConnection)
+            .isComputerSelectionPinned) {
+      _pinnedDesktopChoiceId = choiceId;
+    }
     notifyListeners();
   }
 

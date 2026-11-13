@@ -34,6 +34,10 @@ void main() {
     ]);
     expect(restored.applicationById('vscode')!.layoutId, 'app.vscode');
     expect(restored.applicationById('codex')!.name, 'Codex / ChatGPT');
+    expect(restored.applicationById('chatgpt')!.name, 'ChatGPT');
+    expect(restored.applicationById('chatgpt')!.layoutId, 'chatgpt');
+    expect(restored.buttonById('chatgpt.chatView')!.shortcut, ['ALT', '1']);
+    expect(restored.buttonById('chatgpt.newChat')!.shortcut, ['PRIMARY', 'N']);
     expect(restored.applicationById('appleMusic')!.executable, 'Music');
     expect(restored.applicationById('finder')!.executable, 'Finder');
     expect(restored.layoutById('app.finder')!.buttons, hasLength(15));

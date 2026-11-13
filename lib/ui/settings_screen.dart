@@ -36,8 +36,11 @@ class SettingsScreen extends StatelessWidget {
               title: const Text('Computer connection'),
               subtitle: Text(status.name),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () =>
-                  showBluetoothConnectionSheet(context, controller.hid),
+              onTap: () => showBluetoothConnectionSheet(
+                context,
+                controller.hid,
+                beforeConnect: controller.prepareForBluetoothHostSelection,
+              ),
             ),
           ),
           const Divider(),

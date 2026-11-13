@@ -4,18 +4,25 @@ import '../services/hid_service.dart';
 
 Future<void> showBluetoothConnectionSheet(
   BuildContext context,
-  HidService hid,
-) => showModalBottomSheet<void>(
+  HidService hid, {
+  Future<void> Function()? beforeConnect,
+}) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  builder: (_) => BluetoothConnectionSheet(hid: hid),
+  builder: (_) =>
+      BluetoothConnectionSheet(hid: hid, beforeConnect: beforeConnect),
 );
 
 class BluetoothConnectionSheet extends StatefulWidget {
-  const BluetoothConnectionSheet({super.key, required this.hid});
+  const BluetoothConnectionSheet({
+    super.key,
+    required this.hid,
+    this.beforeConnect,
+  });
 
   final HidService hid;
+  final Future<void> Function()? beforeConnect;
 
   @override
   State<BluetoothConnectionSheet> createState() =>
@@ -193,9 +200,10 @@ class _BluetoothConnectionSheetState extends State<BluetoothConnectionSheet> {
                                   key: ValueKey('connect-host-${host.id}'),
                                   onPressed: busy
                                       ? null
-                                      : () => _run(
-                                          () => widget.hid.connectHost(host.id),
-                                        ),
+                                      : () => _run(() async {
+                                          await widget.beforeConnect?.call();
+                                          await widget.hid.connectHost(host.id);
+                                        }),
                                   child: const Text('Connect'),
                                 ),
                         ),

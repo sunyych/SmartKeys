@@ -189,6 +189,7 @@ class DesktopActions {
   Future<void> activateApplication(RemoteApplication app) async {
     final executable = switch (app.id) {
       'codex' => 'Codex',
+      'chatgpt' => 'ChatGPT',
       'claude' => 'Claude',
       'cursor' => 'Cursor',
       'chrome' => 'Google Chrome',
@@ -200,12 +201,15 @@ class DesktopActions {
       _ => throw const FormatException('unsupported managed application'),
     };
     final chatGpt =
-        app.id == 'codex' && app.executable.toLowerCase().contains('chatgpt');
+        app.id == 'chatgpt' ||
+        (app.id == 'codex' &&
+            app.executable.toLowerCase().contains('chatgpt'));
+    final chatViewKey = app.id == 'chatgpt' ? '1' : '3';
     final targetName = chatGpt ? 'ChatGPT' : executable;
     if (Platform.isMacOS) {
       await _run('/usr/bin/open', ['-a', targetName]);
       if (chatGpt && await _waitForForeground('chatgpt')) {
-        await sendShortcut(const ['CTRL', '3'], expectedAppId: 'chatgpt');
+        await sendShortcut(['CTRL', chatViewKey], expectedAppId: 'chatgpt');
       }
       return;
     }
@@ -214,6 +218,7 @@ class DesktopActions {
         throw const FormatException('Safari is only available on Mac');
       }
       final processNames = switch (app.id) {
+        'chatgpt' => const ['ChatGPT'],
         'codex' => chatGpt ? const ['ChatGPT'] : const ['Codex'],
         'claude' => const ['Claude'],
         'cursor' => const ['Cursor'],
@@ -229,6 +234,7 @@ class DesktopActions {
       };
       final processNameArgument = processNames.join(',');
       final executableNames = switch (app.id) {
+        'chatgpt' => const ['ChatGPT.exe'],
         'codex' => chatGpt ? const ['ChatGPT.exe'] : const ['Codex.exe'],
         'claude' => const ['Claude.exe'],
         'cursor' => const ['Cursor.exe'],
@@ -241,6 +247,7 @@ class DesktopActions {
       };
       final executableNameArgument = executableNames.join(',');
       final startAppName = switch (app.id) {
+        'chatgpt' => 'ChatGPT',
         'codex' => chatGpt ? 'ChatGPT' : 'Codex',
         'claude' => 'Claude',
         'cursor' => 'Cursor',
@@ -342,11 +349,12 @@ class DesktopActions {
         );
       }
       if (chatGpt && result.stdout.toString().contains('FOCUSED')) {
-        await sendShortcut(const ['ALT', '3'], expectedAppId: 'chatgpt');
+        await sendShortcut(['ALT', chatViewKey], expectedAppId: 'chatgpt');
       }
       return;
     }
     final process = switch (app.id) {
+      'chatgpt' => 'chatgpt',
       'codex' => 'codex',
       'claude' => 'claude',
       'cursor' => 'cursor',
@@ -388,6 +396,9 @@ class DesktopActions {
         }
       }
       await runner.start(executable, const []);
+    }
+    if (app.id == 'chatgpt' && await _waitForForeground('chatgpt')) {
+      await sendShortcut(const ['ALT', '1'], expectedAppId: 'chatgpt');
     }
   }
 

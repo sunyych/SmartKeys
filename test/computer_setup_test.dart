@@ -71,6 +71,74 @@ void main() {
       }
     });
 
+    test('ChatGPT and app defaults are prefilled only where documented', () {
+      ComputerTarget target(ComputerOperatingSystem os) => ComputerTarget(
+        id: 'desktop:${os.name}',
+        name: os.label,
+        mode: ComputerMode.standalone,
+        isApple: os == ComputerOperatingSystem.macos,
+        operatingSystem: os,
+      );
+      final chatgpt = computerApplicationById('chatgpt')!;
+
+      expect(
+        defaultComputerShortcut(
+          target(ComputerOperatingSystem.windows),
+          chatgpt,
+          'chatView',
+        ),
+        'Alt+1',
+      );
+      expect(
+        defaultComputerShortcut(
+          target(ComputerOperatingSystem.windows),
+          chatgpt,
+          'startVoice',
+        ),
+        isNull,
+      );
+      expect(
+        defaultComputerShortcut(
+          target(ComputerOperatingSystem.macos),
+          chatgpt,
+          'launch',
+        ),
+        'Option+Space',
+      );
+      expect(
+        defaultComputerShortcut(
+          target(ComputerOperatingSystem.macos),
+          chatgpt,
+          'startVoice',
+        ),
+        'Ctrl+Shift+V',
+      );
+      expect(
+        defaultComputerShortcut(
+          target(ComputerOperatingSystem.macos),
+          chatgpt,
+          'stopVoice',
+        ),
+        isNull,
+      );
+      expect(
+        defaultComputerShortcut(
+          target(ComputerOperatingSystem.windows),
+          computerApplicationById('teams')!,
+          'mute',
+        ),
+        'Ctrl+Shift+M',
+      );
+      expect(
+        defaultComputerShortcut(
+          target(ComputerOperatingSystem.windows),
+          computerApplicationById('cursor')!,
+          'cancelClear',
+        ),
+        'Ctrl+Shift+Backspace',
+      );
+    });
+
     test('browser choices include Edge and show Safari only on macOS', () {
       final macApplications = computerApplicationsForOperatingSystem(
         ComputerOperatingSystem.macos,
@@ -446,43 +514,46 @@ void main() {
       expect(harness.controller.activeComputerSetup, isNull);
     });
 
-    test('saves app selection before required shortcuts are configured', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      final harness = await TestHarness.create(seedComputerSetup: false);
-      addTearDown(harness.dispose);
-      final controller = harness.controller;
-      final target = controller.activeComputer!;
+    test(
+      'saves app selection before required shortcuts are configured',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final harness = await TestHarness.create(seedComputerSetup: false);
+        addTearDown(harness.dispose);
+        final controller = harness.controller;
+        final target = controller.activeComputer!;
 
-      await controller.saveComputerSetup(
-        target,
-        ComputerSetup(
-          applicationIds: const ['codex'],
-          bindings: {
-            'codex': {'voiceMode': 'Ctrl+Alt+2'},
-          },
-        ),
-      );
+        await controller.saveComputerSetup(
+          target,
+          ComputerSetup(
+            applicationIds: const ['codex'],
+            bindings: {
+              'codex': {'voiceMode': 'Ctrl+Alt+2'},
+            },
+          ),
+        );
 
-      expect(controller.isActiveComputerSetupComplete, isTrue);
-      expect(controller.activeComputerSetup?.applicationIds, ['codex']);
-      expect(
-        harness.repository.value.computerSetups[target.id]?.bindingFor(
-          'codex',
-          'voiceInput',
-        ),
-        isNull,
-      );
+        expect(controller.isActiveComputerSetupComplete, isTrue);
+        expect(controller.activeComputerSetup?.applicationIds, ['codex']);
+        expect(
+          harness.repository.value.computerSetups[target.id]?.bindingFor(
+            'codex',
+            'voiceInput',
+          ),
+          isNull,
+        );
 
-      // Home selects an app by invoking its launch action. An unset launch
-      // binding should leave its controls accessible without sending a key.
-      await controller.executeStandaloneShortcut(target, 'codex', 'launch');
-      expect(harness.hid.steppedActions, isEmpty);
-      await expectLater(
-        controller.executeStandaloneShortcut(target, 'codex', 'voiceInput'),
-        throwsA(isA<StateError>()),
-      );
-      expect(harness.hid.steppedActions, isEmpty);
-    });
+        // Home selects an app by invoking its launch action. An unset launch
+        // binding should leave its controls accessible without sending a key.
+        await controller.executeStandaloneShortcut(target, 'codex', 'launch');
+        expect(harness.hid.steppedActions, isEmpty);
+        await expectLater(
+          controller.executeStandaloneShortcut(target, 'codex', 'voiceInput'),
+          throwsA(isA<StateError>()),
+        );
+        expect(harness.hid.steppedActions, isEmpty);
+      },
+    );
 
     test(
       'retains accepted Desktop mode during same-session sync errors',

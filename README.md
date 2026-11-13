@@ -70,7 +70,7 @@ signed installation and physical iPad input remain unverified.
 - Shortcut Layout edits Button Name, Icon, Target Type, Shortcut, Launch App,
   URL, and Description. Keyboard Shortcut, Launch Application, and Open URL are
   executable in V1.2. Macro and Script are modeled but intentionally disabled.
-- Apps Manager detects the supported catalog (including Codex / ChatGPT,
+- Apps Manager detects the supported catalog (including Codex, ChatGPT,
   Photoshop,
   Illustrator, VSCode, SolidWorks, Premiere, and Chrome) on the current
   computer. Only detected applications are sent to Android; a three-second
@@ -86,9 +86,9 @@ signed installation and physical iPad input remain unverified.
   deferred. Mouse-pad profiles instead expose a dedicated right-edge scroll
   strip: slide one finger vertically there for direct scrolling without
   triggering pointer movement or clicks.
-- macOS maps the installed/running `ChatGPT.app` process to the Desktop-owned
-  Codex application ID, so the phone shows one `Codex / ChatGPT` Workspace
-  without exposing a process name or executable path as an action.
+- ChatGPT has its own app row entry and shortcut grid. Desktop activates the
+  ChatGPT app and opens its Chat view. The existing Codex workspace can still
+  use an installed ChatGPT app to open Codex.
 - macOS also publishes Apple Music and Finder when detected. Their buttons open
   the Desktop-owned `Music` and `Finder` application IDs and expose managed
   playback, search, navigation, view, file, and Quick Look shortcuts.
@@ -266,7 +266,7 @@ then shows your choices. Tap an app to launch it and open its keys. The app row
 also opens the setup again when you want to change the selection.
 
 - **Advanced** starts automatically when LumiaKey Desktop connects. Select
-  detected apps such as Chrome, Firefox, Microsoft Edge, Teams, Zoom, Codex,
+  detected apps such as Chrome, Firefox, Microsoft Edge, Teams, Zoom, ChatGPT, Codex,
   Claude, or Cursor. Safari is available on macOS. Enable **Apps Sync** and
   **Auto Launch Apps** in Desktop → General to see the apps and launch them from
   the phone. Desktop supplies the bindings.
@@ -281,6 +281,11 @@ also opens the setup again when you want to change the selection.
   you have entered, then reopen **Computer app settings** to finish or revise
   them. For meeting and coding controls, use the keys assigned to each action
   in the corresponding desktop app.
+
+ChatGPT ships with its documented default chat shortcuts for each supported
+computer OS. On macOS, ChatGPT's default `Option+Space` opens the Chat Bar when
+available. For the main window in Bluetooth mode, use the Mac launch shortcut
+you assigned to ChatGPT. Saved custom bindings override the built-in defaults.
 
 ## Vibe Coding
 
@@ -415,12 +420,11 @@ and native error states in the connection sheet.
 
 ## Switch computers
 
-Pair each computer through Bluetooth on Android or through LumiaKey Desktop.
-Tap **KVM** at the top of Home to cycle through the available computers. Press
-and hold it to pick a specific computer or manage pairing.
-LumiaKey controls one selected computer at a time and restores that computer's
-saved apps and shortcuts. On iPhone and iPad, add computers through LumiaKey
-Desktop pairing.
+Run LumiaKey Desktop on each computer you want to control through KVM. Tap
+**KVM** at the top of Home and select the computer that should receive your
+commands. LumiaKey restores that computer's saved apps and shortcuts. Android
+Bluetooth direct connections still use **Computer connection** to select a
+paired host. Android's HID Device profile provides one active Bluetooth host.
 
 ## Run and verify
 

@@ -80,7 +80,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(finalKey);
     await tester.pumpAndSettle();
-    final keyOne = find.text('1');
+    final keyOne = find.text('1').hitTestable();
     await tester.scrollUntilVisible(
       keyOne,
       80,
@@ -88,10 +88,13 @@ void main() {
       maxScrolls: 20,
     );
     await tester.pumpAndSettle();
-    await tester.tap(keyOne.hitTestable());
+    await tester.tap(keyOne);
     await tester.pumpAndSettle();
     expect(find.text('Ctrl+Alt+1'), findsOneWidget);
 
+    // On short landscape screens, leave the nested menu transition time to
+    // finish before removing its containing dialog.
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byKey(const ValueKey('shortcut-picker-confirm')));
     await tester.pumpAndSettle();
     expect(

@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 import '../controllers/app_controller.dart';
 import '../models/computer_setup.dart';
 
-/// The app currently selected in the home-row app switcher.
-///
-/// This panel intentionally renders no app picker. A single top row owns app
-/// selection, so Vibe, browsers, and meeting tools all behave the same way.
+/// Controls for the app selected in the home row.
 class StandaloneAppPanel extends StatelessWidget {
   const StandaloneAppPanel({
     super.key,
@@ -25,36 +22,68 @@ class StandaloneAppPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final shortcuts = computerShortcutsFor(
       application.category,
-    ).where((shortcut) => shortcut.id != 'launch');
-
-    return ListView(
+    ).where((shortcut) => shortcut.id != 'launch').toList(growable: false);
+    return CustomScrollView(
       key: ValueKey('standalone-app-${application.id}'),
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 18),
-      children: [
-        Text(
-          application.name,
-          key: const ValueKey('standalone-app-title'),
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Bluetooth controls for ${target.name}.',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: 12),
-        for (final shortcut in shortcuts)
-          _StandaloneShortcutTile(
-            controller: controller,
-            target: target,
-            application: application,
-            shortcut: shortcut,
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  application.name,
+                  key: const ValueKey('standalone-app-title'),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Bluetooth controls for ${target.name}.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          key: const ValueKey('edit-computer-setup'),
-          onPressed: onConfigure,
-          icon: const Icon(Icons.tune),
-          label: const Text('Computer app settings'),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          sliver: SliverLayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.crossAxisExtent;
+              final columns = width >= 760
+                  ? 4
+                  : width >= 500
+                  ? 3
+                  : 2;
+              return SliverGrid.builder(
+                itemCount: shortcuts.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 9,
+                  mainAxisSpacing: 9,
+                  childAspectRatio: width < 360 ? 1.05 : 1.25,
+                ),
+                itemBuilder: (context, index) => _StandaloneShortcutTile(
+                  controller: controller,
+                  target: target,
+                  application: application,
+                  shortcut: shortcuts[index],
+                ),
+              );
+            },
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
+          sliver: SliverToBoxAdapter(
+            child: OutlinedButton.icon(
+              key: const ValueKey('edit-computer-setup'),
+              onPressed: onConfigure,
+              icon: const Icon(Icons.tune),
+              label: const Text('Computer app settings'),
+            ),
+          ),
         ),
       ],
     );
@@ -77,24 +106,16 @@ class _StandaloneShortcutTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final setup = controller.activeComputerSetup;
+    final saved = setup?.bindingFor(application.id, shortcut.id);
     final chord =
-        setup?.bindingFor(application.id, shortcut.id) ??
-        defaultComputerShortcut(target, application, shortcut.id);
+        saved ?? defaultComputerShortcut(target, application, shortcut.id);
     final action = chord == null ? null : parseComputerShortcut(chord);
+    final color = Theme.of(context).colorScheme;
     return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
         key: ValueKey('standalone-action-${application.id}-${shortcut.id}'),
-        enabled: action != null,
-        title: Text(shortcut.label),
-        subtitle: Text(
-          action == null
-              ? 'Set this shortcut in Computer app settings.'
-              : _prettyChord(chord!),
-        ),
-        trailing: action == null
-            ? const Icon(Icons.tune)
-            : const Icon(Icons.keyboard_alt_outlined),
         onTap: action == null
             ? null
             : () async {
@@ -111,25 +132,106 @@ class _StandaloneShortcutTile extends StatelessWidget {
                     ..showSnackBar(SnackBar(content: Text('$error')));
                 }
               },
+        child: Padding(
+          padding: const EdgeInsets.all(11),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Center(
+                  child: chord == null
+                      ? const Icon(Icons.tune, size: 30)
+                      : _Keycaps(chord: chord, target: target),
+                ),
+              ),
+              Text(
+                shortcut.label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              if (chord == null)
+                Text(
+                  'Set in app settings',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall,
+                )
+              else if (saved == null)
+                Text(
+                  'Default',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(color: color.primary),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
+}
 
-  static String _prettyChord(String chord) => chord
-      .split('+')
-      .map((part) {
-        switch (part.trim().toLowerCase()) {
-          case 'primary':
-            return '⌘ / Ctrl';
-          case 'command':
-          case 'meta':
-            return '⌘';
-          case 'control':
-            return 'Ctrl';
-          default:
-            final value = part.trim();
-            return value.length == 1 ? value.toUpperCase() : value;
-        }
-      })
-      .join(' + ');
+class _Keycaps extends StatelessWidget {
+  const _Keycaps({required this.chord, required this.target});
+  final String chord;
+  final ComputerTarget target;
+
+  @override
+  Widget build(BuildContext context) {
+    final os =
+        target.operatingSystem ??
+        (target.isApple ? ComputerOperatingSystem.macos : null);
+    final isMac = os == ComputerOperatingSystem.macos;
+    final keys = chord
+        .split('+')
+        .map((part) {
+          final key = part.trim();
+          return switch (key.toLowerCase()) {
+            'command' || 'cmd' || 'meta' || 'win' || 'windows' =>
+              isMac
+                  ? '⌘'
+                  : os == ComputerOperatingSystem.linux
+                  ? 'Super'
+                  : 'Win',
+            'ctrl' || 'control' => 'Ctrl',
+            'option' || 'alt' => isMac ? '⌥' : 'Alt',
+            'shift' => isMac ? '⇧' : 'Shift',
+            'primary' => isMac ? '⌘' : 'Ctrl',
+            _ => key.length == 1 ? key.toUpperCase() : key,
+          };
+        })
+        .toList(growable: false);
+    final style = Theme.of(context).textTheme.labelLarge;
+    final color = Theme.of(context).colorScheme;
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        for (final key in keys)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: color.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: color.outlineVariant),
+              boxShadow: [
+                BoxShadow(
+                  color: color.shadow.withValues(alpha: .12),
+                  offset: const Offset(0, 2),
+                  blurRadius: 0,
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              child: Text(key, style: style),
+            ),
+          ),
+      ],
+    );
+  }
 }
