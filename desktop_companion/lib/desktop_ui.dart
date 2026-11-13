@@ -775,7 +775,9 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
   Future<void> _exportJson() async {
     setState(() => transferring = true);
     try {
-      final exported = await transfer.exportJson(widget.controller.manifest);
+      final exported = await transfer.exportJson(
+        widget.controller.manifestForExport,
+      );
       if (exported && mounted) {
         _showTransferMessage('Shortcut JSON exported');
       }

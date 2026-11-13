@@ -507,17 +507,24 @@ void main() {
       ]);
       expect(
         controller.manifest.buttonById('chatgpt.codex.openFolder')!.shortcut,
-        ['PRIMARY', 'SHIFT', 'O'],
+        Platform.isMacOS ? ['COMMAND', 'SHIFT', 'O'] : ['CTRL', 'SHIFT', 'O'],
       );
-      expect(controller.manifest.buttonById('chatgpt.sidebar')!.shortcut, [
-        'PRIMARY',
-        'SHIFT',
-        'B',
-      ]);
+      expect(
+        controller.manifest.buttonById('chatgpt.sidebar')!.shortcut,
+        Platform.isMacOS ? ['COMMAND', 'SHIFT', 'B'] : ['CTRL', 'SHIFT', 'B'],
+      );
       expect(controller.manifest.buttonById('chatgpt.codex.sidebar'), isNull);
       expect(
         controller.manifest.buttonById('chatgpt.codex.alternateSend')!.shortcut,
-        ['PRIMARY', 'SHIFT', 'ENTER'],
+        Platform.isMacOS
+            ? ['COMMAND', 'SHIFT', 'ENTER']
+            : ['CTRL', 'SHIFT', 'ENTER'],
+      );
+      expect(
+        controller.manifestForExport
+            .buttonById('chatgpt.codex.openFolder')!
+            .shortcut,
+        ['PRIMARY', 'SHIFT', 'O'],
       );
       expect(controller.manifest.applicationById('codex'), isNull);
       expect(controller.manifest.applicationById('chatgpt')!.detected, isTrue);

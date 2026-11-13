@@ -309,6 +309,79 @@ void main() {
     },
   );
 
+  testWidgets('ChatGPT Bluetooth controls follow the selected computer OS', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(seedComputerSetup: false);
+    addTearDown(harness.dispose);
+    final original = harness.controller.activeComputer!;
+    final app = computerApplicationById('chatgpt')!;
+
+    for (final os in [
+      ComputerOperatingSystem.windows,
+      ComputerOperatingSystem.macos,
+    ]) {
+      final target = original.withOperatingSystem(os);
+      await harness.controller.saveComputerSetup(
+        target,
+        ComputerSetup(applicationIds: const ['chatgpt'], operatingSystem: os),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StandaloneAppPanel(
+              controller: harness.controller,
+              target: target,
+              application: app,
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('standalone-action-chatgpt-newChat')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('standalone-action-chatgpt-stopVoice')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('standalone-action-chatgpt-startVoice')),
+        os == ComputerOperatingSystem.macos ? findsOneWidget : findsNothing,
+      );
+    }
+
+    final windows = original.withOperatingSystem(
+      ComputerOperatingSystem.windows,
+    );
+    await harness.controller.saveComputerSetup(
+      windows,
+      ComputerSetup(
+        applicationIds: const ['chatgpt'],
+        operatingSystem: ComputerOperatingSystem.windows,
+        bindings: const {
+          'chatgpt': {'stopVoice': 'Ctrl+Shift+8'},
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StandaloneAppPanel(
+            controller: harness.controller,
+            target: windows,
+            application: app,
+          ),
+        ),
+      ),
+    );
+    expect(
+      find.byKey(const ValueKey('standalone-action-chatgpt-stopVoice')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('General-only setup stores an explicit empty app list', (
     tester,
   ) async {

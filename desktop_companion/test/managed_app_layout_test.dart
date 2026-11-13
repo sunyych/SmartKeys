@@ -295,13 +295,13 @@ void main() {
       await controller.executeRemote(
         const RemoteActionRequest.button('vscode.run'),
       );
-      await controller.executeRemote(
-        const RemoteActionRequest.button('codex.voice'),
+      await expectLater(
+        controller.executeRemote(
+          const RemoteActionRequest.button('codex.voice'),
+        ),
+        throwsA(isA<FormatException>()),
       );
-      expect(actions.executed, [
-        'vscode.run:null',
-        'chatgpt.codex.voice:chatgpt',
-      ]);
+      expect(actions.executed, ['vscode.run:null']);
       controller.dispose();
     },
   );

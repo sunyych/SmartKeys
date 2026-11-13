@@ -2,6 +2,143 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+    'ChatGPT projection resolves platform defaults and filters unsupported rows',
+    () {
+      final chatGpt = DesktopManifest.starter().layoutById('chatgpt')!;
+      final apple = projectChatGptLayout(chatGpt, RemoteShortcutPlatform.apple);
+      final windows = projectChatGptLayout(
+        chatGpt,
+        RemoteShortcutPlatform.windows,
+      );
+
+      expect(apple.buttons.first.shortcut, ['CTRL', '1']);
+      expect(apple.buttons[1].shortcut, ['CTRL', '3']);
+      expect(windows.buttons.first.shortcut, ['ALT', '1']);
+      expect(windows.buttons[1].shortcut, ['ALT', '3']);
+      expect(
+        apple.buttons.any((button) => button.id == 'chatgpt.startVoice'),
+        isTrue,
+      );
+      expect(
+        windows.buttons.any((button) => button.id == 'chatgpt.startVoice'),
+        isFalse,
+      );
+      expect(
+        apple.buttons.any((button) => button.id == 'chatgpt.codex.voice'),
+        isFalse,
+      );
+      expect(
+        windows.buttons.any((button) => button.id == 'chatgpt.codex.voice'),
+        isFalse,
+      );
+      expect(
+        apple.buttons.any((button) => button.id == 'chatgpt.codex.searchChats'),
+        isFalse,
+      );
+      expect(
+        windows.buttons.any(
+          (button) => button.id == 'chatgpt.codex.searchChats',
+        ),
+        isFalse,
+      );
+      expect(
+        DesktopManifest.starter().buttonById('chatgpt.startVoice'),
+        isNotNull,
+      );
+    },
+  );
+
+  test('ChatGPT projection preserves custom bindings and resolves PRIMARY', () {
+    final chatGpt = DesktopManifest.starter().layoutById('chatgpt')!;
+    final custom = chatGpt.copyWith(
+      buttons: chatGpt.buttons.map((button) {
+        if (button.id == 'chatgpt.chatView') {
+          return button.copyWith(shortcut: const ['PRIMARY', '3']);
+        }
+        if (button.id == 'chatgpt.codex.searchChats') {
+          return button.copyWith(shortcut: const ['ALT', 'G']);
+        }
+        if (button.id == 'chatgpt.codex.previousChat') {
+          return button.copyWith(shortcut: const ['ALT', 'LEFT']);
+        }
+        return button;
+      }).toList(),
+    );
+    final windows = projectChatGptLayout(
+      custom,
+      RemoteShortcutPlatform.windows,
+    );
+    expect(
+      windows.buttons
+          .firstWhere((button) => button.id == 'chatgpt.chatView')
+          .shortcut,
+      ['CTRL', '3'],
+    );
+    expect(
+      windows.buttons
+          .firstWhere((button) => button.id == 'chatgpt.codex.searchChats')
+          .shortcut,
+      ['ALT', 'G'],
+    );
+    expect(
+      windows.buttons
+          .firstWhere((button) => button.id == 'chatgpt.codex.previousChat')
+          .shortcut,
+      ['ALT', 'LEFT'],
+    );
+  });
+
+  test('PRIMARY resolver uses the native desktop modifier', () {
+    expect(
+      resolvePrimaryShortcut(const [
+        'PRIMARY',
+        'SHIFT',
+        'N',
+      ], RemoteShortcutPlatform.apple),
+      ['COMMAND', 'SHIFT', 'N'],
+    );
+    expect(
+      resolvePrimaryShortcut(const [
+        'PRIMARY',
+        'SHIFT',
+        'N',
+      ], RemoteShortcutPlatform.windows),
+      ['CTRL', 'SHIFT', 'N'],
+    );
+  });
+
+  test(
+    'projection omits unsupported OS actions without exporting them away',
+    () {
+      final starter = DesktopManifest.starter();
+      final chatGpt = starter.layoutById('chatgpt')!;
+      final custom = chatGpt.copyWith(
+        buttons: chatGpt.buttons.map((button) {
+          if (button.id == 'chatgpt.find') {
+            return button.copyWith(shortcut: const ['COMMAND', 'F']);
+          }
+          return button;
+        }).toList(),
+      );
+      expect(
+        projectChatGptLayout(
+          custom,
+          RemoteShortcutPlatform.windows,
+        ).buttons.any((button) => button.id == 'chatgpt.find'),
+        isFalse,
+      );
+      expect(
+        projectChatGptLayout(
+          chatGpt,
+          RemoteShortcutPlatform.other,
+        ).buttons.any((button) => button.targetType == RemoteTargetType.system),
+        isFalse,
+      );
+      expect(starter.buttonById('chatgpt.codex.screenshot'), isNotNull);
+    },
+  );
+
   test('starter manifest round trips and keeps globally unique buttons', () {
     final original = DesktopManifest.starter();
     final restored = DesktopManifest.fromJson(original.toJson());

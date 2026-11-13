@@ -498,7 +498,13 @@ void main() {
         addTearDown(harness.dispose);
         final controller = harness.controller;
         expect(controller.computerMode, ComputerMode.standalone);
-        final target = controller.activeComputer!;
+        final target = controller.activeComputer!.withOperatingSystem(
+          ComputerOperatingSystem.windows,
+        );
+        await controller.saveComputerOperatingSystem(
+          target,
+          ComputerOperatingSystem.windows,
+        );
         expect(target.id, 'bluetooth:00:11:22:33:44:55');
 
         final bindings = {
@@ -790,5 +796,41 @@ void main() {
       harness.companion.status.value = CompanionSyncStatus.ready;
       expect(harness.controller.computerMode, ComputerMode.advanced);
     });
+  });
+
+  test('ChatGPT Codex screenshot follows the selected computer OS', () {
+    final target = ComputerTarget(
+      id: 'desktop:macos',
+      name: 'macOS',
+      mode: ComputerMode.standalone,
+      isApple: true,
+      operatingSystem: ComputerOperatingSystem.macos,
+    );
+    final chatgpt = computerApplicationById('chatgpt')!;
+    expect(
+      defaultComputerShortcut(target, chatgpt, 'codex.screenshot'),
+      'Command+Shift+4',
+    );
+    expect(
+      defaultComputerShortcut(
+        target.withOperatingSystem(ComputerOperatingSystem.windows),
+        chatgpt,
+        'codex.screenshot',
+      ),
+      'Win+Shift+S',
+    );
+    expect(
+      defaultComputerShortcut(
+        ComputerTarget(
+          id: target.id,
+          name: target.name,
+          mode: target.mode,
+          isApple: false,
+        ),
+        chatgpt,
+        'codex.project',
+      ),
+      isNull,
+    );
   });
 }

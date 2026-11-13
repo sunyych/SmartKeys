@@ -418,7 +418,21 @@ class DesktopController extends ChangeNotifier {
   bool _refreshingApplications = false;
   Timer? _applicationMonitor;
 
-  DesktopManifest get manifest => _manifest;
+  RemoteShortcutPlatform get _shortcutPlatform => Platform.isMacOS
+      ? RemoteShortcutPlatform.apple
+      : Platform.isWindows
+      ? RemoteShortcutPlatform.windows
+      : RemoteShortcutPlatform.other;
+
+  DesktopManifest get manifest {
+    final layouts = _manifest.layouts
+        .map((layout) => projectChatGptLayout(layout, _shortcutPlatform))
+        .toList(growable: false);
+    return _manifest.copyWith(layouts: layouts);
+  }
+
+  /// Unprojected settings used by portable shortcut export.
+  DesktopManifest get manifestForExport => _manifest;
   List<RemoteApplication> get applicationsForCurrentPlatform => _manifest
       .applications
       .where((app) => Platform.isMacOS || app.id != 'safari')
@@ -487,7 +501,23 @@ class DesktopController extends ChangeNotifier {
         .map((layout) {
           if (layout.id != layoutId) return layout;
           final buttons = layout.buttons
-              .map((button) => button.id == updated.id ? updated : button)
+              .map((button) {
+                if (button.id != updated.id) return button;
+                final projected =
+                    projectChatGptLayout(
+                      layout,
+                      _shortcutPlatform,
+                    ).buttons.firstWhere(
+                      (candidate) => candidate.id == button.id,
+                      orElse: () => button,
+                    );
+                final preservesPortableBinding =
+                    layoutId == 'chatgpt' &&
+                    _sameKeys(projected.shortcut, updated.shortcut);
+                return preservesPortableBinding
+                    ? updated.copyWith(shortcut: button.shortcut)
+                    : updated;
+              })
               .toList(growable: false);
           return layout.copyWith(buttons: buttons);
         })
@@ -528,6 +558,28 @@ class DesktopController extends ChangeNotifier {
       }
     }
     final importedById = {for (final layout in imported) layout.id: layout};
+    final importedChatGpt = importedById['chatgpt'];
+    if (importedChatGpt != null) {
+      final currentChatGpt = _manifest.layoutById('chatgpt');
+      if (currentChatGpt != null) {
+        final projectedIds = projectChatGptLayout(
+          currentChatGpt,
+          _shortcutPlatform,
+        ).buttons.map((button) => button.id).toSet();
+        final importedIds = importedChatGpt.buttons
+            .map((button) => button.id)
+            .toSet();
+        importedById['chatgpt'] = importedChatGpt.copyWith(
+          buttons: [
+            ...importedChatGpt.buttons,
+            for (final button in currentChatGpt.buttons)
+              if (!projectedIds.contains(button.id) &&
+                  !importedIds.contains(button.id))
+                button,
+          ],
+        );
+      }
+    }
     final candidate = _manifest.copyWith(
       layouts: _manifest.layouts
           .map((layout) => importedById[layout.id] ?? layout)
@@ -774,64 +826,6 @@ class DesktopController extends ChangeNotifier {
     DesktopManifest manifest,
     DesktopManifest original,
   ) {
-    final chatGptLayout = manifest.layoutById('chatgpt');
-    if (chatGptLayout != null) {
-      final originalChatGptLayout = original.layoutById('chatgpt');
-      final originalVoice = originalChatGptLayout?.buttons
-          .where((button) => button.id == 'chatgpt.startVoice')
-          .firstOrNull;
-      final originalChatView = originalChatGptLayout?.buttons
-          .where((button) => button.id == 'chatgpt.chatView')
-          .firstOrNull;
-      final originalCodexMode = originalChatGptLayout?.buttons
-          .where((button) => button.id == 'chatgpt.codexMode')
-          .firstOrNull;
-      final defaultVoice =
-          originalVoice == null ||
-          _sameKeys(originalVoice.shortcut, const ['CTRL', 'SHIFT', 'V']);
-      final customVoice = originalVoice != null && !defaultVoice;
-      final buttons = chatGptLayout.buttons
-          .where(
-            (button) =>
-                button.id != 'chatgpt.startVoice' ||
-                Platform.isMacOS ||
-                customVoice,
-          )
-          .map((button) {
-            if (button.id == 'chatgpt.startVoice' && defaultVoice) {
-              return button.copyWith(
-                shortcut: const ['CTRL', 'SHIFT', 'V'],
-                description: 'Start ChatGPT voice chat',
-              );
-            }
-            if (button.id == 'chatgpt.chatView' &&
-                Platform.isMacOS &&
-                (originalChatView == null ||
-                    _sameKeys(originalChatView.shortcut, const ['ALT', '1']))) {
-              return button.copyWith(shortcut: const ['CTRL', '1']);
-            }
-            if (button.id == 'chatgpt.codexMode' &&
-                Platform.isMacOS &&
-                (originalCodexMode == null ||
-                    _sameKeys(originalCodexMode.shortcut, const [
-                      'ALT',
-                      '3',
-                    ]))) {
-              return button.copyWith(shortcut: const ['CTRL', '3']);
-            }
-            return button;
-          })
-          .toList(growable: false);
-      manifest = manifest.copyWith(
-        layouts: manifest.layouts
-            .map(
-              (layout) => layout.id == 'chatgpt'
-                  ? layout.copyWith(buttons: buttons)
-                  : layout,
-            )
-            .toList(growable: false),
-      );
-    }
     if (!Platform.isMacOS) return manifest;
     const layoutsWithMacDefaults = {
       'app.edge',
@@ -910,9 +904,10 @@ class DesktopController extends ChangeNotifier {
     switch (request.kind) {
       case RemoteActionKind.button:
         final requestedButtonId = request.buttonId ?? '';
-        final button = _manifest.buttonById(
-          _canonicalLegacyCodexButtonId(requestedButtonId),
+        final canonicalButtonId = _canonicalLegacyCodexButtonId(
+          requestedButtonId,
         );
+        final button = manifest.buttonById(canonicalButtonId);
         if (button == null) throw const FormatException('Unknown button');
         final vibeAppId = _vibeAppForButton(button.id);
         final managedAppId =

@@ -631,9 +631,12 @@ class AppController extends ChangeNotifier {
       canonicalAppId,
       canonicalActionId,
     );
-    final chord =
-        binding ??
-        defaultComputerShortcut(target, application, canonicalActionId);
+    final chord = application.id == 'chatgpt'
+        ? binding != null && parseComputerShortcut(binding) != null
+              ? binding
+              : defaultComputerShortcut(target, application, canonicalActionId)
+        : binding ??
+              defaultComputerShortcut(target, application, canonicalActionId);
     if (chord == null ||
         chord.trim().isEmpty ||
         parseComputerShortcut(chord) == null) {
@@ -881,8 +884,9 @@ class AppController extends ChangeNotifier {
         orElse: () => null,
       );
 
-  RemoteShortcutLayout? get genericSyncedLayout =>
-      isDesktopSynced ? desktopManifest?.currentLayout : null;
+  RemoteShortcutLayout? get genericSyncedLayout => isDesktopSynced
+      ? _layoutForActiveDesktop(desktopManifest?.currentLayout)
+      : null;
 
   RemoteShortcutLayout? get foregroundApplicationLayout {
     final application = foregroundApplication;
@@ -933,7 +937,24 @@ class AppController extends ChangeNotifier {
   }
 
   RemoteShortcutLayout? layoutForApplication(RemoteApplication application) =>
-      desktopManifest?.layoutById(application.layoutId);
+      _layoutForActiveDesktop(
+        desktopManifest?.layoutById(application.layoutId),
+      );
+
+  RemoteShortcutLayout? _layoutForActiveDesktop(RemoteShortcutLayout? layout) {
+    if (layout == null || layout.id != 'chatgpt') return layout;
+    final host = companion.activeHost.value;
+    if (host?.capabilities.contains('chatgpt-platform-layout-v1') == true) {
+      return layout;
+    }
+    final platform = switch (host?.platform) {
+      'macos' => RemoteShortcutPlatform.apple,
+      'windows' => RemoteShortcutPlatform.windows,
+      _ => RemoteShortcutPlatform.other,
+    };
+    return projectChatGptLayout(layout, platform);
+  }
+
   List<ProfileConfig> get orderedProfiles {
     final byId = {for (final profile in config.profiles) profile.id: profile};
     return config.profileOrder

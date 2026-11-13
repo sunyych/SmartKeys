@@ -12,6 +12,111 @@ enum RemoteTargetType {
 
 enum RemoteLayoutKind { keyboard, application, codex }
 
+/// Host families used when resolving portable shortcut defaults.
+enum RemoteShortcutPlatform { apple, windows, other }
+
+/// Replaces the portable PRIMARY modifier with the host's native modifier.
+List<String> resolvePrimaryShortcut(
+  Iterable<String> keys,
+  RemoteShortcutPlatform platform,
+) => keys
+    .map((key) {
+      final normalized = key.trim().toUpperCase();
+      if (normalized != 'PRIMARY') return normalized;
+      return platform == RemoteShortcutPlatform.apple ? 'COMMAND' : 'CTRL';
+    })
+    .toList(growable: false);
+
+/// Applies the platform-specific defaults and availability for ChatGPT.
+/// Stored layouts are immutable inputs; callers should retain the original so
+/// a temporarily hidden platform action does not erase a user's binding.
+RemoteShortcutLayout projectChatGptLayout(
+  RemoteShortcutLayout layout,
+  RemoteShortcutPlatform platform,
+) {
+  if (layout.id != 'chatgpt') return layout;
+
+  const chatViewId = 'chatgpt.chatView';
+  const codexModeId = 'chatgpt.codexMode';
+  const searchChatsId = 'chatgpt.codex.searchChats';
+  const voiceId = 'chatgpt.startVoice';
+  final buttons = <RemoteShortcutButton>[];
+  for (final button in layout.buttons) {
+    if (platform == RemoteShortcutPlatform.other &&
+        button.targetType == RemoteTargetType.system) {
+      continue;
+    }
+    if (platform == RemoteShortcutPlatform.windows &&
+        button.shortcut.any(
+          (key) => const {'COMMAND', 'META', 'WIN'}.contains(key.toUpperCase()),
+        )) {
+      continue;
+    }
+    if (button.id == 'chatgpt.codex.voice' ||
+        (button.id == voiceId &&
+            platform != RemoteShortcutPlatform.apple &&
+            _sameShortcut(button.shortcut, const ['CTRL', 'SHIFT', 'V']))) {
+      continue;
+    }
+    // Search Chats is not currently assigned by ChatGPT. Keep a custom user
+    // assignment visible, while suppressing the unassigned starter binding.
+    if (button.id == searchChatsId &&
+        _isUnassignedSearchDefault(button.shortcut)) {
+      continue;
+    }
+
+    if ((button.id == 'chatgpt.codex.previousChat' &&
+            _isDuplicateConversationDefault(button.shortcut, const ['['])) ||
+        (button.id == 'chatgpt.codex.nextChat' &&
+            _isDuplicateConversationDefault(button.shortcut, const [']']))) {
+      continue;
+    }
+
+    if (button.id == chatViewId || button.id == codexModeId) {
+      final digit = button.id == chatViewId ? '1' : '3';
+      final defaultKeys = platform == RemoteShortcutPlatform.apple
+          ? <String>['CTRL', digit]
+          : <String>['ALT', digit];
+      final isKnownDefault =
+          _sameShortcut(button.shortcut, ['ALT', digit]) ||
+          _sameShortcut(button.shortcut, ['CTRL', digit]);
+      if (isKnownDefault) {
+        buttons.add(button.copyWith(shortcut: defaultKeys));
+        continue;
+      }
+    }
+    buttons.add(
+      button.copyWith(
+        shortcut: resolvePrimaryShortcut(button.shortcut, platform),
+      ),
+    );
+  }
+  return layout.copyWith(buttons: buttons);
+}
+
+bool _isUnassignedSearchDefault(List<String> keys) => [
+  const ['PRIMARY', 'G'],
+  const ['CTRL', 'G'],
+  const ['COMMAND', 'G'],
+  const ['META', 'G'],
+].any((candidate) => _sameShortcut(keys, candidate));
+
+bool _isDuplicateConversationDefault(List<String> keys, List<String> ending) =>
+    [
+      ['PRIMARY', 'SHIFT', ...ending],
+      ['CTRL', 'SHIFT', ...ending],
+      ['COMMAND', 'SHIFT', ...ending],
+      ['META', 'SHIFT', ...ending],
+    ].any((candidate) => _sameShortcut(keys, candidate));
+
+bool _sameShortcut(List<String> left, List<String> right) =>
+    left.length == right.length &&
+    List.generate(
+      left.length,
+      (index) =>
+          left[index].trim().toUpperCase() == right[index].trim().toUpperCase(),
+    ).every((same) => same);
+
 enum RemoteActionKind { button, launchApplication, switchProfile }
 
 enum PointerInputKind { move, scroll, button }

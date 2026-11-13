@@ -107,10 +107,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
       await tester.pumpAndSettle();
       final grid = find.byKey(const ValueKey('remote-layout-chatgpt'));
+      final projected = projectChatGptLayout(
+        starter.layoutById('chatgpt')!,
+        RemoteShortcutPlatform.apple,
+      );
       _expectUniformSizes(
         tester,
         [
-          for (final button in starter.layoutById('chatgpt')!.buttons.take(15))
+          for (final button in projected.buttons.take(15))
             ValueKey('remote-button-${button.id}'),
         ],
         _expectedCellSize(size),

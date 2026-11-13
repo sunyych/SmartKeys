@@ -1383,6 +1383,8 @@ class _RemoteButtonGrid extends StatelessWidget {
     final buttons = layout.buttons.skip(startIndex).take(visibleCount).toList();
     final count = visibleCount < 1 ? 1 : visibleCount;
     final rows = rowCountOverride ?? (count / columns).ceil();
+    final isAppleDesktop =
+        controller.companion.activeHost.value?.isApple == true;
     return LayoutBuilder(
       builder: (context, constraints) {
         const horizontalSpacing = ShortcutGridGeometry.spacing;
@@ -1467,7 +1469,24 @@ class _RemoteButtonGrid extends StatelessWidget {
                         final shortcut =
                             button.targetType ==
                                 RemoteTargetType.keyboardShortcut
-                            ? formatShortcut(button.shortcut)
+                            ? formatShortcut(
+                                layout.id == 'chatgpt'
+                                    ? button.shortcut.map(
+                                        (key) => switch (key) {
+                                          'COMMAND' || 'META'
+                                              when isAppleDesktop =>
+                                            'Command',
+                                          'ALT' || 'OPTION'
+                                              when isAppleDesktop =>
+                                            'Option',
+                                          'CTRL' || 'CONTROL' => 'Ctrl',
+                                          'ALT' || 'OPTION' => 'Alt',
+                                          'SHIFT' => 'Shift',
+                                          _ => key,
+                                        },
+                                      )
+                                    : button.shortcut,
+                              )
                             : null;
                         return Padding(
                           padding: EdgeInsets.all(compact ? 4 : 9),

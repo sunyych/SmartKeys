@@ -22,9 +22,18 @@ class StandaloneAppPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final viewport = MediaQuery.sizeOf(context);
-    final shortcuts = computerShortcutsFor(
-      application.category,
-    ).where((shortcut) => shortcut.id != 'launch').toList(growable: false);
+    final setup = controller.activeComputerSetup;
+    final shortcuts = computerShortcutsFor(application.category)
+        .where((shortcut) => shortcut.id != 'launch')
+        .where((shortcut) {
+          if (application.id != 'chatgpt') return true;
+          final saved = setup?.bindingFor(application.id, shortcut.id)?.trim();
+          return (saved != null &&
+                  saved.isNotEmpty &&
+                  parseComputerShortcut(saved) != null) ||
+              defaultComputerShortcut(target, application, shortcut.id) != null;
+        })
+        .toList(growable: false);
     return LayoutBuilder(
       builder: (context, pageConstraints) {
         final safeInset =
@@ -133,8 +142,12 @@ class _StandaloneShortcutTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final setup = controller.activeComputerSetup;
     final saved = setup?.bindingFor(application.id, shortcut.id);
-    final chord =
-        saved ?? defaultComputerShortcut(target, application, shortcut.id);
+    final savedAction = saved == null ? null : parseComputerShortcut(saved);
+    final chord = application.id == 'chatgpt'
+        ? savedAction == null
+              ? defaultComputerShortcut(target, application, shortcut.id)
+              : saved
+        : saved ?? defaultComputerShortcut(target, application, shortcut.id);
     final action = chord == null ? null : parseComputerShortcut(chord);
     final color = Theme.of(context).colorScheme;
     return Card(

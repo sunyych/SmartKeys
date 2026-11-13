@@ -43,6 +43,7 @@ class CompanionServer extends ChangeNotifier {
     'manifest',
     'apps',
     'codex',
+    'chatgpt-platform-layout-v1',
     'icons',
     'foreground-app',
     'app-activation',

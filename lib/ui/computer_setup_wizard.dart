@@ -289,7 +289,7 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
 
   Widget _applicationCard(ComputerApplication app) {
     final expanded = _expandedAppId == app.id;
-    final shortcuts = computerShortcutsFor(app.category);
+    final shortcuts = _wizardShortcutsFor(app);
     final launch = _effectiveChord(app, 'launch') ?? '';
     final launchConfigured = parseComputerShortcut(launch) != null;
     final launchConfirmed = _confirmedAppLaunches.contains(app.id);
@@ -457,6 +457,53 @@ class _ComputerSetupWizardState extends State<ComputerSetupWizard> {
         ],
       ),
     );
+  }
+
+  List<ComputerShortcut> _wizardShortcutsFor(ComputerApplication app) {
+    final os = _operatingSystem;
+    if (widget.target.mode != ComputerMode.standalone ||
+        app.id != 'chatgpt') {
+      return computerShortcutsFor(app.category);
+    }
+    if (os == null) {
+      return computerShortcutsFor(app.category).where((shortcut) {
+        if (shortcut.id == 'launch' || shortcut.id == 'codex.searchChats') {
+          return true;
+        }
+        final saved = widget.initialSetup
+            ?.bindingFor(app.id, shortcut.id)
+            ?.trim();
+        return saved != null &&
+            saved.isNotEmpty &&
+            parseComputerShortcut(saved) != null;
+      }).toList(growable: false);
+    }
+    final previewTarget = widget.target.withOperatingSystem(os);
+    return computerShortcutsFor(app.category)
+        .where((shortcut) {
+          // Keep launch configurable even when the platform has no documented
+          // default, and retain valid custom bindings saved for this computer.
+          if (shortcut.id == 'launch') return true;
+          if (shortcut.id == 'codex.searchChats') return true;
+          if (const {
+            'codex.voiceMode',
+            'codex.voiceInput',
+            'codex.cancelClear',
+            'codex.previousChat',
+            'codex.nextChat',
+            'codex.nextProject',
+          }.contains(shortcut.id)) {
+            return true;
+          }
+          final saved = widget.initialSetup
+              ?.bindingFor(app.id, shortcut.id)
+              ?.trim();
+          return (saved != null &&
+                  saved.isNotEmpty &&
+                  parseComputerShortcut(saved) != null) ||
+              defaultComputerShortcut(previewTarget, app, shortcut.id) != null;
+        })
+        .toList(growable: false);
   }
 
   TextEditingController _bindingEditor(

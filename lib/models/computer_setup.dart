@@ -568,6 +568,15 @@ String? defaultComputerShortcut(
   }
   if (application.category == ComputerAppCategory.chat) {
     if (actionId.startsWith('codex.')) {
+      if (target.operatingSystem == null) return null;
+      if (actionId == 'codex.searchChats') return null;
+      if (actionId == 'codex.screenshot') {
+        return switch (target.operatingSystem) {
+          ComputerOperatingSystem.macos => 'Command+Shift+4',
+          ComputerOperatingSystem.windows => 'Win+Shift+S',
+          ComputerOperatingSystem.linux || null => null,
+        };
+      }
       return _defaultCodexComputerShortcut(primary, actionId.substring(6));
     }
     // These defaults follow OpenAI's documented macOS app shortcuts. The

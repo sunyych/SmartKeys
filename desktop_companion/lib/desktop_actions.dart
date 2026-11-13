@@ -687,16 +687,12 @@ public static class LumiaWindowActivation {
     List<String> rawKeys, {
     String? expectedAppId,
   }) async {
-    var keys = rawKeys
-        .map((key) => key.trim().toUpperCase())
-        .map(
-          (key) => key == 'PRIMARY'
-              ? Platform.isMacOS
-                    ? 'COMMAND'
-                    : 'CTRL'
-              : key,
-        )
-        .toList(growable: false);
+    final platform = Platform.isMacOS
+        ? RemoteShortcutPlatform.apple
+        : Platform.isWindows
+        ? RemoteShortcutPlatform.windows
+        : RemoteShortcutPlatform.other;
+    var keys = resolvePrimaryShortcut(rawKeys, platform);
     keys = switch (keys) {
       ['BROWSER_BACK'] =>
         Platform.isMacOS ? const ['COMMAND', '['] : const ['ALT', 'LEFT'],
