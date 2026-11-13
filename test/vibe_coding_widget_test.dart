@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
-import 'package:smart_keys/services/hid_service.dart';
 
 import 'test_support.dart';
 
