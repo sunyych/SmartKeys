@@ -15,6 +15,7 @@ class VibeCodingPanel extends StatefulWidget {
     required this.controller,
     required this.target,
     required this.selectedApplicationId,
+    this.activationPending = false,
     this.onConfigure,
     required this.onBeforeContextChange,
     required this.onStartDictation,
@@ -24,6 +25,7 @@ class VibeCodingPanel extends StatefulWidget {
   final AppController controller;
   final ComputerTarget? target;
   final String selectedApplicationId;
+  final bool activationPending;
   final VoidCallback? onConfigure;
   final Future<void> Function() onBeforeContextChange;
   final Future<void> Function() onStartDictation;
@@ -95,7 +97,8 @@ class _VibeCodingPanelState extends State<VibeCodingPanel> {
           application: application,
         );
         final foreground = widget.controller.foregroundApplication?.id == appId;
-        final controlsEnabled = availability.ready && foreground;
+        final controlsEnabled =
+            availability.ready && foreground && !widget.activationPending;
         final busy = _pendingOperation != null || _repeatActive;
         final error = _operationError ?? availability.error;
         if (_repeatActive && !controlsEnabled) {

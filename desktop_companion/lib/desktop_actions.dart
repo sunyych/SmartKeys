@@ -198,17 +198,43 @@ class DesktopActions {
       'safari' => 'Safari',
       'teams' => 'Microsoft Teams',
       'zoom' => 'zoom.us',
+      'photoshop' => 'Adobe Photoshop',
+      'illustrator' => 'Adobe Illustrator',
+      'vscode' => 'Visual Studio Code',
+      'solidworks' => 'SOLIDWORKS',
+      'premiere' => 'Adobe Premiere Pro',
+      'appleMusic' => 'Music',
+      'finder' => 'Finder',
       _ => throw const FormatException('unsupported managed application'),
     };
     final chatGpt =
         app.id == 'chatgpt' ||
-        (app.id == 'codex' &&
-            app.executable.toLowerCase().contains('chatgpt'));
+        (app.id == 'codex' && app.executable.toLowerCase().contains('chatgpt'));
     final chatViewKey = app.id == 'chatgpt' ? '1' : '3';
     final targetName = chatGpt ? 'ChatGPT' : executable;
     if (Platform.isMacOS) {
-      await _run('/usr/bin/open', ['-a', targetName]);
-      if (chatGpt && await _waitForForeground('chatgpt')) {
+      final open = await runner.run('/usr/bin/open', ['-a', targetName]);
+      if (open.exitCode != 0) {
+        final bundle =
+            (app.id == 'photoshop' ||
+                app.id == 'illustrator' ||
+                app.id == 'premiere')
+            ? await _findVersionedMacApplication(targetName)
+            : null;
+        if (bundle == null) {
+          throw ProcessException(
+            '/usr/bin/open',
+            ['-a', targetName],
+            '${open.stderr}',
+            open.exitCode,
+          );
+        }
+        await _run('/usr/bin/open', ['-a', bundle]);
+      }
+      if (!await _waitForForeground(chatGpt ? 'chatgpt' : app.id)) {
+        throw StateError('macOS did not foreground $targetName');
+      }
+      if (chatGpt) {
         await sendShortcut(['CTRL', chatViewKey], expectedAppId: 'chatgpt');
       }
       return;
@@ -216,6 +242,9 @@ class DesktopActions {
     if (Platform.isWindows) {
       if (app.id == 'safari') {
         throw const FormatException('Safari is only available on Mac');
+      }
+      if (app.id == 'appleMusic' || app.id == 'finder') {
+        throw FormatException('$executable is only available on Mac');
       }
       final processNames = switch (app.id) {
         'chatgpt' => const ['ChatGPT'],
@@ -230,6 +259,11 @@ class DesktopActions {
         ),
         'teams' => const ['ms-teams', 'teams'],
         'zoom' => const ['Zoom', 'cpt-host'],
+        'photoshop' => const ['Photoshop'],
+        'illustrator' => const ['Illustrator'],
+        'vscode' => const ['Code'],
+        'solidworks' => const ['SLDWORKS'],
+        'premiere' => const ['Adobe Premiere Pro'],
         _ => throw const FormatException('unsupported managed application'),
       };
       final processNameArgument = processNames.join(',');
@@ -243,6 +277,11 @@ class DesktopActions {
         'firefox' => const ['firefox.exe'],
         'teams' => const ['ms-teams.exe', 'Teams.exe'],
         'zoom' => const ['Zoom.exe'],
+        'photoshop' => const ['Photoshop.exe'],
+        'illustrator' => const ['Illustrator.exe'],
+        'vscode' => const ['Code.exe'],
+        'solidworks' => const ['SLDWORKS.exe'],
+        'premiere' => const ['Adobe Premiere Pro.exe'],
         _ => throw const FormatException('unsupported managed application'),
       };
       final executableNameArgument = executableNames.join(',');
@@ -256,6 +295,11 @@ class DesktopActions {
         'firefox' => 'Firefox,Mozilla Firefox',
         'teams' => 'Teams,Microsoft Teams,Microsoft Teams classic',
         'zoom' => 'Zoom,Zoom Workplace,Zoom Meetings',
+        'photoshop' => 'Adobe Photoshop,Photoshop',
+        'illustrator' => 'Adobe Illustrator,Illustrator',
+        'vscode' => 'Visual Studio Code,VS Code,Visual Studio Code Insiders',
+        'solidworks' => 'SOLIDWORKS, SOLIDWORKS 2026, SOLIDWORKS 2025',
+        'premiere' => 'Adobe Premiere Pro,Premiere Pro',
         _ => throw const FormatException('unsupported managed application'),
       };
       final activationScript = r'''
@@ -266,7 +310,16 @@ class DesktopActions {
   $running = @(Get-Process -Name $processNames -ErrorAction SilentlyContinue)
   $p = $running | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
   if (-not $p) {
-    $app = Get-StartApps | Where-Object { $startAppNames -contains $_.Name } | Select-Object -First 1
+    $startApps = @(Get-StartApps)
+    $app = $null
+    foreach ($alias in $startAppNames) {
+      $app = $startApps | Where-Object { $_.Name -ieq $alias } | Select-Object -First 1
+      if (-not $app) {
+        $escapedAlias = [regex]::Escape($alias)
+        $app = $startApps | Where-Object { $_.Name -match ("^" + $escapedAlias + " \d{4}(?:\s|$)") } | Select-Object -First 1
+      }
+      if ($app) { break }
+    }
     if ($app -and $app.AppID) {
       Start-Process explorer.exe -ArgumentList ("shell:AppsFolder\" + $app.AppID)
     } elseif (-not $running) {
@@ -317,6 +370,7 @@ class DesktopActions {
       else { throw "The selected app is installed but its launch entry is unavailable." }
     }
   }
+
   if (-not $p) {
     $focusDeadline = [DateTime]::UtcNow.AddMilliseconds(2750)
     do {
@@ -326,17 +380,11 @@ class DesktopActions {
     } while ([DateTime]::UtcNow -lt $focusDeadline)
   }
   if (-not $p) {
-    if ($startAppNames -contains 'ChatGPT') {
-      throw 'ChatGPT did not expose a main window; refusing to report activation success.'
-    }
-    Write-Output 'STARTING'
-    return
+    throw 'The selected app did not expose a main window; refusing to report activation success.'
   }
   $w = New-Object -ComObject WScript.Shell
   # AppActivate can report success without changing the foreground window.
-  # ChatGPT view shortcuts are only safe after verifying its actual HWND.
-  if ($startAppNames -contains 'ChatGPT') {
-    Add-Type -TypeDefinition @'
+  Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class LumiaWindowActivation {
@@ -349,37 +397,33 @@ public static class LumiaWindowActivation {
   [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 }
 '@
-    $hwnd = [IntPtr]$p.MainWindowHandle
-    if (-not [LumiaWindowActivation]::IsWindowVisible($hwnd)) {
-      throw 'ChatGPT main window is not visible; refusing to send view shortcuts.'
-    }
-    if ([LumiaWindowActivation]::IsIconic($hwnd)) {
-      [void][LumiaWindowActivation]::ShowWindowAsync($hwnd, 9)
-      Start-Sleep -Milliseconds 100
-    }
-    [void]$w.AppActivate($p.Id)
-    Start-Sleep -Milliseconds 100
-    if ([LumiaWindowActivation]::GetForegroundWindow() -ne $hwnd) {
-      # Do not synthesize Alt if the user is physically holding it.
-      if (([LumiaWindowActivation]::GetAsyncKeyState(0x12) -band 0x8000) -ne 0) {
-        throw 'ChatGPT could not be focused while Alt is held; no view shortcut was sent.'
-      }
-      [LumiaWindowActivation]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-      try {
-        [void][LumiaWindowActivation]::SetForegroundWindow($hwnd)
-        Start-Sleep -Milliseconds 100
-      } finally {
-        [LumiaWindowActivation]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-      }
-    }
-    if ([LumiaWindowActivation]::GetForegroundWindow() -ne $hwnd) {
-      throw 'Windows did not activate the ChatGPT main window; no view shortcut was sent.'
-    }
-    Write-Output 'FOCUSED'
-    return
+  $hwnd = [IntPtr]$p.MainWindowHandle
+  if (-not [LumiaWindowActivation]::IsWindowVisible($hwnd)) {
+    throw 'The selected app window is not visible; activation failed.'
   }
-  if ($w.AppActivate($p.Id)) { Write-Output 'FOCUSED' }
-  else { Write-Output 'STARTING' }
+  if ([LumiaWindowActivation]::IsIconic($hwnd)) {
+    [void][LumiaWindowActivation]::ShowWindowAsync($hwnd, 9)
+    Start-Sleep -Milliseconds 100
+  }
+  [void]$w.AppActivate($p.Id)
+  Start-Sleep -Milliseconds 100
+  if ([LumiaWindowActivation]::GetForegroundWindow() -ne $hwnd) {
+    # Do not synthesize Alt if the user is physically holding it.
+    if (([LumiaWindowActivation]::GetAsyncKeyState(0x12) -band 0x8000) -ne 0) {
+      throw 'The selected app could not be focused while Alt is held.'
+    }
+    [LumiaWindowActivation]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+    try {
+      [void][LumiaWindowActivation]::SetForegroundWindow($hwnd)
+      Start-Sleep -Milliseconds 100
+    } finally {
+      [LumiaWindowActivation]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+    }
+  }
+  if ([LumiaWindowActivation]::GetForegroundWindow() -ne $hwnd) {
+    throw 'Windows did not activate the selected app window.'
+  }
+  Write-Output 'FOCUSED'
 }
 ''';
       final result = await runner.run('powershell.exe', [
@@ -417,21 +461,19 @@ public static class LumiaWindowActivation {
       ),
       'teams' => 'teams-for-linux',
       'zoom' => 'zoom',
+      'photoshop' => 'photoshop',
+      'illustrator' => 'illustrator',
+      'vscode' => 'code',
+      'solidworks' => 'sldworks',
+      'premiere' => 'adobe-premiere-pro',
+      'appleMusic' ||
+      'finder' => throw FormatException('$executable is only available on Mac'),
       _ => throw const FormatException('unsupported managed application'),
     };
-    final window = await runner.run('xdotool', [
-      'search',
-      '--onlyvisible',
-      '--class',
-      process,
-    ]);
-    if (window.exitCode == 0 && window.stdout.toString().trim().isNotEmpty) {
-      await _run('xdotool', [
-        'windowactivate',
-        '--sync',
-        window.stdout.toString().trim().split(RegExp(r'\s+')).first,
-      ]);
-    } else {
+    Future<ProcessResult> findWindow() =>
+        runner.run('xdotool', ['search', '--onlyvisible', '--class', process]);
+    var window = await findWindow();
+    if (window.exitCode != 0 || window.stdout.toString().trim().isEmpty) {
       var executable = process;
       if (app.id == 'edge') {
         for (final candidate in const [
@@ -447,6 +489,27 @@ public static class LumiaWindowActivation {
         }
       }
       await runner.start(executable, const []);
+      for (var attempt = 0; attempt < 16; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        window = await findWindow();
+        if (window.exitCode == 0 &&
+            window.stdout.toString().trim().isNotEmpty) {
+          break;
+        }
+      }
+    }
+    final windowId = window.stdout
+        .toString()
+        .trim()
+        .split(RegExp(r'\s+'))
+        .first;
+    if (window.exitCode != 0 || windowId.isEmpty) {
+      throw StateError('Linux did not expose a window for $targetName');
+    }
+    await _run('xdotool', ['windowactivate', '--sync', windowId]);
+    final active = await runner.run('xdotool', const ['getactivewindow']);
+    if (active.exitCode != 0 || active.stdout.toString().trim() != windowId) {
+      throw StateError('Linux did not activate $targetName');
     }
     if (app.id == 'chatgpt' && await _waitForForeground('chatgpt')) {
       await sendShortcut(const ['ALT', '1'], expectedAppId: 'chatgpt');
@@ -656,6 +719,18 @@ Add-Type -AssemblyName System.Windows.Forms
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "${_macApplicationName(expectedAppId!)}" then error "Switch to the selected app before using this shortcut."\n',
       'teams' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "Microsoft Teams" and frontName is not "Microsoft Teams classic" then error "Switch to the selected app before using this shortcut."\n',
+      'photoshop' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Photoshop" then error "Switch to Photoshop before using this shortcut."\n',
+      'illustrator' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Illustrator" then error "Switch to Illustrator before using this shortcut."\n',
+      'vscode' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Code" and frontName is not "Visual Studio Code" then error "Switch to VS Code before using this shortcut."\n',
+      'premiere' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Premiere Pro" then error "Switch to Premiere before using this shortcut."\n',
+      'appleMusic' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Music" and frontName is not "Apple Music" then error "Switch to Apple Music before using this shortcut."\n',
+      'finder' =>
+        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Finder" then error "Switch to Finder before using this shortcut."\n',
       'zoom' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "zoom.us" and frontName is not "Zoom Workplace" then error "Switch to the selected app before using this shortcut."\n',
       'chatgpt' =>
@@ -684,6 +759,13 @@ Add-Type -AssemblyName System.Windows.Forms
         'safari' => ['safari'],
         'teams' => ['ms-teams', 'teams'],
         'zoom' => ['zoom', 'cpt-host'],
+        'photoshop' => ['adobe photoshop', 'photoshop'],
+        'illustrator' => ['adobe illustrator', 'illustrator'],
+        'vscode' => ['visual studio code', 'code'],
+        'solidworks' => ['solidworks', 'sldworks'],
+        'premiere' => ['adobe premiere pro', 'premiere pro'],
+        'appleMusic' => ['music', 'apple music'],
+        'finder' => ['finder'],
         _ => null,
       };
 
@@ -699,7 +781,7 @@ Add-Type -AssemblyName System.Windows.Forms
         'tell application "System Events" to get name of first application process whose frontmost is true',
       ]);
       if (result.exitCode != 0) return false;
-      final name = result.stdout.toString().toLowerCase();
+      final name = result.stdout.toString().trim().toLowerCase();
       return switch (appId) {
         'codex' => name == 'codex' || name == 'chatgpt',
         'chatgpt' => name == 'chatgpt',
@@ -711,6 +793,14 @@ Add-Type -AssemblyName System.Windows.Forms
         'safari' => name == 'safari',
         'teams' =>
           name == 'microsoft teams' || name == 'microsoft teams classic',
+        'photoshop' => name.startsWith('adobe photoshop'),
+        'illustrator' =>
+          name == 'illustrator' || name.startsWith('adobe illustrator'),
+        'vscode' => name == 'code' || name.startsWith('visual studio code'),
+        'premiere' =>
+          name == 'premiere pro' || name.startsWith('adobe premiere pro'),
+        'appleMusic' => name == 'music' || name == 'apple music',
+        'finder' => name == 'finder',
         'zoom' => name == 'zoom.us' || name == 'zoom workplace',
         _ => false,
       };
@@ -802,6 +892,34 @@ Add-Type -AssemblyName System.Windows.Forms
         'codex' => 'Codex.exe',
         _ => target,
       };
+
+  Future<String?> _findVersionedMacApplication(String appName) async {
+    final matches = <String>[];
+    for (final root in ['/Applications', '/System/Applications']) {
+      final directory = Directory(root);
+      if (!await directory.exists()) continue;
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! Directory ||
+            !entity.path.toLowerCase().endsWith('.app')) {
+          continue;
+        }
+        final name = entity.uri.pathSegments
+            .where((segment) => segment.isNotEmpty)
+            .last
+            .replaceAll(RegExp(r'\.app$', caseSensitive: false), '');
+        if (name.toLowerCase() == appName.toLowerCase() ||
+            RegExp(
+              '^${RegExp.escape(appName)} \\d{4}(?:[.-].*)?\$',
+              caseSensitive: false,
+            ).hasMatch(name)) {
+          matches.add(entity.path);
+        }
+      }
+    }
+    if (matches.isEmpty) return null;
+    matches.sort((left, right) => right.compareTo(left));
+    return matches.first;
+  }
 
   static String _requiredText(Object? value) {
     final text = value?.toString().trim() ?? '';

@@ -543,8 +543,8 @@ void main() {
           isNull,
         );
 
-        // Home selects an app by invoking its launch action. An unset launch
-        // binding should leave its controls accessible without sending a key.
+        // Explicit launch actions remain available to callers. An unset launch
+        // binding is a no-op, while other missing actions are still rejected.
         await controller.executeStandaloneShortcut(target, 'codex', 'launch');
         expect(harness.hid.steppedActions, isEmpty);
         await expectLater(

@@ -62,6 +62,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<LocalDictationEntryButtonState> _dictationEntryKey =
       GlobalKey<LocalDictationEntryButtonState>();
   int _homeSelectionGeneration = 0;
+  int? _pendingDesktopActivationGeneration;
+  String? _pendingDesktopActivationApplicationId;
   int _computerTransitionGeneration = 0;
   bool _followForeground = true;
   bool _targetResetPending = false;
@@ -142,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final remoteApplication = effectiveApplication == null
         ? null
         : controller.desktopManifest?.applicationById(effectiveApplication.id);
-    final remoteLayout =
+    var remoteLayout =
         effectiveTab == _HomeTab.application &&
             computer?.mode == ComputerMode.advanced &&
             controller.isDesktopSynced &&
@@ -155,6 +157,15 @@ class _HomeScreenState extends State<HomeScreen> {
               !desktopReconnecting
         ? controller.genericSyncedLayout
         : null;
+    if (effectiveTab == _HomeTab.application &&
+        effectiveApplication?.id == _pendingDesktopActivationApplicationId) {
+      remoteLayout = remoteLayout?.copyWith(
+        buttons: [
+          for (final button in remoteLayout.buttons)
+            button.copyWith(enabled: false),
+        ],
+      );
+    }
     final keysPerPage = boardMode
         ? controller.config.preferences.tabletKeysPerPage
         : controlButtonCount;
@@ -260,6 +271,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 : _firstConfiguredVibeId(availableApps))
           : null;
       final generation = ++_homeSelectionGeneration;
+      if (_pendingDesktopActivationGeneration != null) {
+        setState(() {
+          _pendingDesktopActivationGeneration = null;
+          _pendingDesktopActivationApplicationId = null;
+        });
+      }
       if (tab != selectedTab ||
           selectedApplicationId != selectedVibe ||
           tab == _HomeTab.vibeCoding) {
@@ -279,6 +296,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Future<void> selectApplication(ComputerApplication application) async {
       final target = computer;
       if (target == null) return;
+      if (target.mode == ComputerMode.advanced &&
+          _pendingDesktopActivationApplicationId == application.id) {
+        return;
+      }
       final messenger = ScaffoldMessenger.of(context);
       final generation = ++_homeSelectionGeneration;
       await _stopVibeDictation();
@@ -304,15 +325,13 @@ class _HomeScreenState extends State<HomeScreen> {
         editing = false;
         _activeBank = 0;
         _followForeground = false;
+        if (target.mode == ComputerMode.advanced) {
+          _pendingDesktopActivationGeneration = generation;
+          _pendingDesktopActivationApplicationId = application.id;
+        }
       });
       try {
-        if (target.mode == ComputerMode.standalone) {
-          await controller.executeStandaloneShortcut(
-            target,
-            application.id,
-            'launch',
-          );
-        } else if (target.mode == ComputerMode.advanced) {
+        if (target.mode == ComputerMode.advanced) {
           final remote = controller.desktopManifest?.applicationById(
             application.id,
           );
@@ -322,7 +341,19 @@ class _HomeScreenState extends State<HomeScreen> {
           await controller.launchRemoteApplication(remote);
         }
       } catch (error) {
-        if (mounted) messenger.showSnackBar(SnackBar(content: Text('$error')));
+        if (mounted &&
+            generation == _homeSelectionGeneration &&
+            controller.activeComputer?.id == target.id &&
+            controller.activeComputer?.mode == target.mode) {
+          messenger.showSnackBar(SnackBar(content: Text('$error')));
+        }
+      } finally {
+        if (mounted && _pendingDesktopActivationGeneration == generation) {
+          setState(() {
+            _pendingDesktopActivationGeneration = null;
+            _pendingDesktopActivationApplicationId = null;
+          });
+        }
       }
     }
 
@@ -365,6 +396,8 @@ class _HomeScreenState extends State<HomeScreen> {
         controller: controller,
         target: computer,
         selectedApplicationId: selectedVibeApplicationId,
+        activationPending:
+            _pendingDesktopActivationApplicationId == selectedVibeApplicationId,
         onConfigure: computer == null ? null : editComputerSetup,
         onBeforeContextChange: _stopVibeDictation,
         onStartDictation: () =>
@@ -605,6 +638,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final wasResetPending = _targetResetPending;
     _lastComputerId = target?.id;
     ++_homeSelectionGeneration;
+    _pendingDesktopActivationGeneration = null;
+    _pendingDesktopActivationApplicationId = null;
     final transitionGeneration = ++_computerTransitionGeneration;
     if (oldId != null || wasResetPending) {
       _targetResetPending = true;

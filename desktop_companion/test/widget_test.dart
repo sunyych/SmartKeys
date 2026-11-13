@@ -78,6 +78,9 @@ class _FocusedRecordingRunner extends _SuccessfulRecordingRunner {
   @override
   Future<ProcessResult> run(String executable, List<String> arguments) async {
     calls.add((executable, arguments));
+    if (Platform.isMacOS && executable == '/usr/bin/osascript') {
+      return ProcessResult(0, 0, 'Code', '');
+    }
     return ProcessResult(0, 0, 'FOCUSED', '');
   }
 }
@@ -139,7 +142,10 @@ void main() {
     expect(activationScript, contains('GetForegroundWindow'));
     expect(activationScript, contains('GetAsyncKeyState'));
     expect(activationScript, contains('ShowWindowAsync'));
-    expect(activationScript, contains('no view shortcut was sent'));
+    expect(
+      activationScript,
+      contains('did not activate the selected app window'),
+    );
     expect(chatGptRunner.calls.last.$2.last, "'%1'");
 
     final codexRunner = _FocusedRecordingRunner();
@@ -167,9 +173,9 @@ void main() {
     );
 
     if (Platform.isMacOS) {
-      final runner = _SuccessfulRecordingRunner();
+      final runner = _EdgeForegroundRunner();
       await DesktopActions(runner: runner).activateApplication(app);
-      expect(runner.calls.single, ('/usr/bin/open', ['-a', 'Microsoft Edge']));
+      expect(runner.calls.first, ('/usr/bin/open', ['-a', 'Microsoft Edge']));
     } else if (Platform.isWindows) {
       final runner = _SuccessfulRecordingRunner();
       await DesktopActions(runner: runner).activateApplication(app);
@@ -187,6 +193,37 @@ void main() {
       expect(runner.starts, [('microsoft-edge', const <String>[])]);
     }
   });
+
+  test(
+    'starter app activation reuses and verifies its desktop window',
+    () async {
+      final runner = _FocusedRecordingRunner();
+      await DesktopActions(runner: runner).activateApplication(
+        const RemoteApplication(
+          id: 'vscode',
+          name: 'VSCode',
+          icon: 'code',
+          executable: 'Visual Studio Code',
+          layoutId: 'app.vscode',
+        ),
+      );
+      if (Platform.isWindows) {
+        final script = runner.calls.single.$2[3];
+        expect(script, contains('Get-StartApps'));
+        expect(script, contains('ShowWindowAsync'));
+        expect(script, contains('GetForegroundWindow'));
+        expect(script, contains('refusing to report activation success'));
+        expect(runner.calls.single.$2[4], "'Code'");
+        expect(runner.calls.single.$2[5], "'Code.exe'");
+        expect(runner.calls.single.$2[6], contains('Visual Studio Code'));
+      } else if (Platform.isMacOS) {
+        expect(runner.calls.first, (
+          '/usr/bin/open',
+          ['-a', 'Visual Studio Code'],
+        ));
+      }
+    },
+  );
 
   test('Edge browser shortcut checks its matching foreground app', () async {
     final runner = _EdgeForegroundRunner();

@@ -673,8 +673,10 @@ class LanCompanionService
   }
 
   @override
-  Future<void> executeRemote(RemoteActionRequest request) =>
-      _post(jsonEncode(request.toJson()));
+  Future<void> executeRemote(RemoteActionRequest request) => _post(
+    jsonEncode(request.toJson()),
+    surfaceFailure: request.kind == RemoteActionKind.launchApplication,
+  );
 
   @override
   Future<void> sendDictation({
@@ -755,33 +757,42 @@ class LanCompanionService
   @override
   Future<void> execute(String command) => _post(command);
 
-  Future<void> _post(String body) async {
+  Future<void> _post(String body, {bool surfaceFailure = false}) async {
     if (_disposed) return;
     final host = _host.value;
     if (host == null) {
+      if (surfaceFailure) {
+        throw StateError('No LumiaKey Desktop found on this network.');
+      }
       _setError('No LumiaKey Desktop found on this network.');
       return;
     }
     final epoch = _selectionEpoch;
+    final actionTimeout = surfaceFailure
+        ? const Duration(seconds: 8)
+        : const Duration(seconds: 4);
     HttpClient? client;
     try {
       client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
       final request = await client
           .post(host.address, host.port, '/action')
-          .timeout(const Duration(seconds: 4));
+          .timeout(actionTimeout);
       request.followRedirects = false;
       request.headers.contentType = ContentType.json;
       request.headers.set('x-lumiakeys-token', host.token);
       request.write(body);
-      final response = await request.close().timeout(
-        const Duration(seconds: 4),
-      );
+      final response = await request.close().timeout(actionTimeout);
       final responseBody = await _readBoundedResponse(
         response,
-        const Duration(seconds: 4),
+        actionTimeout,
         64 * 1024,
       );
-      if (_selectionEpoch != epoch || _host.value != host) return;
+      if (_selectionEpoch != epoch || _host.value != host) {
+        if (surfaceFailure) {
+          throw StateError('Desktop connection changed during app activation.');
+        }
+        return;
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           responseBody.isEmpty ? 'Desktop rejected the action' : responseBody,
@@ -795,8 +806,9 @@ class LanCompanionService
       }
       _error.value = null;
       _status.value = CompanionSyncStatus.ready;
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (_selectionEpoch == epoch && _host.value == host) {
+        if (surfaceFailure) Error.throwWithStackTrace(error, stackTrace);
         _setError('Desktop action failed: $error');
       }
     } finally {

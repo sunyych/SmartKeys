@@ -383,6 +383,48 @@ void main() {
     expect(companion.manifest.value?.revision, manifest.revision);
   });
 
+  test(
+    'app activation errors reach the caller without breaking Desktop sync',
+    () async {
+      final discoveryPort = await _unusedUdpPort();
+      final manifest = DesktopManifest.starter().copyWith(revision: 31);
+      final server = await _ManifestServer.start(manifest);
+      final sender = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final companion = LanCompanionService(discoveryPort: discoveryPort);
+      addTearDown(() async {
+        companion.dispose();
+        sender.close();
+        await server.close();
+      });
+
+      await companion.start();
+      _advertise(
+        sender,
+        discoveryPort: discoveryPort,
+        name: 'Desktop A',
+        port: server.port,
+        token: 'token-a',
+        revision: manifest.revision,
+      );
+      await _waitUntil(
+        () => companion.syncStatus.value == CompanionSyncStatus.ready,
+      );
+
+      await expectLater(
+        companion.executeRemote(
+          const RemoteActionRequest.launchApplication('codex'),
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(companion.syncStatus.value, CompanionSyncStatus.ready);
+      expect(companion.errorMessage.value, isNull);
+      expect(server.manifestRequests, 1);
+    },
+  );
+
   test('discovery timeout retains the last valid Desktop manifest', () async {
     final discoveryPort = await _unusedUdpPort();
     final manifest = DesktopManifest.starter().copyWith(revision: 30);

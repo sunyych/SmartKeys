@@ -31,6 +31,39 @@ class _RecordingActions extends DesktopActions {
 }
 
 void main() {
+  test('foreground matching selects one deterministic desktop app', () {
+    final apps = DesktopManifest.starter().applications;
+    expect(
+      PlatformApplicationDiscovery.resolveForegroundApplicationId(
+        apps,
+        'ChatGPT.exe',
+      ),
+      'chatgpt',
+    );
+    expect(
+      PlatformApplicationDiscovery.resolveForegroundApplicationId(
+        apps,
+        'ChatGPT.exe',
+        preferredAppId: 'codex',
+      ),
+      'codex',
+    );
+    expect(
+      PlatformApplicationDiscovery.resolveForegroundApplicationId(
+        apps,
+        'Code.exe',
+      ),
+      'vscode',
+    );
+    expect(
+      PlatformApplicationDiscovery.resolveForegroundApplicationId(
+        apps,
+        'unrelated.exe',
+      ),
+      isNull,
+    );
+  });
+
   test('only exposes Safari in app pickers on macOS', () async {
     final manifest = DesktopManifest.starter().copyWith(
       applications: DesktopManifest.starter().applications
@@ -155,6 +188,29 @@ void main() {
       const RemoteActionRequest.launchApplication('edge'),
     );
     expect(actions.activated, ['edge']);
+    controller.dispose();
+  });
+
+  test('starter app launches use the fixed activation path', () async {
+    final starter = DesktopManifest.starter();
+    final stored = starter.copyWith(
+      applications: starter.applications
+          .map((app) => app.copyWith(detected: app.id == 'vscode'))
+          .toList(growable: false),
+    );
+    final actions = _RecordingActions();
+    final controller = DesktopController(
+      store: MemoryDesktopConfigStore()..value = stored,
+      actions: actions,
+      discovery: _NoopDiscovery(),
+    );
+    await controller.initialize();
+    await controller.executeRemote(
+      const RemoteActionRequest.launchApplication('vscode'),
+    );
+    expect(actions.activated, ['vscode']);
+    expect(controller.manifest.applicationById('vscode')?.foreground, isTrue);
+    expect(controller.manifest.activatedApplicationId, 'vscode');
     controller.dispose();
   });
 

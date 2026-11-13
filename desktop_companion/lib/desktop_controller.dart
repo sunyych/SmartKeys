@@ -56,7 +56,12 @@ abstract interface class ApplicationDiscovery {
 }
 
 class PlatformApplicationDiscovery implements ApplicationDiscovery {
-  const PlatformApplicationDiscovery();
+  PlatformApplicationDiscovery();
+
+  // ChatGPT and Codex can share one desktop process. The controller updates
+  // this after an explicit phone activation so subsequent probes retain the
+  // panel the user asked to open.
+  String? preferredForegroundAppId;
 
   static const _macOnlyApplicationIds = {'appleMusic', 'finder', 'safari'};
   @override
@@ -69,6 +74,11 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         : const <String>[];
     final runningProcesses = await _runningProcessNames();
     final foregroundProcess = await _foregroundProcessName();
+    final foregroundAppId = resolveForegroundApplicationId(
+      apps,
+      foregroundProcess,
+      preferredAppId: preferredForegroundAppId,
+    );
     return Future.wait(
       apps.map((app) async {
         if (!Platform.isMacOS && _macOnlyApplicationIds.contains(app.id)) {
@@ -82,10 +92,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         final running = runningProcesses.any(
           (process) => candidates.any(process.contains),
         );
-        final foreground =
-            foregroundProcess != null &&
-            running &&
-            candidates.any(foregroundProcess.contains);
+        final foreground = running && foregroundAppId == app.id;
         if (Platform.isMacOS) {
           final chatGptDetected =
               (app.id == 'codex' || app.id == 'chatgpt') &&
@@ -157,6 +164,49 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     );
   }
 
+  static String? resolveForegroundApplicationId(
+    List<RemoteApplication> apps,
+    String? foregroundProcess, {
+    String? preferredAppId,
+  }) {
+    if (foregroundProcess == null) return null;
+    final process = _basename(foregroundProcess);
+    final eligible = apps.where(
+      (app) => !_macOnlyApplicationIds.contains(app.id) || Platform.isMacOS,
+    );
+    final exact = <RemoteApplication>[];
+    final fallback = <RemoteApplication>[];
+    for (final app in eligible) {
+      final names = _candidateNames(app).map(_basename).toSet();
+      if (names.contains(process)) {
+        exact.add(app);
+      } else if (names.any(
+        (name) => name.length >= 5 && process.contains(name),
+      )) {
+        fallback.add(app);
+      }
+    }
+    final matches = exact.isNotEmpty ? exact : fallback;
+    if (matches.isEmpty) return null;
+    // ChatGPT is the safe default for a shared ChatGPT process. Keep the last
+    // explicitly selected panel when both IDs match that same process.
+    if (preferredAppId != null &&
+        matches.any((app) => app.id == preferredAppId)) {
+      return preferredAppId;
+    }
+    if (process == 'chatgpt' && matches.any((app) => app.id == 'chatgpt')) {
+      return 'chatgpt';
+    }
+    return matches.first.id;
+  }
+
+  static String _basename(String value) => value
+      .replaceAll('\\', '/')
+      .split('/')
+      .last
+      .replaceAll(RegExp(r'\.exe$', caseSensitive: false), '')
+      .toLowerCase();
+
   static Future<List<String>> _macApplicationNames() async {
     final names = <String>[];
     for (final root in ['/Applications', '/System/Applications']) {
@@ -209,9 +259,18 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
   }
 
   /// A fresh foreground probe used immediately before Vibe shortcut injection.
-  Future<bool> isForeground(RemoteApplication app) async {
+  Future<bool> isForeground(
+    RemoteApplication app, {
+    List<RemoteApplication>? applications,
+  }) async {
     final foreground = await _foregroundProcessName();
-    return foreground != null && _candidateNames(app).any(foreground.contains);
+    if (foreground == null) return false;
+    final resolved = resolveForegroundApplicationId(
+      applications ?? [app],
+      foreground,
+      preferredAppId: preferredForegroundAppId,
+    );
+    return resolved == app.id;
   }
 
   static Future<List<String>> _windowsApplicationNames() async {
@@ -331,13 +390,14 @@ class DesktopController extends ChangeNotifier {
     ApplicationDiscovery? discovery,
     this.foregroundProbe,
   }) : actions = actions ?? DesktopActions(),
-       discovery = discovery ?? const PlatformApplicationDiscovery();
+       discovery = discovery ?? PlatformApplicationDiscovery();
 
   final DesktopConfigStore store;
   final DesktopActions actions;
   final ApplicationDiscovery discovery;
   final Future<bool> Function(RemoteApplication)? foregroundProbe;
   bool _managedActionRunning = false;
+  int _applicationRefreshGeneration = 0;
 
   DesktopManifest _manifest = DesktopManifest.starter();
   bool _loading = true;
@@ -479,11 +539,14 @@ class DesktopController extends ChangeNotifier {
   }
 
   Future<void> _refreshRuntimeApplications() async {
-    if (_refreshingApplications) return;
+    if (_refreshingApplications || _managedActionRunning) return;
     _refreshingApplications = true;
+    final generation = _applicationRefreshGeneration;
     try {
       final apps = await discovery.refresh(_manifest.applications);
-      if (!_sameApplications(apps, _manifest.applications)) {
+      if (generation == _applicationRefreshGeneration &&
+          !_managedActionRunning &&
+          !_sameApplications(apps, _manifest.applications)) {
         await _commit(_withApplications(apps));
       }
     } catch (error) {
@@ -776,14 +839,20 @@ class DesktopController extends ChangeNotifier {
         }
         final app = _manifest.applicationById(request.applicationId ?? '');
         if (app == null) throw const FormatException('Unknown application');
-        if (_isManagedLaunchApp(app.id)) {
-          if (!app.detected) {
-            throw StateError('${app.name} is not installed on this computer');
-          }
-          await _serializeManagedAction(() => actions.activateApplication(app));
-        } else {
-          await actions.launchApplication(app.executable);
+        if (!_isManagedLaunchApp(app.id) && !_isStarterLaunchApp(app.id)) {
+          throw const FormatException('Unsupported application');
         }
+        if (!app.detected) {
+          throw StateError('${app.name} is not installed on this computer');
+        }
+        await _serializeManagedAction(() async {
+          await actions.activateApplication(app);
+          await _publishActivatedApplication(app.id);
+          final source = discovery;
+          if (source is PlatformApplicationDiscovery) {
+            source.preferredForegroundAppId = app.id;
+          }
+        });
       case RemoteActionKind.switchProfile:
         await switchProfile(request.profileId ?? '');
     }
@@ -794,7 +863,7 @@ class DesktopController extends ChangeNotifier {
     if (probe != null) return probe(app);
     final source = discovery;
     if (source is PlatformApplicationDiscovery) {
-      return source.isForeground(app);
+      return source.isForeground(app, applications: _manifest.applications);
     }
     return false;
   }
@@ -804,11 +873,29 @@ class DesktopController extends ChangeNotifier {
       throw StateError('Another app action is in progress');
     }
     _managedActionRunning = true;
+    _applicationRefreshGeneration++;
     try {
       await action();
     } finally {
       _managedActionRunning = false;
+      _applicationRefreshGeneration++;
     }
+  }
+
+  Future<void> _publishActivatedApplication(String appId) async {
+    final updatedApps = _manifest.applications
+        .map(
+          (app) => app.copyWith(
+            running: app.running || app.id == appId,
+            foreground: app.id == appId,
+          ),
+        )
+        .toList(growable: false);
+    final next = _withApplications(
+      updatedApps,
+    ).copyWith(activatedApplicationId: appId);
+    if (jsonEncode(next.toJson()) == jsonEncode(_manifest.toJson())) return;
+    await _commit(next);
   }
 
   static const _managedApps = {
@@ -829,6 +916,18 @@ class DesktopController extends ChangeNotifier {
   };
 
   static bool _isManagedLaunchApp(String id) => _managedLaunchApps.contains(id);
+
+  static const _starterLaunchApps = {
+    'photoshop',
+    'illustrator',
+    'vscode',
+    'solidworks',
+    'premiere',
+    'appleMusic',
+    'finder',
+  };
+
+  static bool _isStarterLaunchApp(String id) => _starterLaunchApps.contains(id);
 
   static String? _vibeAppForButton(String id) {
     for (final app in const ['codex', 'claude', 'cursor']) {
