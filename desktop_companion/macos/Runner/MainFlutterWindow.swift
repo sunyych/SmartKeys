@@ -8,6 +8,7 @@ class MainFlutterWindow: NSWindow {
   private var dictationChannel: FlutterMethodChannel?
   private var pointerChannel: FlutterMethodChannel?
   private var vibeSystemChannel: FlutterMethodChannel?
+  private var appIconChannel: FlutterMethodChannel?
   private var hotKey: EventHotKeyRef?
   private var eventHandler: EventHandlerRef?
 
@@ -60,6 +61,45 @@ class MainFlutterWindow: NSWindow {
       }
     }
     systemControlChannel = channel
+
+    let appIcon = FlutterMethodChannel(
+      name: "lumiakeys/app_icon",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    appIcon.setMethodCallHandler { call, result in
+      guard call.method == "get",
+            let arguments = call.arguments as? [String: Any],
+            let appId = arguments["appId"] as? String,
+            let executable = arguments["executable"] as? String else {
+        result(FlutterError(code: "invalid_arguments", message: "Missing app ID or executable.", details: nil))
+        return
+      }
+      let bundleIds: [String: String] = [
+        "codex": "com.openai.codex", "chatgpt": "com.openai.chatgpt",
+        "claude": "com.anthropic.claudefordesktop", "cursor": "com.todesktop.230313mzl4w4u92",
+        "chrome": "com.google.Chrome", "edge": "com.microsoft.edgemac",
+        "firefox": "org.mozilla.firefox", "safari": "com.apple.Safari",
+        "teams": "com.microsoft.teams2", "zoom": "us.zoom.xos",
+        "photoshop": "com.adobe.Photoshop", "illustrator": "com.adobe.illustrator",
+        "vscode": "com.microsoft.VSCode", "premiere": "com.adobe.PremierePro",
+        "appleMusic": "com.apple.Music", "finder": "com.apple.finder"
+      ]
+      guard let bundleId = bundleIds[appId] else { result(nil); return }
+      let workspace = NSWorkspace.shared
+      let appURL = URL(fileURLWithPath: executable)
+      let installedURL = (appURL.pathExtension.lowercased() == "app" && FileManager.default.fileExists(atPath: appURL.path))
+        ? appURL
+        : workspace.urlForApplication(withBundleIdentifier: bundleId)
+      guard let installedURL else { result(nil); return }
+      let image = workspace.icon(forFile: installedURL.path)
+      image.size = NSSize(width: 128, height: 128)
+      var rect = NSRect(origin: .zero, size: image.size)
+      guard let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil),
+            let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]),
+            data.count <= 64 * 1024 else { result(nil); return }
+      result(FlutterStandardTypedData(bytes: data))
+    }
+    appIconChannel = appIcon
 
     let dictation = FlutterMethodChannel(
       name: "lumiakeys/dictation",

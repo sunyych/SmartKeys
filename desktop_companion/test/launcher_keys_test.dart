@@ -30,6 +30,10 @@ void main() {
       ]);
       expect(controller.launcherAppIds, appIds.take(8).toList());
       expect(launcher.value, appIds.take(8).toList());
+      final published = DesktopManifest.fromJson(
+        controller.manifest.toJson(forSync: true),
+      );
+      expect(published.launcherApplicationIds, appIds.take(8).toList());
 
       final reloaded = DesktopController(
         store: config,
@@ -38,6 +42,7 @@ void main() {
       );
       await reloaded.initialize();
       expect(reloaded.launcherAppIds, appIds.take(8).toList());
+      expect(reloaded.manifest.revision, controller.manifest.revision);
       await expectLater(
         reloaded.assignLauncherApp(8, appIds.first),
         throwsRangeError,
@@ -48,6 +53,33 @@ void main() {
       );
       controller.dispose();
       reloaded.dispose();
+    },
+  );
+
+  test(
+    'failed manifest revision save rolls back the local slot assignment',
+    () async {
+      final store = _FailNextSaveStore();
+      final launcher = MemoryLauncherKeyStore();
+      final controller = DesktopController(
+        store: store,
+        launcherKeyStore: launcher,
+        discovery: _Discovery(),
+      );
+      await controller.initialize();
+      final before = List<String?>.from(controller.launcherAppIds);
+      store.failNextSave = true;
+
+      await expectLater(
+        controller.assignLauncherApp(
+          0,
+          controller.manifest.applications.first.id,
+        ),
+        throwsStateError,
+      );
+      expect(controller.launcherAppIds, before);
+      expect(launcher.value, before);
+      controller.dispose();
     },
   );
 
@@ -63,4 +95,21 @@ void main() {
     expect(controller.launcherAppIds.first, 'chatgpt');
     controller.dispose();
   });
+}
+
+class _FailNextSaveStore implements DesktopConfigStore {
+  final MemoryDesktopConfigStore inner = MemoryDesktopConfigStore();
+  bool failNextSave = false;
+
+  @override
+  Future<DesktopManifest?> load() => inner.load();
+
+  @override
+  Future<void> save(DesktopManifest manifest) {
+    if (failNextSave) {
+      failNextSave = false;
+      throw StateError('simulated manifest storage failure');
+    }
+    return inner.save(manifest);
+  }
 }

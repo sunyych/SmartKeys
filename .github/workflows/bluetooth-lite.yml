@@ -1,0 +1,112 @@
+name: Bluetooth Lite Android build
+
+on:
+  push:
+    tags: ["bluetooth-v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version for the validation APK
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bluetooth-lite-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag="$GITHUB_REF_NAME"
+            [[ "$tag" =~ ^bluetooth-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected bluetooth-vMAJOR.MINOR.PATCH'; exit 1; }
+            git fetch --no-tags origin main:refs/remotes/origin/main
+            git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+            version="${tag#bluetooth-v}"
+          else
+            version="${INPUT_VERSION:-1.0.0}"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be MAJOR.MINOR.PATCH'; exit 1; }
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          cache: true
+      - name: Check Lite dependency and permission boundary
+        run: ./apps/bluetooth/scripts/check-isolation.sh
+      - name: Analyze, test, and capture every Lite screen
+        working-directory: apps/bluetooth
+        env:
+          SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/apps/bluetooth/build/ui_screenshots
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Generate Lite screenshot index
+        run: dart run scripts/generate_screenshot_index.dart --root apps/bluetooth/build/ui_screenshots
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-ui-screenshots
+          path: apps/bluetooth/build/ui_screenshots/
+          if-no-files-found: error
+
+  android:
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          cache: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Build Lite APK
+        working-directory: apps/bluetooth
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            for secret in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD; do
+              [[ -n "${!secret}" ]] || { echo "Missing signing secret: $secret" >&2; exit 1; }
+            done
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lite-release.jks"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/lite-release.jks"
+            flutter build apk --release --build-name="$RELEASE_VERSION" --build-number="$BUILD_NUMBER"
+            cp build/app/outputs/flutter-apk/app-release.apk "LumiaKey-Bluetooth-Lite-v${RELEASE_VERSION}.apk"
+          else
+            flutter build apk --debug --build-name="$RELEASE_VERSION" --build-number="$BUILD_NUMBER"
+            cp build/app/outputs/flutter-apk/app-debug.apk "LumiaKey-Bluetooth-Lite-Validation-v${RELEASE_VERSION}.apk"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-android-apk
+          path: apps/bluetooth/LumiaKey-Bluetooth-Lite*.apk
+          if-no-files-found: error

@@ -559,4 +559,49 @@ void main() {
       containsPair('applicationId', 'vscode'),
     );
   });
+
+  test(
+    'launcher slots round trip, default for legacy manifests, and sync only assigned apps',
+    () {
+      final starter = DesktopManifest.starter();
+      final applications = starter.applications
+          .map((app) => app.copyWith(detected: false))
+          .toList(growable: false);
+      final configured = starter.copyWith(
+        applications: applications,
+        launcherApplicationIds: const [
+          'chrome',
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+        ],
+      );
+      final synced = DesktopManifest.fromJson(configured.toJson(forSync: true));
+      expect(synced.launcherApplicationIds.first, 'chrome');
+      expect(synced.applicationById('chrome')?.detected, isFalse);
+
+      final legacyJson = starter.toJson()..remove('launcherApplicationIds');
+      expect(
+        DesktopManifest.fromJson(legacyJson).launcherApplicationIds,
+        List<String?>.filled(8, null),
+      );
+      final malformed = starter.toJson()
+        ..['launcherApplicationIds'] = ['chrome'];
+      expect(() => DesktopManifest.fromJson(malformed), throwsFormatException);
+
+      final hidden = configured.copyWith(
+        settings: configured.settings.copyWith(enableAppsSync: false),
+      );
+      final hiddenSync = hidden.toJson(forSync: true);
+      expect(
+        hiddenSync['launcherApplicationIds'],
+        List<String?>.filled(8, null),
+      );
+      expect(hiddenSync['applications'], isEmpty);
+    },
+  );
 }

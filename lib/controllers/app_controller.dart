@@ -68,6 +68,8 @@ class AppController extends ChangeNotifier {
   int _inputEpoch = 0;
   final Set<int> _pressedPositions = {};
   final Map<int, HidAction> _pressedButtonActions = {};
+  final Map<String, Uint8List> _desktopAppIconBytes = {};
+  final Map<String, Future<Uint8List?>> _desktopAppIconLoads = {};
   HidAction? _pressedWheelCenterAction;
   double _touchpadScrollAccumulator = 0;
   Future<void> _darkTransition = Future.value();
@@ -98,6 +100,56 @@ class AppController extends ChangeNotifier {
   bool get canAddProfile => config.profiles.length < freeProfileLimit;
   bool get isDarkModeActive => _darkModeActive;
   DesktopManifest? get desktopManifest => companion.manifest.value;
+
+  Future<Uint8List?> loadDesktopApplicationIcon(String appId) {
+    if (!remoteApplicationIconAppIds.contains(appId)) return Future.value(null);
+    final manifest = desktopManifest;
+    final computerId = manifest?.computerId;
+    if (manifest == null || computerId == null) return Future.value(null);
+    final key = '$computerId:$appId';
+    final cached = _desktopAppIconBytes[key];
+    if (cached != null) return Future.value(Uint8List.fromList(cached));
+    return _desktopAppIconLoads.putIfAbsent(key, () async {
+      try {
+        final local = await imageStore.readDesktopAppIcon(computerId, appId);
+        if (local != null) {
+          _desktopAppIconBytes[key] = local;
+          return Uint8List.fromList(local);
+        }
+        if (!isDesktopSynced ||
+            manifest.settings.syncIcons != true ||
+            companion.activeHost.value?.capabilities.contains('app-icons-v1') !=
+                true ||
+            manifest.applicationById(appId) == null ||
+            companion is! CompanionIconConnection) {
+          return null;
+        }
+        final bytes = await (companion as CompanionIconConnection)
+            .fetchApplicationIcon(appId);
+        if (bytes == null ||
+            bytes.length < 8 ||
+            bytes.length > 64 * 1024 ||
+            bytes[0] != 0x89 ||
+            bytes[1] != 0x50 ||
+            bytes[2] != 0x4e ||
+            bytes[3] != 0x47 ||
+            bytes[4] != 0x0d ||
+            bytes[5] != 0x0a ||
+            bytes[6] != 0x1a ||
+            bytes[7] != 0x0a) {
+          return null;
+        }
+        await imageStore.cacheDesktopAppIcon(computerId, appId, bytes);
+        _desktopAppIconBytes[key] = Uint8List.fromList(bytes);
+        return Uint8List.fromList(bytes);
+      } catch (_) {
+        return null;
+      } finally {
+        _desktopAppIconLoads.remove(key);
+      }
+    });
+  }
+
   ValueListenable<List<CompanionComputerChoice>>? get desktopComputerChoices =>
       companion is SwitchableCompanionConnection
       ? (companion as SwitchableCompanionConnection).computerChoices

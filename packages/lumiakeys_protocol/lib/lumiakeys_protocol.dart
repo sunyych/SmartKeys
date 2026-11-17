@@ -1,5 +1,26 @@
 library;
 
+/// IDs accepted by the optional authenticated native app-icon resource.
+const Set<String> remoteApplicationIconAppIds = <String>{
+  'codex',
+  'chatgpt',
+  'claude',
+  'cursor',
+  'chrome',
+  'edge',
+  'firefox',
+  'safari',
+  'teams',
+  'zoom',
+  'photoshop',
+  'illustrator',
+  'vscode',
+  'solidworks',
+  'premiere',
+  'appleMusic',
+  'finder',
+};
+
 enum RemoteTargetType {
   keyboardShortcut,
   launchApplication,
@@ -517,6 +538,16 @@ class DesktopManifest {
     this.schemaVersion = 1,
     this.applicationActivationSequence = 0,
     this.activatedApplicationId,
+    this.launcherApplicationIds = const <String?>[
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ],
   });
 
   final int schemaVersion;
@@ -532,6 +563,9 @@ class DesktopManifest {
   final String? computerId;
   final int applicationActivationSequence;
   final String? activatedApplicationId;
+
+  /// Eight desktop-configured launcher slots, synced for phone display.
+  final List<String?> launcherApplicationIds;
 
   RemoteProfile? get currentProfile =>
       profiles.cast<RemoteProfile?>().firstWhere(
@@ -569,6 +603,7 @@ class DesktopManifest {
     String? computerId,
     int? applicationActivationSequence,
     String? activatedApplicationId,
+    List<String?>? launcherApplicationIds,
   }) => DesktopManifest(
     schemaVersion: schemaVersion,
     revision: revision ?? this.revision,
@@ -582,6 +617,8 @@ class DesktopManifest {
         applicationActivationSequence ?? this.applicationActivationSequence,
     activatedApplicationId:
         activatedApplicationId ?? this.activatedApplicationId,
+    launcherApplicationIds:
+        launcherApplicationIds ?? this.launcherApplicationIds,
   );
 
   Map<String, Object?> toJson({bool forSync = false}) {
@@ -589,7 +626,11 @@ class DesktopManifest {
     final syncedApplications = forSync
         ? settings.enableAppsSync
               ? applications
-                    .where((application) => application.detected)
+                    .where(
+                      (application) =>
+                          application.detected ||
+                          launcherApplicationIds.contains(application.id),
+                    )
                     .toList(growable: false)
               : const <RemoteApplication>[]
         : applications;
@@ -613,6 +654,16 @@ class DesktopManifest {
       'profiles': profiles.map((profile) => profile.toJson()).toList(),
       'applicationActivationSequence': applicationActivationSequence,
       'activatedApplicationId': syncedActivationApplicationId,
+      'launcherApplicationIds': !forSync
+          ? launcherApplicationIds
+          : settings.enableAppsSync
+          ? launcherApplicationIds
+                .map(
+                  (id) =>
+                      syncedApplications.any((app) => app.id == id) ? id : null,
+                )
+                .toList(growable: false)
+          : List<String?>.filled(8, null),
     };
   }
 
@@ -641,6 +692,13 @@ class DesktopManifest {
           ? json['applicationActivationSequence']! as int
           : 0,
       activatedApplicationId: _nullableString(json['activatedApplicationId']),
+      launcherApplicationIds: json.containsKey('launcherApplicationIds')
+          ? json['launcherApplicationIds'] is List
+                ? (json['launcherApplicationIds']! as List)
+                      .map((value) => _nullableString(value))
+                      .toList(growable: false)
+                : throw const FormatException('Invalid launcher slots')
+          : List<String?>.filled(8, null),
     );
     manifest.validate();
     return manifest;
@@ -656,6 +714,12 @@ class DesktopManifest {
         applications.any((app) => !layoutIds.contains(app.layoutId)) ||
         !profiles.any((profile) => profile.id == currentProfileId)) {
       throw const FormatException('Manifest contains invalid references');
+    }
+    if (launcherApplicationIds.length != 8 ||
+        launcherApplicationIds.any(
+          (id) => id != null && !applications.any((app) => app.id == id),
+        )) {
+      throw const FormatException('Manifest contains invalid launcher slots');
     }
     if (applicationActivationSequence < 0 ||
         (activatedApplicationId != null &&

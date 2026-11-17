@@ -481,7 +481,10 @@ class DesktopController extends ChangeNotifier {
     final layouts = _manifest.layouts
         .map((layout) => projectChatGptLayout(layout, _shortcutPlatform))
         .toList(growable: false);
-    return _manifest.copyWith(layouts: layouts);
+    return _manifest.copyWith(
+      layouts: layouts,
+      launcherApplicationIds: _launcherAppIds,
+    );
   }
 
   /// Unprojected settings used by portable shortcut export.
@@ -515,17 +518,15 @@ class DesktopController extends ChangeNotifier {
         final storedLauncherIds = await launcherKeyStore.load();
         _launcherAppIds = storedLauncherIds.length == 8
             ? storedLauncherIds
-                  .map(
-                    (id) {
-                      final currentId = id == 'codex' ? 'chatgpt' : id;
-                      return currentId != null &&
-                              _manifest.applications.any(
-                                (app) => app.id == currentId,
-                              )
-                          ? currentId
-                          : null;
-                    },
-                  )
+                  .map((id) {
+                    final currentId = id == 'codex' ? 'chatgpt' : id;
+                    return currentId != null &&
+                            _manifest.applications.any(
+                              (app) => app.id == currentId,
+                            )
+                        ? currentId
+                        : null;
+                  })
                   .toList(growable: false)
             : List<String?>.filled(8, null);
       } catch (_) {
@@ -567,10 +568,23 @@ class DesktopController extends ChangeNotifier {
       throw const FormatException('Unknown launcher application');
     }
     final operation = _launcherSaveQueue.then((_) async {
-      final next = List<String?>.from(_launcherAppIds)..[index] = appId;
+      final previous = List<String?>.from(_launcherAppIds);
+      final next = List<String?>.from(previous)..[index] = appId;
       await launcherKeyStore.save(next);
       _launcherAppIds = next;
-      notifyListeners();
+      try {
+        await _commit(_manifest);
+      } catch (error) {
+        _launcherAppIds = previous;
+        try {
+          await launcherKeyStore.save(previous);
+        } catch (rollbackError) {
+          throw StateError(
+            'Launcher slot save failed and could not be rolled back: $rollbackError',
+          );
+        }
+        rethrow;
+      }
     });
     _launcherSaveQueue = operation.catchError((_) {});
     await operation;
@@ -1210,6 +1224,17 @@ class DesktopController extends ChangeNotifier {
 
   Future<void> applyPointerInputs(List<PointerInput> inputs) =>
       actions.applyPointerInputs(inputs);
+
+  Future<Uint8List?> applicationIcon(String appId) async {
+    if (!remoteApplicationIconAppIds.contains(appId) ||
+        !_manifest.settings.enableAppsSync ||
+        !_manifest.settings.syncIcons) {
+      return null;
+    }
+    final app = _manifest.applicationById(appId);
+    if (app == null) return null;
+    return actions.getApplicationIcon(app);
+  }
 
   Future<void> _commit(DesktopManifest next) async {
     final revised = next.copyWith(revision: _manifest.revision + 1);

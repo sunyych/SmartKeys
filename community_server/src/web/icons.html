@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071419">
+  <title>LumiaKey 应用图标库</title>
+  <link rel="stylesheet" href="/assets/icons.css">
+  <script src="/assets/icons.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <a class="brand" href="/" aria-label="返回社区首页"><span class="brand-mark" aria-hidden="true">⌘</span><span>LUMIAKEY <i>COMMUNITY</i></span></a>
+      <p class="eyebrow">APP ICON LIBRARY</p>
+      <h1>应用图标库</h1>
+      <p class="intro">查找常用应用图标，按 App ID 预览和下载。开发者也可以使用只读目录 API。</p>
+    </header>
+    <section class="search-panel" aria-label="搜索图标">
+      <label for="search">搜索名称或 App ID</label>
+      <input id="search" type="search" placeholder="例如 vscode、chrome" autocomplete="off" spellcheck="false">
+      <p id="status" role="status" aria-live="polite">正在加载图标目录…</p>
+    </section>
+    <section id="grid" class="grid" aria-label="图标目录"></section>
+    <p id="empty" class="empty" hidden>没有找到匹配的图标。检查 App ID 后重试。</p>
+    <footer>
+      <p>目录 API：<code>GET /v1/icons/catalog</code>。图标地址：<code>GET /v1/icons/{app_id}</code>，例如 <code>/v1/icons/chrome</code>。</p>
+      <p>来源：<a href="https://simpleicons.org/">Simple Icons</a>。Simple Icons 项目采用 CC0，但图标可能受各品牌的许可和商标规则约束；请查看对应品牌条款。产品名称与标志属于各自所有者，本目录不表示认可或隶属关系。</p>
+    </footer>
+  </main>
+</body>
+</html>

@@ -23,6 +23,60 @@ class PrivateImageStore {
 
   static const supportedExtensions = {'png', 'jpg', 'jpeg', 'webp'};
 
+  Future<Uint8List?> readDesktopAppIcon(String computerId, String appId) async {
+    if (!_validDesktopIconKey(computerId, appId)) return null;
+    final root = await _documentsDirectory();
+    final file = File(
+      path.join(root.path, 'desktop_app_icons', computerId, '$appId.png'),
+    );
+    if (!await file.exists()) return null;
+    try {
+      final length = await file.length();
+      if (length < 8 || length > 64 * 1024) return null;
+      final bytes = await file.readAsBytes();
+      return _isPng(bytes) ? Uint8List.fromList(bytes) : null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  Future<void> cacheDesktopAppIcon(
+    String computerId,
+    String appId,
+    Uint8List bytes,
+  ) async {
+    if (!_validDesktopIconKey(computerId, appId) ||
+        bytes.length < 8 ||
+        bytes.length > 64 * 1024 ||
+        !_isPng(bytes)) {
+      throw const FormatException('Invalid desktop app icon.');
+    }
+    final root = await _documentsDirectory();
+    final directory = Directory(
+      path.join(root.path, 'desktop_app_icons', computerId),
+    );
+    await directory.create(recursive: true);
+    final destination = File(path.join(directory.path, '$appId.png'));
+    final temporary = File('${destination.path}.next');
+    await temporary.writeAsBytes(bytes, flush: true);
+    await temporary.rename(destination.path);
+  }
+
+  static bool _validDesktopIconKey(String computerId, String appId) =>
+      RegExp(r'^[a-f0-9]{32}$').hasMatch(computerId) &&
+      RegExp(r'^[A-Za-z][A-Za-z0-9_-]{0,63}$').hasMatch(appId);
+
+  static bool _isPng(List<int> bytes) =>
+      bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4e &&
+      bytes[3] == 0x47 &&
+      bytes[4] == 0x0d &&
+      bytes[5] == 0x0a &&
+      bytes[6] == 0x1a &&
+      bytes[7] == 0x0a;
+
   Future<String?> importFromGallery(String profileId) async {
     final selection = await _imagePicker.pickImage(source: ImageSource.gallery);
     return selection == null

@@ -45,8 +45,10 @@ class CompanionServer extends ChangeNotifier {
     'codex',
     'chatgpt-platform-layout-v1',
     'icons',
+    'app-icons-v1',
     'foreground-app',
     'app-activation',
+    'launcher-pad-v1',
     'local-dictation-v1',
     if (Platform.isWindows || Platform.isMacOS) 'mouse-control-v1',
   ];
@@ -102,6 +104,31 @@ class CompanionServer extends ChangeNotifier {
     request.response.headers.contentType = ContentType.json;
     if (request.headers.value('x-lumiakeys-token') != token) {
       await _reject(request, HttpStatus.forbidden, 'forbidden');
+      return;
+    }
+    final iconPath = request.uri.pathSegments;
+    if (request.method == 'GET' &&
+        iconPath.length == 2 &&
+        iconPath[0] == 'icons') {
+      final appId = iconPath[1];
+      if (!remoteApplicationIconAppIds.contains(appId)) {
+        await _reject(request, HttpStatus.notFound, 'icon not found');
+        return;
+      }
+      final bytes = await controller.applicationIcon(appId);
+      if (bytes == null ||
+          bytes.isEmpty ||
+          bytes.length > 64 * 1024 ||
+          !_isPng(bytes)) {
+        await _reject(request, HttpStatus.notFound, 'icon not found');
+        return;
+      }
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType('image', 'png')
+        ..headers.set(HttpHeaders.cacheControlHeader, 'private, max-age=86400')
+        ..add(bytes);
+      await request.response.close();
       return;
     }
     if (request.method == 'GET' && request.uri.path == '/info') {
@@ -229,6 +256,17 @@ class CompanionServer extends ChangeNotifier {
     }
     await request.response.close();
   }
+
+  static bool _isPng(List<int> bytes) =>
+      bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4e &&
+      bytes[3] == 0x47 &&
+      bytes[4] == 0x0d &&
+      bytes[5] == 0x0a &&
+      bytes[6] == 0x1a &&
+      bytes[7] == 0x0a;
 
   Future<void> _reject(
     HttpRequest request,

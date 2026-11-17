@@ -49,6 +49,16 @@ void main() {
     await shots.setViewport(const Size(390, 844));
     final key = GlobalKey();
     await tester.pumpWidget(_app(harness, key, const HomeScreen()));
+    expect(find.byKey(const ValueKey('mobile-launcher-pad')), findsOneWidget);
+    await shots.capture(
+      id: 'phone-home-launcher-portrait',
+      title: 'Launcher Pad · portrait',
+      orientation: 'portrait',
+      notes: 'The full app opens on the desktop-configured launcher surface.',
+      boundaryKey: key,
+    );
+    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('portrait-layout')), findsOneWidget);
     expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
     await shots.capture(
@@ -61,10 +71,11 @@ void main() {
 
     await shots.setViewport(const Size(844, 390));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('computer-app-rail')), findsOneWidget);
     expect(find.byKey(const ValueKey('landscape-layout')), findsOneWidget);
     await shots.capture(
       id: 'phone-home-landscape',
-      title: 'Home control surface · landscape',
+      title: 'Home control surface with left rail · landscape',
       orientation: 'landscape',
       notes: 'Responsive home layout at 844×390 logical pixels.',
       boundaryKey: key,
@@ -75,7 +86,10 @@ void main() {
     expect(find.text('Edit buttons'), findsOneWidget);
     await tester.tap(find.text('Edit buttons'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('edit-navigation-control')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('edit-navigation-control')),
+      findsOneWidget,
+    );
     await shots.capture(
       id: 'phone-home-editing',
       title: 'Home control surface · editing',

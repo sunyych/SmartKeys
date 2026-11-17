@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'vibe_system_tools.dart';
+import 'app_icon_service.dart';
 
 abstract interface class MacSystemControl {
   Future<void> setDark(bool enabled);
@@ -76,20 +78,27 @@ class DesktopActions {
     MacSystemControl? macSystemControl,
     DesktopPointerInput? pointerInput,
     VibeSystemTools? vibeSystemTools,
+    NativeAppIconService? appIconService,
   }) : runner = runner ?? const SystemDesktopProcessRunner(),
        macSystemControl =
            macSystemControl ?? const MethodChannelMacSystemControl(),
        pointerInput = pointerInput ?? const MethodChannelDesktopPointerInput(),
-       vibeSystemTools = vibeSystemTools ?? VibeSystemTools();
+       vibeSystemTools = vibeSystemTools ?? VibeSystemTools(),
+       appIconService = appIconService ?? NativeAppIconService();
 
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;
   final DesktopPointerInput pointerInput;
   final VibeSystemTools vibeSystemTools;
+  final NativeAppIconService appIconService;
   int? _windowsBrightnessBeforeDark;
 
-  Future<void> applyPointerInputs(List<PointerInput> inputs) =>
-      pointerInput.apply(inputs);
+  Future<Uint8List?> getApplicationIcon(RemoteApplication app) =>
+      appIconService.getNativeIcon(app);
+
+  Future<void> applyPointerInputs(List<PointerInput> inputs) => Platform.isLinux
+      ? _applyLinuxPointerInputs(inputs)
+      : pointerInput.apply(inputs);
   Future<bool> Function()? confirmVoiceInputFirstUse;
 
   static final Set<String> allowedKeys = {
@@ -190,9 +199,43 @@ class DesktopActions {
     }
   }
 
-  Future<void> playPause() => macSystemControl.playPause();
+  Future<void> playPause() async {
+    if (Platform.isLinux) {
+      final result = await runner.run('playerctl', const ['play-pause']);
+      if (result.exitCode != 0) {
+        throw ProcessException(
+          'playerctl',
+          const ['play-pause'],
+          '${result.stderr}',
+          result.exitCode,
+        );
+      }
+      return;
+    }
+    await macSystemControl.playPause();
+  }
 
   Future<bool> getOutputMuted() async {
+    if (Platform.isLinux) {
+      final result = await runner.run('pactl', const [
+        'get-sink-mute',
+        '@DEFAULT_SINK@',
+      ]);
+      if (result.exitCode != 0) {
+        throw ProcessException(
+          'pactl',
+          const ['get-sink-mute', '@DEFAULT_SINK@'],
+          '${result.stderr}',
+          result.exitCode,
+        );
+      }
+      final value = result.stdout.toString().trim().toLowerCase();
+      if (value == 'mute: yes') return true;
+      if (value == 'mute: no') return false;
+      throw StateError(
+        'PulseAudio/PipeWire returned an unrecognized mute state.',
+      );
+    }
     if (Platform.isMacOS || Platform.isWindows) {
       return macSystemControl.getOutputMuted();
     }
@@ -202,10 +245,65 @@ class DesktopActions {
   }
 
   Future<bool> toggleOutputMute() async {
+    if (Platform.isLinux) {
+      final result = await runner.run('pactl', const [
+        'set-sink-mute',
+        '@DEFAULT_SINK@',
+        'toggle',
+      ]);
+      if (result.exitCode != 0) {
+        throw ProcessException(
+          'pactl',
+          const ['set-sink-mute', '@DEFAULT_SINK@', 'toggle'],
+          '${result.stderr}',
+          result.exitCode,
+        );
+      }
+      return getOutputMuted();
+    }
     if (Platform.isMacOS || Platform.isWindows) {
       return macSystemControl.toggleOutputMute();
     }
     throw UnsupportedError('System mute is not supported on this platform.');
+  }
+
+  Future<void> _applyLinuxPointerInputs(List<PointerInput> inputs) async {
+    _requireLinuxX11();
+    if (inputs.isEmpty || inputs.length > 32)
+      throw const FormatException('Invalid pointer batch');
+    for (final input in inputs) {
+      switch (input.kind) {
+        case PointerInputKind.move:
+          await _run('xdotool', [
+            'mousemove_relative',
+            '--sync',
+            '--',
+            '${input.x}',
+            '${input.y}',
+          ]);
+        case PointerInputKind.button:
+          await _run('xdotool', ['click', input.secondary == true ? '3' : '1']);
+        case PointerInputKind.scroll:
+          final button = input.y < 0 ? '4' : '5';
+          for (var i = 0; i < input.y.abs(); i++) {
+            await _run('xdotool', ['click', button]);
+          }
+      }
+    }
+  }
+
+  void _requireLinuxX11() {
+    if (!Platform.isLinux) return;
+    if ((Platform.environment['WAYLAND_DISPLAY'] ?? '').isNotEmpty) {
+      throw UnsupportedError(
+        'Desktop input automation is not available in this Wayland session. Switch to an X11 session to use shortcuts and pointer control.',
+      );
+    }
+    if ((Platform.environment['DISPLAY'] ?? '').isEmpty) {
+      throw UnsupportedError(
+        'Desktop input automation needs an active X11 display.',
+      );
+    }
   }
 
   Future<void> _deleteToLineStart(String appId) async {
@@ -253,6 +351,7 @@ class DesktopActions {
       ]);
       return;
     }
+    _requireLinuxX11();
     await runner.start(validated, const []);
   }
 
@@ -577,6 +676,7 @@ public static class LumiaWindowActivation {
       }
       return;
     }
+    _requireLinuxX11();
     final process = switch (app.id) {
       'chatgpt' => 'chatgpt',
       'codex' => 'codex',
@@ -700,7 +800,18 @@ public static class LumiaWindowActivation {
       await macSystemControl.setDark(enabled);
       return;
     }
-    await _run('brightnessctl', ['set', enabled ? '1%' : '100%']);
+    if (Platform.isLinux) {
+      await _run('gsettings', [
+        'set',
+        'org.gnome.desktop.interface',
+        'color-scheme',
+        enabled ? 'prefer-dark' : 'prefer-light',
+      ]);
+      return;
+    }
+    throw UnsupportedError(
+      'Appearance control is not supported on this platform.',
+    );
   }
 
   Future<int?> _readWindowsBrightness() async {
@@ -740,6 +851,7 @@ public static class LumiaWindowActivation {
     } else if (Platform.isMacOS) {
       await _sendMacShortcut(keys, expectedAppId: expectedAppId);
     } else {
+      _requireLinuxX11();
       if (expectedAppId != null && !await _foregroundMatches(expectedAppId)) {
         throw StateError(
           'Switch to the matching Vibe app before using this shortcut',
