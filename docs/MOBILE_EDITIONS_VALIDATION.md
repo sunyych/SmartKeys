@@ -114,3 +114,29 @@ The Windows source workspace is on exFAT, which cannot create the plugin links
 needed by Flutter's Windows desktop build. A temporary NTFS source mirror is used
 for local compilation; hosted Windows builds use a normal NTFS checkout. No SDK
 source or system policy is changed by this workaround.
+
+## Installed-device follow-up
+
+On 2026-11-17, the delivered Windows Setup installer successfully upgraded the
+current computer's Desktop app from `1.3.0+5` to `1.4.0+6`. The existing settings
+JSON files were backed up locally before the upgrade. The installed executable's
+version, running process, and listening companion service were verified.
+
+The connected Moto G Play 2024 running Android 14 received both Android editions
+at version `1.4.0`, build `6`. Regular was upgraded with ADB's data-preserving
+reinstall option; Lite was installed separately. Both activities started
+successfully on the physical phone.
+
+Regular automatically connected to the upgraded current Windows computer. Its
+actual device UI showed the installed application Launchpad, enabled touchpad,
+and the twelve General controls in four columns by three rows. Lite's actual UI
+showed the three local profiles and the retained fifteen-key control surface.
+Lite's optional community setup was skipped and its required Bluetooth Nearby
+Devices permissions were granted. Microphone access was not enabled for Lite.
+
+Device screenshots and installation logs remain in local `build/` directories;
+device identifiers, network addresses, credentials, and configuration backups are
+not committed. This follow-up verifies installation, startup, displayed layouts,
+and the Regular-to-Desktop connection. Physical shortcut execution, Bluetooth HID
+input delivery, dictation accuracy, and exhaustive rotation checks were not
+exercised during this installation.
