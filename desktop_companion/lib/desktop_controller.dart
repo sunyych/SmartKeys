@@ -50,6 +50,50 @@ class MemoryDesktopConfigStore implements DesktopConfigStore {
   }
 }
 
+abstract interface class LauncherKeyStore {
+  Future<List<String?>> load();
+  Future<void> save(List<String?> appIds);
+}
+
+class SharedPreferencesLauncherKeyStore implements LauncherKeyStore {
+  SharedPreferencesLauncherKeyStore({SharedPreferencesAsync? preferences})
+    : preferences = preferences ?? SharedPreferencesAsync();
+
+  static const storageKey = 'lumiakeys.desktop.launcher_keys.v1';
+  final SharedPreferencesAsync preferences;
+
+  @override
+  Future<List<String?>> load() async {
+    final values = await preferences.getStringList(storageKey);
+    if (values == null || values.length != 8) {
+      return List<String?>.filled(8, null);
+    }
+    return values.map((value) => value.isEmpty ? null : value).toList();
+  }
+
+  @override
+  Future<void> save(List<String?> appIds) async {
+    if (appIds.length != 8) {
+      throw const FormatException('Launcher needs eight keys');
+    }
+    await preferences.setStringList(
+      storageKey,
+      appIds.map((id) => id ?? '').toList(),
+    );
+  }
+}
+
+class MemoryLauncherKeyStore implements LauncherKeyStore {
+  List<String?> value = List<String?>.filled(8, null);
+
+  @override
+  Future<List<String?>> load() async => List<String?>.from(value);
+
+  @override
+  Future<void> save(List<String?> appIds) async =>
+      value = List<String?>.from(appIds);
+}
+
 abstract interface class ApplicationDiscovery {
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps);
 }
@@ -259,12 +303,19 @@ class DesktopController extends ChangeNotifier {
     required this.store,
     DesktopActions? actions,
     ApplicationDiscovery? discovery,
+    LauncherKeyStore? launcherKeyStore,
   }) : actions = actions ?? DesktopActions(),
-       discovery = discovery ?? const PlatformApplicationDiscovery();
+       discovery = discovery ?? const PlatformApplicationDiscovery(),
+       launcherKeyStore =
+           launcherKeyStore ??
+           (store is MemoryDesktopConfigStore
+               ? MemoryLauncherKeyStore()
+               : SharedPreferencesLauncherKeyStore());
 
   final DesktopConfigStore store;
   final DesktopActions actions;
   final ApplicationDiscovery discovery;
+  final LauncherKeyStore launcherKeyStore;
 
   DesktopManifest _manifest = DesktopManifest.starter();
   bool _loading = true;
@@ -274,12 +325,15 @@ class DesktopController extends ChangeNotifier {
   bool _initialized = false;
   bool _refreshingApplications = false;
   Timer? _applicationMonitor;
+  Future<void> _launcherSaveQueue = Future<void>.value();
+  List<String?> _launcherAppIds = List<String?>.filled(8, null);
 
   DesktopManifest get manifest => _manifest;
   bool get loading => _loading;
   String? get error => _error;
   String? get connectedPhone => _connectedPhone;
   int get selectedSection => _selectedSection;
+  List<String?> get launcherAppIds => List.unmodifiable(_launcherAppIds);
   RemoteApplication? get foregroundApplication =>
       _manifest.applications.cast<RemoteApplication?>().firstWhere(
         (application) => application?.foreground == true,
@@ -292,6 +346,22 @@ class DesktopController extends ChangeNotifier {
     try {
       final loaded = await store.load() ?? DesktopManifest.starter();
       _manifest = _upgradeManifest(loaded);
+      try {
+        final storedLauncherIds = await launcherKeyStore.load();
+        _launcherAppIds = storedLauncherIds.length == 8
+            ? storedLauncherIds
+                  .map(
+                    (id) =>
+                        id != null &&
+                            _manifest.applications.any((app) => app.id == id)
+                        ? id
+                        : null,
+                  )
+                  .toList(growable: false)
+            : List<String?>.filled(8, null);
+      } catch (_) {
+        _launcherAppIds = List<String?>.filled(8, null);
+      }
       final apps = await discovery.refresh(_manifest.applications);
       _manifest = _withApplications(apps);
       if (jsonEncode(_manifest.toJson()) != jsonEncode(loaded.toJson())) {
@@ -317,6 +387,35 @@ class DesktopController extends ChangeNotifier {
     if (_selectedSection == index) return;
     _selectedSection = index;
     notifyListeners();
+  }
+
+  Future<void> assignLauncherApp(int index, String? appId) async {
+    if (index < 0 || index >= 8) {
+      throw RangeError.index(index, _launcherAppIds, 'index');
+    }
+    if (appId != null &&
+        !_manifest.applications.any((app) => app.id == appId)) {
+      throw const FormatException('Unknown launcher application');
+    }
+    final operation = _launcherSaveQueue.then((_) async {
+      final next = List<String?>.from(_launcherAppIds)..[index] = appId;
+      await launcherKeyStore.save(next);
+      _launcherAppIds = next;
+      notifyListeners();
+    });
+    _launcherSaveQueue = operation.catchError((_) {});
+    await operation;
+  }
+
+  Future<void> launchLauncherApp(int index) async {
+    if (index < 0 || index >= 8) throw RangeError.index(index, _launcherAppIds);
+    final appId = _launcherAppIds[index];
+    if (appId == null) throw StateError('Choose an app for this key first.');
+    final app = _manifest.applicationById(appId);
+    if (app == null) {
+      throw const FormatException('This app is no longer configured.');
+    }
+    await actions.launchApplication(app.executable);
   }
 
   void recordConnectedPhone(String address) {

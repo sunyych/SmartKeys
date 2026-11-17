@@ -5,6 +5,9 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 abstract interface class MacSystemControl {
   Future<void> setDark(bool enabled);
+  Future<void> playPause();
+  Future<bool> getOutputMuted();
+  Future<bool> toggleOutputMute();
 }
 
 class MethodChannelMacSystemControl implements MacSystemControl {
@@ -17,6 +20,17 @@ class MethodChannelMacSystemControl implements MacSystemControl {
   @override
   Future<void> setDark(bool enabled) =>
       channel.invokeMethod<void>('setDark', {'enabled': enabled});
+
+  @override
+  Future<void> playPause() => channel.invokeMethod<void>('playPause');
+
+  @override
+  Future<bool> getOutputMuted() async =>
+      (await channel.invokeMethod<bool>('getOutputMuted')) ?? false;
+
+  @override
+  Future<bool> toggleOutputMute() async =>
+      (await channel.invokeMethod<bool>('toggleOutputMute')) ?? false;
 }
 
 abstract interface class DesktopProcessRunner {
@@ -113,6 +127,24 @@ class DesktopActions {
           'Macro and Script are reserved for a future release',
         );
     }
+  }
+
+  Future<void> playPause() => macSystemControl.playPause();
+
+  Future<bool> getOutputMuted() async {
+    if (Platform.isMacOS || Platform.isWindows) {
+      return macSystemControl.getOutputMuted();
+    }
+    throw UnsupportedError(
+      'System mute status is not supported on this platform.',
+    );
+  }
+
+  Future<bool> toggleOutputMute() async {
+    if (Platform.isMacOS || Platform.isWindows) {
+      return macSystemControl.toggleOutputMute();
+    }
+    throw UnsupportedError('System mute is not supported on this platform.');
   }
 
   Future<void> executeLegacy(Map<String, Object?> action) async {

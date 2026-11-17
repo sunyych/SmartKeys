@@ -3,6 +3,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <mmdeviceapi.h>
+#include <endpointvolume.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -81,6 +83,58 @@ EncodableValue InsertUnicode(const EncodableMap* arguments) {
   return inserted == 0 ? DictationResult("rejected", "input_injection_blocked")
                        : DictationResult("partial", "partial_injection");
 }
+
+bool SetOrReadDefaultMute(bool toggle, bool* muted, std::string* message) {
+  const HRESULT initialized = CoInitialize(nullptr);
+  IMMDeviceEnumerator* enumerator = nullptr;
+  IMMDevice* device = nullptr;
+  IAudioEndpointVolume* volume = nullptr;
+  HRESULT status = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                    CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+                                    reinterpret_cast<void**>(&enumerator));
+  if (SUCCEEDED(status))
+    status = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+  if (SUCCEEDED(status))
+    status = device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL,
+                              nullptr, reinterpret_cast<void**>(&volume));
+  BOOL current = FALSE;
+  if (SUCCEEDED(status)) status = volume->GetMute(&current);
+  if (SUCCEEDED(status) && toggle) {
+    status = volume->SetMute(current ? FALSE : TRUE, nullptr);
+    if (SUCCEEDED(status)) current = current ? FALSE : TRUE;
+  }
+  if (SUCCEEDED(status)) *muted = current == TRUE;
+  if (volume) volume->Release();
+  if (device) device->Release();
+  if (enumerator) enumerator->Release();
+  if (SUCCEEDED(initialized)) CoUninitialize();
+  if (FAILED(status)) {
+    *message = "Windows could not read or change the default output device mute state (HRESULT " +
+               std::to_string(static_cast<unsigned long>(status)) + ").";
+    return false;
+  }
+  return true;
+}
+
+bool SendMediaPlayPause(std::string* message) {
+  INPUT events[2]{};
+  events[0].type = INPUT_KEYBOARD;
+  events[0].ki.wVk = VK_MEDIA_PLAY_PAUSE;
+  events[0].ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
+  events[1] = events[0];
+  events[1].ki.dwFlags |= KEYEVENTF_KEYUP;
+  const UINT inserted = SendInput(2, events, sizeof(INPUT));
+  if (inserted == 2) return true;
+  if (inserted == 1) {
+    INPUT release{};
+    release.type = INPUT_KEYBOARD;
+    release.ki.wVk = VK_MEDIA_PLAY_PAUSE;
+    release.ki.dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP;
+    SendInput(1, &release, sizeof(INPUT));
+  }
+  *message = "Windows did not accept the media play/pause key event.";
+  return false;
+}
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -105,6 +159,28 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  system_control_channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "lumiakeys/system_control",
+      &flutter::StandardMethodCodec::GetInstance());
+  system_control_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
+        std::string message;
+        if (call.method_name() == "playPause") {
+          if (SendMediaPlayPause(&message)) result->Success();
+          else result->Error("media_control_failed", message);
+        } else if (call.method_name() == "getOutputMuted" ||
+                   call.method_name() == "toggleOutputMute") {
+          bool muted = false;
+          const bool toggle = call.method_name() == "toggleOutputMute";
+          if (SetOrReadDefaultMute(toggle, &muted, &message))
+            result->Success(EncodableValue(muted));
+          else
+            result->Error("audio_control_failed", message);
+        } else {
+          result->NotImplemented();
+        }
+      });
   dictation_channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
       flutter_controller_->engine()->messenger(), "lumiakeys/dictation",
       &flutter::StandardMethodCodec::GetInstance());
@@ -166,6 +242,7 @@ void FlutterWindow::OnDestroy() {
   if (toggle_hotkey_registered_) UnregisterHotKey(GetHandle(), kToggleHotkeyId);
   toggle_hotkey_registered_ = false;
   dictation_channel_.reset();
+  system_control_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

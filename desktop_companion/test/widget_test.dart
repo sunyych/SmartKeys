@@ -65,6 +65,15 @@ class _RecordingMacSystemControl implements MacSystemControl {
 
   @override
   Future<void> setDark(bool enabled) async => values.add(enabled);
+
+  @override
+  Future<void> playPause() async {}
+
+  @override
+  Future<bool> getOutputMuted() async => false;
+
+  @override
+  Future<bool> toggleOutputMute() async => true;
 }
 
 void main() {

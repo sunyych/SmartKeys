@@ -34,6 +34,7 @@ class DesktopSettingsHome extends StatelessWidget {
     (Icons.layers_outlined, 'Profiles'),
     (Icons.info_outline, 'About'),
     (Icons.mic, 'Local Dictation'),
+    (Icons.rocket_launch_outlined, 'Launcher'),
   ];
 
   @override
@@ -46,6 +47,7 @@ class DesktopSettingsHome extends StatelessWidget {
       body: Row(
         children: [
           NavigationRail(
+            scrollable: true,
             extended: extendedNavigation,
             selectedIndex: controller.selectedSection,
             onDestinationSelected: controller.selectSection,
@@ -102,7 +104,8 @@ class DesktopSettingsHome extends StatelessWidget {
     3 => _AppsPage(controller: controller),
     4 => _ProfilesPage(controller: controller),
     5 => const _AboutPage(),
-    _ => _LocalDictationPage(dictation: dictation),
+    6 => _LocalDictationPage(dictation: dictation),
+    _ => _LauncherPage(controller: controller),
   };
 }
 
@@ -861,6 +864,557 @@ class _AppsPage extends StatelessWidget {
     );
     if (updated != null) await controller.updateApplication(updated);
   }
+}
+
+class _LauncherPage extends StatefulWidget {
+  const _LauncherPage({required this.controller});
+
+  final DesktopController controller;
+
+  @override
+  State<_LauncherPage> createState() => _LauncherPageState();
+}
+
+class _LauncherPageState extends State<_LauncherPage> {
+  DateTime _now = DateTime.now();
+  Timer? _clockTimer;
+  String? _error;
+  bool? _muted;
+  bool _busy = false;
+  bool _checkingMute = false;
+  int _clockTick = 0;
+  int _muteGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+      _clockTick++;
+      if (_clockTick % 3 == 0) unawaited(_refreshMuteState());
+    });
+    unawaited(_refreshMuteState());
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshMuteState() async {
+    if (_checkingMute || _busy) return;
+    _checkingMute = true;
+    final generation = _muteGeneration;
+    try {
+      final value = await widget.controller.actions.getOutputMuted();
+      if (mounted &&
+          generation == _muteGeneration &&
+          !_busy &&
+          _muted != value) {
+        setState(() => _muted = value);
+      }
+    } catch (_) {
+      if (mounted &&
+          generation == _muteGeneration &&
+          !_busy &&
+          _muted != null) {
+        setState(() => _muted = null);
+      }
+    } finally {
+      _checkingMute = false;
+    }
+  }
+
+  String get _time =>
+      '${_two(_now.hour)}:${_two(_now.minute)}:${_two(_now.second)}';
+  static String _two(int value) => value.toString().padLeft(2, '0');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final date = '${_now.year}年${_now.month}月${_now.day}日';
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final contentWidth = (constraints.maxWidth - 56).clamp(
+          0,
+          double.infinity,
+        );
+        final columns = contentWidth < 620 ? 2 : 4;
+        final spacing = 12.0;
+        final tileWidth = (contentWidth - spacing * (columns - 1)) / columns;
+        return ListView(
+          key: const ValueKey('launcher-page'),
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '快捷启动台',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '把常用应用放在手边，让每一次开始都更轻松。',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('launcher-edit'),
+                  onPressed: () => _editKey(0),
+                  icon: const Icon(Icons.edit_outlined, size: 17),
+                  label: const Text('编辑按键'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _clockBar(theme, date),
+            const SizedBox(height: 22),
+            Row(
+              children: [
+                Text(
+                  '我的应用',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '8 个快捷按键',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: List.generate(8, (index) {
+                final appId = widget.controller.launcherAppIds[index];
+                final app = appId == null
+                    ? null
+                    : widget.controller.manifest.applicationById(appId);
+                return SizedBox(
+                  width: tileWidth,
+                  height: 108,
+                  child: _LauncherKey(
+                    index: index,
+                    app: app,
+                    onTap: () => app == null ? _editKey(index) : _launch(index),
+                    onEdit: () => _editKey(index),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                _SystemActionButton(
+                  icon: Icons.play_arrow,
+                  label: '播放 / 暂停',
+                  onPressed: _busy ? null : _playPause,
+                ),
+                const SizedBox(width: 10),
+                _SystemActionButton(
+                  icon: _muted == null
+                      ? Icons.help_outline
+                      : _muted == true
+                      ? Icons.volume_off_outlined
+                      : Icons.volume_up_outlined,
+                  label: _muted == null
+                      ? '静音状态未知'
+                      : _muted == true
+                      ? '已静音'
+                      : '系统静音',
+                  onPressed: _busy ? null : _toggleMute,
+                ),
+              ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 14),
+              Material(
+                key: const ValueKey('launcher-error'),
+                color: theme.colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 11,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        color: theme.colorScheme.error,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '关闭',
+                        onPressed: () => setState(() => _error = null),
+                        icon: const Icon(Icons.close, size: 17),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _clockBar(ThemeData theme, String date) => LayoutBuilder(
+    builder: (context, constraints) => Container(
+      key: const ValueKey('launcher-clock'),
+      height: 68,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          colors: [
+            theme.colorScheme.primaryContainer.withValues(alpha: .75),
+            theme.colorScheme.surfaceContainerHighest,
+          ],
+        ),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.schedule, color: theme.colorScheme.primary),
+          const SizedBox(width: 10),
+          Flexible(child: Text('本地时间', style: theme.textTheme.labelLarge)),
+          const SizedBox(width: 18),
+          Text(
+            _time,
+            key: const ValueKey('launcher-clock-time'),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+              letterSpacing: 1.4,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Container(
+            width: 1,
+            height: 25,
+            color: theme.colorScheme.outlineVariant,
+          ),
+          const SizedBox(width: 16),
+          Flexible(
+            child: Text(
+              date,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          if (constraints.maxWidth >= 760) ...[
+            const SizedBox(width: 12),
+            Text(
+              'MAKE SPACE FOR WHAT MATTERS',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+
+  Future<void> _editKey(int index) async {
+    final apps = widget.controller.manifest.applications;
+    final current = widget.controller.launcherAppIds[index] ?? '';
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        var value = current;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            key: const ValueKey('launcher-editor-dialog'),
+            title: Text('编辑按键 ${index + 1}'),
+            content: SizedBox(
+              width: 430,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('选择一个已配置的桌面应用。保存后，点击卡片即可启动。'),
+                  const SizedBox(height: 18),
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('launcher-app-picker'),
+                    initialValue: value,
+                    decoration: const InputDecoration(labelText: '应用'),
+                    items: [
+                      const DropdownMenuItem(value: '', child: Text('不绑定应用')),
+                      ...apps.map(
+                        (app) => DropdownMenuItem(
+                          value: app.id,
+                          child: Row(
+                            children: [
+                              _LauncherAppArtwork(app: app, size: 22),
+                              const SizedBox(width: 10),
+                              Text(app.name),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (next) =>
+                        setDialogState(() => value = next ?? ''),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '应用列表可在左侧“Apps”中管理。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, value),
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (selected == null || !mounted) return;
+    try {
+      await widget.controller.assignLauncherApp(
+        index,
+        selected.isEmpty ? null : selected,
+      );
+      if (mounted) setState(() => _error = null);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
+  Future<void> _launch(int index) async {
+    setState(() => _error = null);
+    try {
+      await widget.controller.launchLauncherApp(index);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
+  Future<void> _playPause() async {
+    setState(() => _busy = true);
+    try {
+      await widget.controller.actions.playPause();
+      if (mounted) setState(() => _error = null);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _toggleMute() async {
+    setState(() => _busy = true);
+    _muteGeneration++;
+    try {
+      final muted = await widget.controller.actions.toggleOutputMute();
+      if (mounted) {
+        setState(() {
+          _muted = muted;
+          _error = null;
+          _muteGeneration++;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
+class _LauncherKey extends StatelessWidget {
+  const _LauncherKey({
+    required this.index,
+    required this.app,
+    required this.onTap,
+    required this.onEdit,
+  });
+
+  final int index;
+  final RemoteApplication? app;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        key: ValueKey('launcher-key-$index'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: app == null
+                        ? Icon(
+                            Icons.add,
+                            color: theme.colorScheme.onPrimaryContainer,
+                            size: 23,
+                          )
+                        : _LauncherAppArtwork(app: app!, size: 34),
+                  ),
+                  const Spacer(),
+                  Text(
+                    app?.name ?? '添加快捷应用',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    app == null ? '点击配置' : '点击启动',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+              Positioned(
+                right: 0,
+                top: -3,
+                child: Text(
+                  '${index + 1}'.padLeft(2, '0'),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              Positioned(
+                right: -9,
+                bottom: -10,
+                child: IconButton(
+                  key: ValueKey('launcher-edit-$index'),
+                  tooltip: '编辑按键 ${index + 1}',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LauncherAppArtwork extends StatelessWidget {
+  const _LauncherAppArtwork({required this.app, required this.size});
+
+  final RemoteApplication app;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = switch (app.id) {
+      'vscode' => 'assets/app_icons/vscode.png',
+      'solidworks' => 'assets/app_icons/solidworks.png',
+      'premiere' => 'assets/app_icons/premiere.png',
+      'photoshop' => 'assets/app_icons/photoshop.png',
+      'codex' => 'assets/app_icons/openai.png',
+      'illustrator' => 'assets/app_icons/illustrator.png',
+      'chrome' => 'assets/app_icons/chrome.png',
+      _ => null,
+    };
+    if (asset != null) {
+      return Image.asset(
+        asset,
+        width: size,
+        height: size,
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => Icon(
+          desktopIcon(app.icon),
+          size: size,
+          color: Theme.of(context).colorScheme.onPrimaryContainer,
+        ),
+      );
+    }
+    return Icon(
+      desktopIcon(app.icon),
+      size: size,
+      color: Theme.of(context).colorScheme.onPrimaryContainer,
+    );
+  }
+}
+
+class _SystemActionButton extends StatelessWidget {
+  const _SystemActionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+    onPressed: onPressed,
+    icon: Icon(icon, size: 18),
+    label: Text(label),
+  );
 }
 
 class _ApplicationEditor extends StatefulWidget {

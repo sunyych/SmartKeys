@@ -23,14 +23,39 @@ class MainFlutterWindow: NSWindow {
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
     channel.setMethodCallHandler { [weak self] call, result in
-      guard call.method == "setDark",
-            let arguments = call.arguments as? [String: Any],
-            let enabled = arguments["enabled"] as? Bool else {
+      switch call.method {
+      case "setDark":
+        guard let arguments = call.arguments as? [String: Any],
+              let enabled = arguments["enabled"] as? Bool else {
+          result(FlutterError(code: "invalid_arguments", message: "Missing enabled flag.", details: nil))
+          return
+        }
+        self?.setDark(enabled)
+        result(nil)
+      case "playPause":
+        guard CGPreflightPostEventAccess() else {
+          result(FlutterError(code: "accessibility_permission_missing", message: "Allow LumiaKey in System Settings → Privacy & Security → Accessibility, then retry.", details: nil))
+          return
+        }
+        guard self?.postAuxiliaryKey(16) == true else {
+          result(FlutterError(code: "media_control_failed", message: "macOS did not create the media key event.", details: nil))
+          return
+        }
+        result(nil)
+      case "getOutputMuted", "toggleOutputMute":
+        do {
+          let muted = try self?.runVolumeScript(
+            call.method == "getOutputMuted"
+              ? "return output muted of (get volume settings)"
+              : "set volume output muted not (output muted of (get volume settings))\nreturn output muted of (get volume settings)"
+          ) ?? false
+          result(muted)
+        } catch {
+          result(FlutterError(code: "system_control_failed", message: error.localizedDescription, details: nil))
+        }
+      default:
         result(FlutterMethodNotImplemented)
-        return
       }
-      self?.setDark(enabled)
-      result(nil)
     }
     systemControlChannel = channel
 
@@ -223,13 +248,28 @@ class MainFlutterWindow: NSWindow {
     }
   }
 
-  private func postAuxiliaryKey(_ keyType: Int32) {
-    postAuxiliaryKey(keyType, keyState: 0xA)
-    postAuxiliaryKey(keyType, keyState: 0xB)
-    Thread.sleep(forTimeInterval: 0.01)
+  private func runVolumeScript(_ source: String) throws -> Bool {
+    guard let script = NSAppleScript(source: source) else {
+      throw NSError(domain: "LumiaKeySystemControl", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not create the system volume request."])
+    }
+    var error: NSDictionary?
+    let result = script.executeAndReturnError(&error)
+    if let error {
+      throw NSError(domain: "LumiaKeySystemControl", code: 2, userInfo: [NSLocalizedDescriptionKey: error[NSAppleScript.errorMessage] as? String ?? "Could not read or change system mute state."])
+    }
+    return result.booleanValue
   }
 
-  private func postAuxiliaryKey(_ keyType: Int32, keyState: Int) {
+  @discardableResult
+  private func postAuxiliaryKey(_ keyType: Int32) -> Bool {
+    let down = postAuxiliaryKey(keyType, keyState: 0xA)
+    let up = postAuxiliaryKey(keyType, keyState: 0xB)
+    Thread.sleep(forTimeInterval: 0.01)
+    return down && up
+  }
+
+  @discardableResult
+  private func postAuxiliaryKey(_ keyType: Int32, keyState: Int) -> Bool {
     let event = NSEvent.otherEvent(
       with: .systemDefined,
       location: .zero,
@@ -241,6 +281,8 @@ class MainFlutterWindow: NSWindow {
       data1: (Int(keyType) << 16) | (keyState << 8),
       data2: -1
     )
-    event?.cgEvent?.post(tap: .cghidEventTap)
+    guard let cgEvent = event?.cgEvent else { return false }
+    cgEvent.post(tap: .cghidEventTap)
+    return true
   }
 }

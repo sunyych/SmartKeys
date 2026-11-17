@@ -52,6 +52,7 @@ class DesktopTrayShell with TrayListener, WindowListener {
       Menu(
         items: [
           MenuItem(key: 'settings', label: 'Open Settings'),
+          MenuItem(key: 'launcher', label: 'Open Launcher'),
           MenuItem(
             key: 'dictation',
             label: dictation.listening
@@ -92,6 +93,8 @@ class DesktopTrayShell with TrayListener, WindowListener {
     final key = menuItem.key ?? '';
     if (key == 'settings') {
       unawaited(showSection(0));
+    } else if (key == 'launcher') {
+      unawaited(showSection(7));
     } else if (key == 'dictation') {
       unawaited(toggleDictation());
     } else if (key == 'about') {

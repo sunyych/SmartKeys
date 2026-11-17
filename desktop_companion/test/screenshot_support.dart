@@ -140,7 +140,7 @@ Future<File> captureDesktopScreenshot(
       final metadata = <String, Object>{
         'id': id,
         'title': title,
-        'platform': 'Windows widget',
+        'platform': 'Flutter widget (${Platform.operatingSystem} test host)',
         'orientation': orientation,
         'width': image.width,
         'height': image.height,

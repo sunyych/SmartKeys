@@ -10,6 +10,7 @@ import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:lumiakeys_companion/companion_server.dart';
 import 'package:lumiakeys_companion/desktop_controller.dart';
+import 'package:lumiakeys_companion/desktop_actions.dart';
 import 'package:lumiakeys_companion/desktop_dictation.dart';
 import 'package:lumiakeys_companion/desktop_ui.dart';
 import 'package:lumiakeys_companion/dictation_receiver.dart';
@@ -34,6 +35,36 @@ class _Window implements DesktopWindowControl {
 
   @override
   Future<void> restore() async {}
+}
+
+class _FailingRunner implements DesktopProcessRunner {
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async =>
+      ProcessResult(1, 1, '', 'Fixture launch failure');
+
+  @override
+  Future<Process> start(String executable, List<String> arguments) =>
+      throw UnsupportedError('The screenshot fixture only exercises run.');
+}
+
+class _ScreenshotMacSystemControl implements MacSystemControl {
+  int playPauseCount = 0;
+  bool muted = false;
+
+  @override
+  Future<void> setDark(bool enabled) async {}
+
+  @override
+  Future<void> playPause() async => playPauseCount++;
+
+  @override
+  Future<bool> getOutputMuted() async => muted;
+
+  @override
+  Future<bool> toggleOutputMute() async {
+    muted = !muted;
+    return muted;
+  }
 }
 
 class _Capture implements DictationCapture {
@@ -92,11 +123,20 @@ void main() {
     );
     expect(temp, isNotNull);
     final fixtureRoot = temp!;
+    final systemControls = _ScreenshotMacSystemControl();
     final controller = DesktopController(
       store: MemoryDesktopConfigStore(),
       discovery: _Discovery(),
+      actions: DesktopActions(
+        runner: _FailingRunner(),
+        macSystemControl: systemControls,
+      ),
     );
     await controller.initialize();
+    for (final (index, app)
+        in controller.manifest.applications.take(8).indexed) {
+      await controller.assignLauncherApp(index, app.id);
+    }
     final server = CompanionServer(
       controller: controller,
       dictationSink: _TextSink(),
@@ -271,6 +311,7 @@ void main() {
       (4, 'Profiles', 'Profiles'),
       (5, 'About', 'LumiaKey'),
       (6, 'Local Dictation', 'Private microphone dictation'),
+      (7, 'Launcher', '快捷启动台'),
     ];
 
     for (final (width, height, sizeName) in [
@@ -308,12 +349,107 @@ void main() {
           '$title settings · $sizeName',
           width,
           height,
-          'Windows Flutter widget render of the $title desktop settings section at $sizeName width.${title == 'General' || title == 'Bluetooth' ? ' Sync service is deliberately offline in this isolated screenshot fixture.' : ''}',
+          'Flutter widget test render of the $title desktop section at $sizeName width.${title == 'General' || title == 'Bluetooth' ? ' Sync service is deliberately offline in this isolated screenshot fixture.' : ''}',
         );
       }
     }
 
     await sizeTo(1080, 760);
+    tester
+        .widget<NavigationRail>(find.byType(NavigationRail))
+        .onDestinationSelected
+        ?.call(7);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('launcher-clock-time')), findsOneWidget);
+    expect(find.byKey(const ValueKey('launcher-key-7')), findsOneWidget);
+    expect(controller.launcherAppIds, hasLength(8));
+    final clockBefore = tester
+        .widget<Text>(find.byKey(const ValueKey('launcher-clock-time')))
+        .data;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1100)),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    final clockAfter = tester
+        .widget<Text>(find.byKey(const ValueKey('launcher-clock-time')))
+        .data;
+    expect(clockAfter, isNot(clockBefore));
+    await tester.tap(find.text('播放 / 暂停'));
+    await tester.pumpAndSettle();
+    expect(systemControls.playPauseCount, 1);
+    await tester.tap(find.text('系统静音'));
+    await tester.pumpAndSettle();
+    expect(systemControls.muted, isTrue);
+    expect(find.text('已静音'), findsOneWidget);
+    await capture(
+      'desktop-launcher-muted',
+      'Launcher · system output muted',
+      1080,
+      760,
+      'Flutter widget test render confirming the actual mute status returned by the native control fixture.',
+    );
+    await controller.assignLauncherApp(0, 'codex');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('launcher-edit-0')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('launcher-editor-dialog')),
+      findsOneWidget,
+    );
+    await capture(
+      'desktop-launcher-key-editor',
+      'Launcher app key editor',
+      1080,
+      760,
+      'Flutter widget test render of the app picker for one of eight launcher keys.',
+    );
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('launcher-key-0')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('launcher-error')), findsOneWidget);
+    await capture(
+      'desktop-launcher-app-error',
+      'Launcher app launch error',
+      1080,
+      760,
+      'Flutter widget test render of a managed app launch failure with inline recovery feedback.',
+    );
+
+    await sizeTo(800, 700);
+    tester
+        .widget<NavigationRail>(find.byType(NavigationRail))
+        .onDestinationSelected
+        ?.call(7);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('launcher-key-7')), findsOneWidget);
+    await capture(
+      'desktop-launcher-editor-error-narrow',
+      'Launcher with error · narrow',
+      800,
+      700,
+      'Flutter widget test render of the launcher and recoverable app error in a narrow window.',
+    );
+    await sizeTo(760, 560);
+    tester
+        .widget<NavigationRail>(find.byType(NavigationRail))
+        .onDestinationSelected
+        ?.call(7);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await capture(
+      'desktop-launcher-minimum-window',
+      'Launcher · minimum window',
+      760,
+      560,
+      'Flutter widget test render of the launcher at LumiaKey’s minimum supported desktop window size.',
+    );
+    await sizeTo(1080, 760);
+    tester
+        .widget<NavigationRail>(find.byType(NavigationRail))
+        .onDestinationSelected
+        ?.call(2);
+    await tester.pumpAndSettle();
     tester
         .widget<NavigationRail>(find.byType(NavigationRail))
         .onDestinationSelected
