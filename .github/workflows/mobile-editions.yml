@@ -1,0 +1,84 @@
+name: Android editions build check
+
+on:
+  push:
+    branches: [main, codex/lite]
+    paths:
+      - 'android/**'
+      - 'lib/**'
+      - 'assets/profiles/**'
+      - 'pubspec.*'
+      - 'packages/**'
+      - 'desktop_companion/**'
+      - 'packaging/windows/**'
+      - '.github/workflows/mobile-editions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android ${{ matrix.edition }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - edition: regular
+            target: lib/main.dart
+          - edition: lite
+            target: lib/main_lite.dart
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          cache: true
+      - run: flutter pub get
+      - name: Build Android edition
+        run: flutter build apk --debug --flavor ${{ matrix.edition }} --target ${{ matrix.target }} --dart-define=LUMIAKEY_EDITION=${{ matrix.edition }}
+      - name: Run Android unit tests
+        run: ./android/gradlew -p android :app:test${{ matrix.edition == 'lite' && 'Lite' || 'Regular' }}DebugUnitTest
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-${{ matrix.edition }}-debug
+          path: build/app/outputs/flutter-apk/app-${{ matrix.edition }}-debug.apk
+          if-no-files-found: error
+
+  windows-desktop:
+    name: Windows Desktop installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          cache: true
+      - name: Install packaging compiler
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Build Desktop release
+        working-directory: desktop_companion
+        run: |
+          flutter pub get
+          flutter build windows --release --build-name=1.4.0 --build-number=6
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path -LiteralPath $compiler)) { throw "Inno Setup compiler is missing." }
+          $buildRoot = Join-Path $PWD "desktop_companion\build\windows\x64\runner\Release"
+          $outputDir = Join-Path $PWD "dist"
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+          & $compiler "/DAppVersion=1.4.0" "/DBuildRoot=$buildRoot" "/DOutputDir=$outputDir" "packaging\windows\lumiakeys.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed ($LASTEXITCODE)." }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-desktop-installer
+          path: dist/*-Setup.exe
+          if-no-files-found: error

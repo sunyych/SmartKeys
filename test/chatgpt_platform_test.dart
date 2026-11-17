@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/ui/home_screen.dart';
 import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 
@@ -70,7 +71,12 @@ void main() {
         harness.controller.activeComputer!,
         ComputerSetup(applicationIds: const ['chatgpt']),
       );
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
       await tester.pumpAndSettle();

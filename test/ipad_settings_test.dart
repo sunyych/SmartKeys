@@ -79,7 +79,7 @@ void main() {
     );
     expect(
       find.text(
-        'iPad sends supported keyboard shortcuts to LumiaKey Desktop over Wi-Fi; speech recognition stays on this device.',
+        'LumiaKey sends shortcuts and pointer controls to LumiaKey Desktop over Wi-Fi; speech recognition stays on this device.',
       ),
       findsOneWidget,
     );

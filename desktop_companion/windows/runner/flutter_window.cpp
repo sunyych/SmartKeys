@@ -216,10 +216,10 @@ bool SetOrReadDefaultMute(bool toggle, bool* muted, std::string* message) {
   return true;
 }
 
-bool SendMediaPlayPause(std::string* message) {
+bool SendSystemMediaKey(WORD key, std::string* message) {
   INPUT events[2]{};
   events[0].type = INPUT_KEYBOARD;
-  events[0].ki.wVk = VK_MEDIA_PLAY_PAUSE;
+  events[0].ki.wVk = key;
   events[0].ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
   events[1] = events[0];
   events[1].ki.dwFlags |= KEYEVENTF_KEYUP;
@@ -228,11 +228,11 @@ bool SendMediaPlayPause(std::string* message) {
   if (inserted == 1) {
     INPUT release{};
     release.type = INPUT_KEYBOARD;
-    release.ki.wVk = VK_MEDIA_PLAY_PAUSE;
+    release.ki.wVk = key;
     release.ki.dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP;
     SendInput(1, &release, sizeof(INPUT));
   }
-  *message = "Windows did not accept the media play/pause key event.";
+  *message = "Windows did not accept the system media key event.";
   return false;
 }
 
@@ -306,8 +306,11 @@ bool FlutterWindow::OnCreate() {
       [](const flutter::MethodCall<EncodableValue>& call,
          std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
         std::string message;
-        if (call.method_name() == "playPause") {
-          if (SendMediaPlayPause(&message)) result->Success();
+        if (call.method_name() == "playPause" ||
+            call.method_name() == "volumeUp" || call.method_name() == "volumeDown") {
+          const WORD key = call.method_name() == "volumeUp" ? VK_VOLUME_UP
+              : call.method_name() == "volumeDown" ? VK_VOLUME_DOWN : VK_MEDIA_PLAY_PAUSE;
+          if (SendSystemMediaKey(key, &message)) result->Success();
           else result->Error("media_control_failed", message);
         } else if (call.method_name() == "getOutputMuted" ||
                    call.method_name() == "toggleOutputMute") {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/ui/home_screen.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/services/companion_service.dart';
 
@@ -116,7 +117,12 @@ void main() {
       config: testConfig(profiles: [mouseProfile]),
     );
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     final touchpad = find.byKey(const ValueKey('mouse-touchpad'));

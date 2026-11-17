@@ -76,6 +76,7 @@ class DesktopActions {
     MacSystemControl? macSystemControl,
     DesktopPointerInput? pointerInput,
     VibeSystemTools? vibeSystemTools,
+    this.mediaChannel = const MethodChannel('lumiakeys/system_control'),
   }) : runner = runner ?? const SystemDesktopProcessRunner(),
        macSystemControl =
            macSystemControl ?? const MethodChannelMacSystemControl(),
@@ -86,6 +87,7 @@ class DesktopActions {
   final MacSystemControl macSystemControl;
   final DesktopPointerInput pointerInput;
   final VibeSystemTools vibeSystemTools;
+  final MethodChannel mediaChannel;
   int? _windowsBrightnessBeforeDark;
 
   Future<void> applyPointerInputs(List<PointerInput> inputs) =>
@@ -172,6 +174,20 @@ class DesktopActions {
           'Macro and Script are reserved for a future release',
         );
       case RemoteTargetType.system:
+        if (button.id.startsWith('keyboard.')) {
+          const allowed = {'mute', 'volumeDown', 'volumeUp', 'playPause'};
+          final action = button.target;
+          if (expectedAppId != null ||
+              action == null ||
+              !allowed.contains(action) ||
+              button.id != 'keyboard.$action') {
+            throw const FormatException('invalid fixed General media action');
+          }
+          await mediaChannel.invokeMethod<Object?>(
+            action == 'mute' ? 'toggleOutputMute' : action,
+          );
+          return;
+        }
         final appId = expectedAppId;
         final actionId = button.target;
         final isVibeAction =

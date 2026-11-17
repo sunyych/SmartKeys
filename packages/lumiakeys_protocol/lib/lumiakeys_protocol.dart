@@ -1,5 +1,7 @@
 library;
 
+part 'src/compact_layouts.dart';
+
 enum RemoteTargetType {
   keyboardShortcut,
   launchApplication,
@@ -676,6 +678,17 @@ class DesktopManifest {
         }
       }
     }
+  }
+
+  /// Twelve-key defaults used by the Regular mobile control surface.
+  /// [starter] retains the complete historical action catalog for migration.
+  factory DesktopManifest.regularStarter() {
+    final catalog = DesktopManifest.starter();
+    return catalog.copyWith(
+      layouts: catalog.layouts
+          .map(compactDesktopLayout)
+          .toList(growable: false),
+    );
   }
 
   factory DesktopManifest.starter() {

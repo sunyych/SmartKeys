@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app.dart';
+import '../app_edition.dart';
 import '../models/config.dart';
 
 class WheelEditorScreen extends StatefulWidget {
@@ -143,6 +144,23 @@ class _WheelEditorScreenState extends State<WheelEditorScreen> {
   }
 
   Future<void> _save() async {
+    if (SmartKeysScope.editionOf(context) == AppEdition.lite &&
+        [
+          clockwise,
+          counterClockwise,
+          center,
+          up,
+          down,
+          left,
+          right,
+        ].any((action) => action.type == ActionType.companion)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Choose Bluetooth actions for the navigation control.'),
+        ),
+      );
+      return;
+    }
     await SmartKeysScope.of(context).updateWheel(
       WheelConfig(
         controlType: controlType,
@@ -175,6 +193,7 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLite = SmartKeysScope.editionOf(context) == AppEdition.lite;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -194,9 +213,22 @@ class _ActionCard extends StatelessWidget {
               initialValue: draft.type,
               decoration: const InputDecoration(labelText: 'Action type'),
               items: ActionType.values
-                  .map(
+                  .where(
                     (type) =>
-                        DropdownMenuItem(value: type, child: Text(type.name)),
+                        !isLite ||
+                        type != ActionType.companion ||
+                        draft.type == ActionType.companion,
+                  )
+                  .map(
+                    (type) => DropdownMenuItem(
+                      value: type,
+                      enabled: !isLite || type != ActionType.companion,
+                      child: Text(
+                        isLite && type == ActionType.companion
+                            ? 'Unavailable action'
+                            : type.name,
+                      ),
+                    ),
                   )
                   .toList(),
               onChanged: (value) {

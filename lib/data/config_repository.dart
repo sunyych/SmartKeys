@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/config.dart';
+import '../app_edition.dart';
 import 'profile_template_repository.dart';
 
 abstract interface class ConfigRepository {
@@ -17,6 +18,10 @@ class SharedPreferencesConfigRepository implements ConfigRepository {
   }) : _preferences = preferences ?? SharedPreferences.getInstance();
 
   static const storageKey = 'smart_keys.configuration';
+  static const liteStorageKey = 'smart_keys.lite.configuration';
+
+  String get _storageKey =>
+      templates.edition == AppEdition.lite ? liteStorageKey : storageKey;
 
   final ProfileTemplateRepository templates;
   final Future<SharedPreferences> _preferences;
@@ -24,7 +29,7 @@ class SharedPreferencesConfigRepository implements ConfigRepository {
   @override
   Future<AppConfig> load() async {
     final prefs = await _preferences;
-    final raw = prefs.getString(storageKey);
+    final raw = prefs.getString(_storageKey);
     final builtIns = await templates.loadAll();
     if (raw == null) {
       return _fromTemplates(builtIns);
@@ -59,7 +64,7 @@ class SharedPreferencesConfigRepository implements ConfigRepository {
   @override
   Future<void> save(AppConfig config) async {
     final prefs = await _preferences;
-    await prefs.setString(storageKey, jsonEncode(config.toJson()));
+    await prefs.setString(_storageKey, jsonEncode(config.toJson()));
   }
 
   AppConfig _fromTemplates(List<ProfileConfig> profiles) {

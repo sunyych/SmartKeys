@@ -96,8 +96,9 @@ jobs:
 
       - name: Verify Android Kotlin unit tests
         run: |
-          flutter build apk --debug
-          ./android/gradlew -p android :app:testDebugUnitTest
+          flutter build apk --debug --flavor regular --target lib/main.dart --dart-define=LUMIAKEY_EDITION=regular
+          flutter build apk --debug --flavor lite --target lib/main_lite.dart --dart-define=LUMIAKEY_EDITION=lite
+          ./android/gradlew -p android :app:testRegularDebugUnitTest :app:testLiteDebugUnitTest
 
       - name: Verify local dictation engine
         working-directory: packages/local_dictation
@@ -214,20 +215,37 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
           flutter pub get
-          flutter build apk --release \
+          flutter build apk --release --flavor regular --target lib/main.dart --dart-define=LUMIAKEY_EDITION=regular \
             --build-name="$RELEASE_VERSION" \
             --build-number="$BUILD_NUMBER"
+          flutter build apk --release --flavor lite --target lib/main_lite.dart --dart-define=LUMIAKEY_EDITION=lite \
+            --build-name="$RELEASE_VERSION" \
+            --build-number="$BUILD_NUMBER"
+      - name: Verify Lite excludes bundled Desktop installers
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          apk = "build/app/outputs/flutter-apk/app-lite-release.apk"
+          with ZipFile(apk) as package:
+              unexpected = [name for name in package.namelist()
+                            if "/flutter_assets/assets/desktop_installers/" in name]
+          if unexpected:
+              raise SystemExit("Lite APK contains bundled Desktop installers: " + ", ".join(unexpected))
+          print("Verified Lite APK excludes Desktop installer assets")
+          PY
       - name: Verify bundled installers inside the built APK
         shell: pwsh
         run: |
           ./scripts/verify_android_desktop_installers.ps1 `
-            -ApkPath "build/app/outputs/flutter-apk/app-release.apk" `
+            -ApkPath "build/app/outputs/flutter-apk/app-regular-release.apk" `
             -CatalogPath "assets/desktop_installers/catalog.json"
       - name: Stage release APK
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk \
+          cp build/app/outputs/flutter-apk/app-regular-release.apk \
             "dist/LumiaKey-Android-v${RELEASE_VERSION}.apk"
+          cp build/app/outputs/flutter-apk/app-lite-release.apk \
+            "dist/LumiaKey-Lite-Android-v${RELEASE_VERSION}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7

@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image_lib;
 import 'package:path/path.dart' as path;
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/app_edition.dart';
+import 'package:smart_keys/ui/home_screen.dart';
 import 'package:smart_keys/data/private_image_store.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/models/computer_setup.dart';
@@ -38,7 +40,12 @@ void main() {
     final harness = await TestHarness.create();
     addTearDown(() => _disposeHarness(tester, harness));
 
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
@@ -87,7 +94,12 @@ void main() {
         ComputerSetup(applicationIds: const []),
       );
 
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pump();
       expect(find.byKey(const ValueKey('button-grid-3x5')), findsOneWidget);
       expect(find.byKey(const ValueKey('status-mode-hid')), findsOneWidget);
@@ -152,7 +164,12 @@ void main() {
       ComputerSetup(applicationIds: const ['vscode', 'chatgpt']),
     );
 
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
 
     expect(find.byKey(const ValueKey('computer-app-row')), findsOneWidget);
@@ -235,7 +252,12 @@ void main() {
       ComputerSetup(applicationIds: const ['chrome', 'vscode']),
     );
 
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
     expect(
       find.byKey(const ValueKey('remote-layout-app.chrome')),
@@ -295,7 +317,12 @@ void main() {
       ComputerSetup(applicationIds: const ['chrome']),
     );
 
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('workspace-app-chrome')));
     await tester.pumpAndSettle();
@@ -338,7 +365,12 @@ void main() {
     addTearDown(() => _disposeHarness(tester, harness));
     harness.hid.status.value = HidConnectionStatus.disconnected;
 
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
@@ -411,7 +443,12 @@ void main() {
     );
     addTearDown(() => _disposeHarness(tester, harness));
     harness.hid.status.value = HidConnectionStatus.disconnected;
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('profile-quick-profile_web')));
@@ -434,7 +471,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     final harness = await TestHarness.create();
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _openControlMenu(tester);
@@ -466,7 +508,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     final harness = await TestHarness.create();
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _openControlMenu(tester);
@@ -500,7 +547,12 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       final harness = await TestHarness.create();
       addTearDown(() => _disposeHarness(tester, harness));
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
       final gesture = await tester.startGesture(
@@ -608,7 +660,12 @@ void main() {
     final harness = await TestHarness.create();
     harness.hid.status.value = HidConnectionStatus.permissionRequired;
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
 
     await _openControlMenu(tester);
@@ -635,7 +692,12 @@ void main() {
       HidHost(id: 'windows-pc', name: 'Steven-PC', address: 'AA:BB'),
     ];
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
 
     await _openControlMenu(tester);
@@ -667,7 +729,9 @@ void main() {
       ),
     );
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(controller: harness.controller, edition: AppEdition.lite),
+    );
     await tester.pumpAndSettle();
 
     await _openControlMenu(tester);
@@ -720,7 +784,13 @@ void main() {
       harness.controller.activeComputer!,
       ComputerSetup(applicationIds: const []),
     );
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        edition: AppEdition.lite,
+        homeOverride: const HomeScreen(liteMode: true),
+      ),
+    );
     await tester.pump();
 
     await _openControlMenu(tester);
@@ -748,7 +818,12 @@ void main() {
   testWidgets('power indicator reacts to charger connection', (tester) async {
     final harness = await TestHarness.create(pluggedIn: false);
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
 
     expect(find.byKey(const ValueKey('power-indicator-false')), findsOneWidget);
@@ -765,7 +840,12 @@ void main() {
   ) async {
     final harness = await TestHarness.create(pluggedIn: true);
     addTearDown(() => _disposeHarness(tester, harness));
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
 
     await _openControlMenu(tester);
@@ -830,7 +910,12 @@ void main() {
     final button = harness.controller.activeProfile.buttons.first;
     await harness.controller.pressButton(button);
     await harness.controller.releaseButton(button);
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
 
     await _openControlMenu(tester);

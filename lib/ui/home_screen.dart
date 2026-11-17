@@ -40,7 +40,10 @@ class HomeScreen extends StatefulWidget {
     this.dictationRecognizerFactory,
     this.enableDictationWakeLock,
     this.disableDictationWakeLock,
+    this.liteMode = false,
   });
+
+  final bool liteMode;
 
   final ModelManager? dictationModelManager;
   final DictationCapture? dictationCapture;
@@ -79,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final controller = SmartKeysScope.of(context);
     final computer = controller.activeComputer;
     _trackComputerTarget(controller, computer);
-    _consumeDesktopActivation(controller);
+    if (!widget.liteMode) _consumeDesktopActivation(controller);
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     controller.registerLayoutOrientation(landscape);
@@ -95,23 +98,29 @@ class _HomeScreenState extends State<HomeScreen> {
         ? Theme.of(context).colorScheme.primary
         : Color(controller.activeProfile.accentColor!);
     final iosPairingGate =
-        controller.hid is IosCompanionHidService ||
-        defaultTargetPlatform == TargetPlatform.iOS;
+        !widget.liteMode &&
+        (controller.hid is IosCompanionHidService ||
+            defaultTargetPlatform == TargetPlatform.iOS);
     final desktopReconnecting =
-        computer?.mode == ComputerMode.advanced && !controller.isDesktopSynced;
+        !widget.liteMode &&
+        computer?.mode == ComputerMode.advanced &&
+        !controller.isDesktopSynced;
     final showFirstSetup =
+        !widget.liteMode &&
         computer != null &&
         !controller.isActiveComputerSetupComplete &&
         (computer.mode == ComputerMode.standalone ||
             controller.isDesktopSynced);
-    final availableApps = controller.availableComputerApplications;
+    final availableApps = widget.liteMode
+        ? const <ComputerApplication>[]
+        : controller.availableComputerApplications;
     var effectiveApplication = availableApps
         .cast<ComputerApplication?>()
         .firstWhere(
           (application) => application?.id == selectedApplicationId,
           orElse: () => null,
         );
-    final foreground = controller.isDesktopSynced
+    final foreground = !widget.liteMode && controller.isDesktopSynced
         ? controller.foregroundApplication
         : null;
     var effectiveTab = effectiveApplication == null
@@ -144,7 +153,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ? remoteApplication == null
               ? null
               : controller.layoutForApplication(remoteApplication)
-        : effectiveTab == _HomeTab.keyboard &&
+        : !widget.liteMode &&
+              effectiveTab == _HomeTab.keyboard &&
               controller.isDesktopSynced &&
               !desktopReconnecting
         ? controller.genericSyncedLayout
@@ -448,14 +458,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final safeContent = desktopReconnecting && !showFirstSetup
         ? _DesktopReconnectState(onManage: editComputerSetup)
         : setupContent ?? content;
-    final visibleProfiles = controller.visibleHomeProfiles
-        .where(
-          (profile) =>
-              computer == null ||
-              profile.id != 'profile_web' && profile.id != 'profile_meetings',
-        )
-        .toList(growable: false);
+    final visibleProfiles =
+        (widget.liteMode
+                ? controller.orderedProfiles
+                : controller.visibleHomeProfiles)
+            .where(
+              (profile) =>
+                  widget.liteMode ||
+                  computer == null ||
+                  profile.id != 'profile_web' &&
+                      profile.id != 'profile_meetings',
+            )
+            .toList(growable: false);
     final showComputerAppBar =
+        !widget.liteMode &&
         !showFirstSetup &&
         computer != null &&
         controller.isActiveComputerSetupComplete &&
@@ -507,11 +523,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.fromLTRB(8, 5, 190, 5),
                         child: Row(
                           children: [
-                            ComputerSwitcher(
-                              controller: controller,
-                              compact: true,
-                              iconOnly: true,
-                            ),
+                            if (!widget.liteMode)
+                              ComputerSwitcher(
+                                controller: controller,
+                                compact: true,
+                                iconOnly: true,
+                              ),
                             const SizedBox(width: 4),
                             Expanded(
                               child: _HomeTabBar(
@@ -589,7 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     editing: editing,
                     inApplicationWorkspace: effectiveTab != _HomeTab.keyboard,
                     compactToolbar: showComputerAppBar,
-                    onManage: editComputerSetup,
+                    onManage: widget.liteMode ? null : editComputerSetup,
                     onToggleEditing: () => setState(() => editing = !editing),
                   ),
                 ),

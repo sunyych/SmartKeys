@@ -1,10 +1,4 @@
-import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
+import 'app_edition.dart';
+import 'bootstrap.dart';
 
-import 'app.dart';
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  runApp(const SmartKeysApp());
-}
+Future<void> main() => bootstrap(buildEdition);

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/ui/home_screen.dart';
 import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/ui/shortcut_grid_geometry.dart';
@@ -26,7 +27,12 @@ void main() {
         await harness.dispose();
       });
 
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pumpAndSettle();
       _expectUniformSizes(
         tester,
@@ -102,7 +108,12 @@ void main() {
         ComputerSetup(applicationIds: const ['chatgpt']),
       );
 
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
       await tester.pumpAndSettle();
@@ -160,7 +171,12 @@ void main() {
         ComputerSetup(applicationIds: const ['chrome']),
       );
 
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(harness.controller.hasPinnedDesktopComputer, isTrue);
       await tester.tap(find.byKey(const ValueKey('workspace-app-chrome')));
@@ -199,7 +215,12 @@ void main() {
           ComputerSetup(applicationIds: const ['cursor']),
         );
 
-        await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+        await tester.pumpWidget(
+          SmartKeysApp(
+            controller: harness.controller,
+            homeOverride: const HomeScreen(),
+          ),
+        );
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('workspace-app-cursor')));
         await tester.pumpAndSettle();

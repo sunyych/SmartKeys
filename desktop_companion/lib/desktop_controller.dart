@@ -460,7 +460,7 @@ class DesktopController extends ChangeNotifier {
   bool _managedActionRunning = false;
   int _applicationRefreshGeneration = 0;
 
-  DesktopManifest _manifest = DesktopManifest.starter();
+  DesktopManifest _manifest = DesktopManifest.regularStarter();
   bool _loading = true;
   String? _error;
   String? _connectedPhone;
@@ -505,8 +505,8 @@ class DesktopController extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
     try {
-      final loaded = await store.load() ?? DesktopManifest.starter();
-      _manifest = _upgradeManifest(loaded);
+      final loaded = await store.load() ?? DesktopManifest.regularStarter();
+      _manifest = _applyRegularDefaults(_upgradeManifest(loaded), loaded);
       if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(_manifest.computerId ?? '')) {
         _manifest = _manifest.copyWith(computerId: _newComputerId());
       }
@@ -515,17 +515,15 @@ class DesktopController extends ChangeNotifier {
         final storedLauncherIds = await launcherKeyStore.load();
         _launcherAppIds = storedLauncherIds.length == 8
             ? storedLauncherIds
-                  .map(
-                    (id) {
-                      final currentId = id == 'codex' ? 'chatgpt' : id;
-                      return currentId != null &&
-                              _manifest.applications.any(
-                                (app) => app.id == currentId,
-                              )
-                          ? currentId
-                          : null;
-                    },
-                  )
+                  .map((id) {
+                    final currentId = id == 'codex' ? 'chatgpt' : id;
+                    return currentId != null &&
+                            _manifest.applications.any(
+                              (app) => app.id == currentId,
+                            )
+                        ? currentId
+                        : null;
+                  })
                   .toList(growable: false)
             : List<String?>.filled(8, null);
       } catch (_) {
@@ -539,7 +537,7 @@ class DesktopController extends ChangeNotifier {
       await store.save(_manifest);
     } catch (error) {
       _error = '$error';
-      _manifest = DesktopManifest.starter();
+      _manifest = DesktopManifest.regularStarter();
     } finally {
       _loading = false;
       notifyListeners();
@@ -923,6 +921,174 @@ class DesktopController extends ChangeNotifier {
       profiles: profiles,
       currentProfileId: currentProfileId,
     );
+  }
+
+  /// Adopt compact defaults only for unedited boards. Preserve saved custom
+  /// bindings, order and overflow, which the mobile UI exposes in pages.
+  static DesktopManifest _applyRegularDefaults(
+    DesktopManifest upgraded,
+    DesktopManifest original,
+  ) {
+    final catalog = DesktopManifest.starter();
+    final regular = DesktopManifest.regularStarter();
+    bool same(RemoteShortcutLayout? left, RemoteShortcutLayout? right) =>
+        left != null &&
+        right != null &&
+        jsonEncode(left.toJson()) == jsonEncode(right.toJson());
+    return upgraded.copyWith(
+      layouts: upgraded.layouts
+          .map((layout) {
+            final saved = original.layoutById(layout.id);
+            if (saved == null ||
+                _regularDefaultCandidates(
+                  catalog.layoutById(layout.id),
+                ).any((candidate) => same(saved, candidate)) ||
+                _regularDefaultCandidates(
+                  regular.layoutById(layout.id),
+                ).any((candidate) => same(saved, candidate))) {
+              return compactDesktopLayout(layout);
+            }
+            // The first Chrome release shipped exactly these two defaults.
+            // Only that exact untouched board adopts the current defaults.
+            final oldChrome = catalog.layoutById('app.chrome')!;
+            final hasLegacyReleaseMarker =
+                original.applications.any((app) => app.id == 'codex') ||
+                original.profiles.any(
+                  (profile) => const {
+                    'windows',
+                    'mac',
+                    'photoshop',
+                    'vscode',
+                    'premiere',
+                  }.contains(profile.id),
+                );
+            if (hasLegacyReleaseMarker &&
+                saved.id == oldChrome.id &&
+                same(
+                  saved,
+                  oldChrome.copyWith(
+                    buttons: oldChrome.buttons.take(2).toList(),
+                  ),
+                )) {
+              return compactDesktopLayout(layout);
+            }
+            if (saved.id == 'chatgpt') {
+              return _migrateCustomChatGpt(saved, layout, original, catalog);
+            }
+            return saved;
+          })
+          .toList(growable: false),
+    );
+  }
+
+  /// Exact, previously shipped platform defaults only: a single edited name,
+  /// binding or order keeps the board outside this migration allowlist.
+  static List<RemoteShortcutLayout> _regularDefaultCandidates(
+    RemoteShortcutLayout? layout,
+  ) {
+    if (layout == null) return const [];
+    final mac = layout.copyWith(
+      buttons: layout.buttons.map((button) {
+        final keys = switch (button.id) {
+          'edge.back' ||
+          'firefox.back' ||
+          'safari.back' => const ['PRIMARY', '['],
+          'edge.forward' ||
+          'firefox.forward' ||
+          'safari.forward' => const ['PRIMARY', ']'],
+          'zoom.mute' => const ['PRIMARY', 'SHIFT', 'A'],
+          'zoom.video' => const ['PRIMARY', 'SHIFT', 'V'],
+          'zoom.hand' => const ['ALT', 'Y'],
+          'zoom.chat' => const ['PRIMARY', 'SHIFT', 'H'],
+          _ => button.shortcut,
+        };
+        return button.copyWith(shortcut: keys);
+      }).toList(),
+    );
+    RemoteShortcutLayout native(
+      RemoteShortcutLayout source,
+      RemoteShortcutPlatform platform,
+    ) => source.copyWith(
+      buttons: source.buttons
+          .map(
+            (button) => button.copyWith(
+              shortcut: resolvePrimaryShortcut(button.shortcut, platform),
+            ),
+          )
+          .toList(),
+    );
+    return [
+      layout,
+      mac,
+      native(layout, RemoteShortcutPlatform.apple),
+      native(mac, RemoteShortcutPlatform.apple),
+      native(layout, RemoteShortcutPlatform.windows),
+    ];
+  }
+
+  static RemoteShortcutLayout _migrateCustomChatGpt(
+    RemoteShortcutLayout saved,
+    RemoteShortcutLayout upgraded,
+    DesktopManifest original,
+    DesktopManifest catalog,
+  ) {
+    final upgradedById = {
+      for (final button in upgraded.buttons) button.id: button,
+    };
+    final defaultsById = {
+      for (final button in catalog.layoutById('chatgpt')!.buttons)
+        button.id: button,
+    };
+    final buttons = <RemoteShortcutButton>[];
+    final seen = <String>{};
+    for (final button in saved.buttons) {
+      final id = button.id == 'chatgpt.codex.sidebar'
+          ? 'chatgpt.sidebar'
+          : button.id;
+      if (!seen.add(id)) {
+        continue;
+      }
+      final unchangedSidebar =
+          id == 'chatgpt.sidebar' &&
+          jsonEncode(button.toJson()) == jsonEncode(defaultsById[id]?.toJson());
+      buttons.add(
+        id != button.id || unchangedSidebar
+            ? upgradedById[id] ?? _copyButtonWithId(button, id)
+            : button,
+      );
+    }
+    // Consolidation may have to retain edits from the old separate Codex
+    // boards. Append only actual user edits, never re-add removed defaults.
+    for (final sourceId in const ['codex', 'vibe.codex']) {
+      final source = original.layoutById(sourceId);
+      final defaults = {
+        for (final button in catalog.layoutById(sourceId)!.buttons)
+          button.id: button,
+      };
+      for (final button in source?.buttons ?? const <RemoteShortcutButton>[]) {
+        if (jsonEncode(button.toJson()) ==
+            jsonEncode(defaults[button.id]?.toJson())) {
+          continue;
+        }
+        final id = sourceId == 'codex'
+            ? _canonicalLegacyCodexButtonId(button.id)
+            : _canonicalLegacyVibeCodexButtonId(button.id);
+        if (id == button.id) {
+          // A custom globally unique ID remains on its original saved board.
+          continue;
+        }
+        final index = buttons.indexWhere((current) => current.id == id);
+        final migrated = _copyButtonWithId(button, id);
+        if (index == -1) {
+          seen.add(id);
+          buttons.add(migrated);
+        } else if (jsonEncode(buttons[index].toJson()) ==
+            jsonEncode(defaultsById[id]?.toJson())) {
+          buttons[index] = migrated;
+        }
+      }
+    }
+    return saved.copyWith(buttons: buttons);
   }
 
   static DesktopManifest _applyPlatformDefaults(

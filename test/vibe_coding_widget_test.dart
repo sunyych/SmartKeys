@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/ui/home_screen.dart';
 import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 
@@ -25,7 +26,12 @@ void main() {
         foreground: 'cursor',
       );
 
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pump();
       await _tapWorkspaceApp(tester, 'cursor');
       await tester.pump();
@@ -147,7 +153,12 @@ void main() {
       running: const {'cursor', 'claude'},
       foreground: 'claude',
     );
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
     await _tapWorkspaceApp(tester, 'cursor');
     await tester.pump();
@@ -184,7 +195,12 @@ void main() {
       foreground: 'cursor',
     );
 
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
     await _tapWorkspaceApp(tester, 'cursor');
     await tester.pumpAndSettle();
@@ -271,7 +287,12 @@ void main() {
       ComputerSetup(applicationIds: const ['cursor']),
     );
 
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pump();
     await _tapWorkspaceApp(tester, 'cursor');
     await tester.pump();

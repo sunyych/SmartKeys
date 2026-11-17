@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/app_edition.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/hid_service.dart';
@@ -75,7 +76,10 @@ void main() {
     expect(find.text('Edit buttons'), findsOneWidget);
     await tester.tap(find.text('Edit buttons'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('edit-navigation-control')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('edit-navigation-control')),
+      findsOneWidget,
+    );
     await shots.capture(
       id: 'phone-home-editing',
       title: 'Home control surface · editing',
@@ -881,6 +885,7 @@ Widget _app(TestHarness harness, GlobalKey boundaryKey, Widget page) =>
       boundaryKey,
       SmartKeysScope(
         controller: harness.controller,
+        edition: page is SettingsScreen ? AppEdition.lite : AppEdition.regular,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: ThemeData(

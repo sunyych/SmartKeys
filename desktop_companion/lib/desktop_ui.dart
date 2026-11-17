@@ -690,18 +690,15 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 900
-                    ? 4
-                    : constraints.maxWidth >= 600
-                    ? 3
-                    : 2;
+                final columns = constraints.maxWidth >= 600 ? 4 : 2;
                 return GridView.builder(
                   itemCount: selected.buttons.length,
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columns,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    childAspectRatio: 1.65,
+                    mainAxisExtent:
+                        120 + MediaQuery.textScalerOf(context).scale(32),
                   ),
                   itemBuilder: (context, index) {
                     final button = selected.buttons[index];
@@ -729,6 +726,8 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                               const Spacer(),
                               Text(
                                 button.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                               const SizedBox(height: 3),
