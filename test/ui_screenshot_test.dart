@@ -75,7 +75,7 @@ void main() {
     expect(find.text('Edit buttons'), findsOneWidget);
     await tester.tap(find.text('Edit buttons'));
     await tester.pumpAndSettle();
-    expect(find.text('Editing'), findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-navigation-control')), findsOneWidget);
     await shots.capture(
       id: 'phone-home-editing',
       title: 'Home control surface · editing',
@@ -330,8 +330,17 @@ void main() {
     final settingsKey = GlobalKey();
     await tester.pumpWidget(_app(harness, settingsKey, const SettingsScreen()));
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).first, const Offset(0, -1800));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('BUILT-IN TEMPLATES'),
+      260,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('settings-list')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      maxScrolls: 30,
+    );
     expect(find.text('BUILT-IN TEMPLATES'), findsOneWidget);
     await shots.capture(
       id: 'phone-settings-lower-sections',
@@ -536,12 +545,12 @@ void main() {
       expect(phoneMic.top, greaterThanOrEqualTo(0));
       await tester.tap(micFinder);
       await tester.pumpAndSettle();
-      // The controller throttles meter updates against a Stopwatch. Emit from
-      // real async time so the test fake's stream zone cannot defer the sample.
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-        capture.emitPcm();
-      });
+      // The audio meter deliberately ignores updates during its first 40 ms.
+      // Let that startup window pass before sending this test's only PCM frame.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 60)),
+      );
+      capture.emitPcm();
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('stop-dictation-compact')),

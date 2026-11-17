@@ -10,6 +10,17 @@ class DesktopShortcutTransferService {
 
   static const format = 'lumiakeys.desktop.shortcuts';
   static const version = 1;
+  static const maxLayouts = 64;
+  static const maxButtonsPerLayout = 40;
+  static const maxTotalButtons = 1024;
+  static const _vibeApps = {'codex', 'claude', 'cursor'};
+  static const _vibeSystemActions = {
+    'comma',
+    'period',
+    'exclamation',
+    'quote',
+    'screenshot',
+  };
 
   String encode(DesktopManifest manifest) =>
       const JsonEncoder.withIndent('  ').convert({
@@ -38,10 +49,36 @@ class DesktopShortcutTransferService {
           );
         })
         .toList(growable: false);
+    final totalButtons = layouts.fold<int>(
+      0,
+      (total, layout) => total + layout.buttons.length,
+    );
     if (layouts.isEmpty ||
-        layouts.any((layout) => layout.buttons.length > 15) ||
+        layouts.length > maxLayouts ||
+        totalButtons > maxTotalButtons ||
+        layouts.any((layout) => layout.buttons.length > maxButtonsPerLayout) ||
         layouts.map((layout) => layout.id).toSet().length != layouts.length) {
       throw const FormatException('Invalid Desktop shortcut layout set.');
+    }
+    for (final layout in layouts) {
+      for (final button in layout.buttons) {
+        if (button.targetType != RemoteTargetType.system) continue;
+        final actionId = button.target ?? '';
+        final isVibeAction =
+            layout.id.startsWith('vibe.') &&
+            _vibeApps.contains(layout.id.substring('vibe.'.length)) &&
+            button.id ==
+                'vibe.${layout.id.substring('vibe.'.length)}.$actionId';
+        final isUnifiedChatGptCodexAction =
+            layout.id == 'chatgpt' &&
+            _vibeApps.contains('codex') &&
+            button.id == 'chatgpt.codex.$actionId';
+        if ((!isVibeAction && !isUnifiedChatGptCodexAction) ||
+            !_vibeSystemActions.contains(actionId) ||
+            actionId.isEmpty) {
+          throw const FormatException('Invalid fixed Desktop system action.');
+        }
+      }
     }
     return layouts;
   }

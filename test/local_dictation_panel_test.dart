@@ -25,6 +25,46 @@ Future<void> _tapVisible(WidgetTester tester, Finder target) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('Vibe Local Dictation is forced to Desktop per entry', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'dictation.output_mode.v1': 'bluetoothEnglish',
+    });
+    final hid = _readyHid();
+    addTearDown(hid.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LocalDictationPanel(
+            hid: hid,
+            modelManager: _FakeModelManager(),
+            capture: _FakeCapture(),
+            recognizerFactory: (_, _) async => _FakeRecognizer(),
+            enableWakeLock: () async {},
+            disableWakeLock: () async {},
+            forceDesktopOutput: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('LumiaKey Desktop · multilingual'), findsOneWidget);
+    final mode = tester.widget<DropdownButtonFormField<DictationOutputMode>>(
+      find.byKey(const ValueKey('dictation-output-mode')),
+    );
+    expect(find.text('LumiaKey Desktop · multilingual'), findsOneWidget);
+    expect(mode.onChanged, isNull);
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        'dictation.output_mode.v1',
+      ),
+      'bluetoothEnglish',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'first use explains both entries and does not open the microphone',
     (tester) async {
@@ -789,6 +829,116 @@ void main() {
       companion.dispose();
     },
   );
+
+  testWidgets(
+    'public Stop cancels a pending quick-start without opening the mic',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        dictationConsentPreferenceKey: true,
+      });
+      final capture = _FakeCapture();
+      final hid = _readyHid();
+      final factoryStarted = Completer<void>();
+      final finishFactory = Completer<DictationRecognizer>();
+      final entryKey = GlobalKey<LocalDictationEntryButtonState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LocalDictationEntryButton(
+              key: entryKey,
+              hid: hid,
+              modelManager: _FakeModelManager(),
+              capture: capture,
+              recognizerFactory: (_, _) {
+                if (!factoryStarted.isCompleted) factoryStarted.complete();
+                return finishFactory.future;
+              },
+              enableWakeLock: () async {},
+              disableWakeLock: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await entryKey.currentState!.startQuickDictation();
+      for (var frame = 0; frame < 20 && !factoryStarted.isCompleted; frame++) {
+        await tester.pump(const Duration(milliseconds: 10));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(factoryStarted.isCompleted, isTrue);
+      final stopping = entryKey.currentState!.stopQuickDictation();
+      finishFactory.complete(_FakeRecognizer());
+      await stopping;
+      await tester.pumpAndSettle();
+      expect(capture.startCount, 0);
+      expect(entryKey.currentState!.isEntryOpen, isFalse);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      await capture.dispose();
+      hid.dispose();
+    },
+  );
+
+  testWidgets('repeated public Stop calls share one final flush', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      dictationConsentPreferenceKey: true,
+    });
+    final capture = _FakeCapture();
+    final hid = _readyHid();
+    final batchStarted = Completer<void>();
+    final batchRelease = Completer<void>();
+    hid.onTextBatch = () {
+      if (!batchStarted.isCompleted) batchStarted.complete();
+      return batchRelease.future;
+    };
+    final entryKey = GlobalKey<LocalDictationEntryButtonState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LocalDictationEntryButton(
+            key: entryKey,
+            hid: hid,
+            modelManager: _FakeModelManager(),
+            capture: capture,
+            recognizerFactory: (_, _) async => _FakeRecognizer(),
+            enableWakeLock: () async {},
+            disableWakeLock: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await entryKey.currentState!.startQuickDictation();
+    await tester.pumpAndSettle();
+    capture.audio.add(
+      List<int>.generate(3200, (index) => index.isEven ? 16 : 39),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+    final firstStop = entryKey.currentState!.stopQuickDictation();
+    final secondStop = entryKey.currentState!.stopQuickDictation();
+    for (var frame = 0; frame < 20 && !batchStarted.isCompleted; frame++) {
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1)),
+      );
+    }
+    expect(batchStarted.isCompleted, isTrue);
+    expect(capture.stopCount, 1);
+    expect(hid.textBatches, hasLength(1));
+    batchRelease.complete();
+    await Future.wait([firstStop, secondStop]);
+    await tester.pumpAndSettle();
+    expect(capture.stopCount, 1);
+    expect(hid.textBatches, hasLength(1));
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    await capture.dispose();
+    hid.dispose();
+  });
 
   testWidgets(
     'live panel collapses without blocking shortcuts and shows PCM level',

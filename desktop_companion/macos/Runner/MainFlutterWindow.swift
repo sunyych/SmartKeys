@@ -6,6 +6,8 @@ import Carbon
 class MainFlutterWindow: NSWindow {
   private var systemControlChannel: FlutterMethodChannel?
   private var dictationChannel: FlutterMethodChannel?
+  private var pointerChannel: FlutterMethodChannel?
+  private var vibeSystemChannel: FlutterMethodChannel?
   private var hotKey: EventHotKeyRef?
   private var eventHandler: EventHandlerRef?
 
@@ -112,6 +114,92 @@ class MainFlutterWindow: NSWindow {
     }
     dictationChannel = dictation
 
+    let pointer = FlutterMethodChannel(
+      name: "lumiakeys/pointer",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    pointer.setMethodCallHandler { call, result in
+      guard call.method == "apply",
+            let arguments = call.arguments as? [String: Any],
+            let inputs = arguments["inputs"] as? [[String: Any]],
+            !inputs.isEmpty, inputs.count <= 32 else {
+        result(FlutterError(code: "pointer_rejected", message: "Invalid pointer batch", details: nil))
+        return
+      }
+      guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else {
+        result(FlutterError(code: "pointer_permission_missing", message: "Allow LumiaKey Desktop in macOS Accessibility settings", details: nil))
+        return
+      }
+      for input in inputs {
+        guard let kind = input["kind"] as? String else {
+          result(FlutterError(code: "pointer_rejected", message: "Invalid pointer input", details: nil))
+          return
+        }
+        switch kind {
+        case "move":
+          guard let x = input["x"] as? Int, let y = input["y"] as? Int,
+                (-127...127).contains(x), (-127...127).contains(y),
+                let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                                    mouseCursorPosition: CGEvent(source: nil)?.location ?? .zero,
+                                    mouseButton: .left) else {
+            result(FlutterError(code: "pointer_rejected", message: "Invalid movement", details: nil))
+            return
+          }
+          event.setIntegerValueField(.mouseEventDeltaX, value: Int64(x))
+          event.setIntegerValueField(.mouseEventDeltaY, value: Int64(y))
+          event.post(tap: .cghidEventTap)
+        case "scroll":
+          guard let y = input["y"] as? Int, y != 0, (-127...127).contains(y),
+                let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                                    wheelCount: 1, wheel1: Int32(y * 10),
+                                    wheel2: 0, wheel3: 0) else {
+            result(FlutterError(code: "pointer_rejected", message: "Invalid scroll", details: nil))
+            return
+          }
+          event.post(tap: .cghidEventTap)
+        case "button":
+          guard let secondary = input["secondary"] as? Bool else {
+            result(FlutterError(code: "pointer_rejected", message: "Invalid button", details: nil))
+            return
+          }
+          let button: CGMouseButton = secondary ? .right : .left
+          let down: CGEventType = secondary ? .rightMouseDown : .leftMouseDown
+          let up: CGEventType = secondary ? .rightMouseUp : .leftMouseUp
+          let location = CGEvent(source: nil)?.location ?? .zero
+          guard let downEvent = CGEvent(mouseEventSource: nil, mouseType: down,
+                                        mouseCursorPosition: location, mouseButton: button),
+                let upEvent = CGEvent(mouseEventSource: nil, mouseType: up,
+                                      mouseCursorPosition: location, mouseButton: button) else {
+            result(FlutterError(code: "pointer_rejected", message: "Could not create button event", details: nil))
+            return
+          }
+          downEvent.post(tap: .cghidEventTap)
+          upEvent.post(tap: .cghidEventTap)
+        default:
+          result(FlutterError(code: "pointer_rejected", message: "Unsupported pointer input", details: nil))
+          return
+        }
+      }
+      result(nil)
+    }
+    pointerChannel = pointer
+
+    let vibeSystem = FlutterMethodChannel(
+      name: "lumiakeys/vibe_system_tools",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    vibeSystem.setMethodCallHandler { call, result in
+      guard call.method == "execute",
+            let arguments = call.arguments as? [String: Any],
+            let appId = arguments["appId"] as? String,
+            let actionId = arguments["actionId"] as? String else {
+        result(["status": "rejected", "reason": "invalid_arguments"])
+        return
+      }
+      result(Self.executeVibeSystemAction(appId: appId, actionId: actionId))
+    }
+    vibeSystemChannel = vibeSystem
+
     super.awakeFromNib()
   }
 
@@ -160,13 +248,20 @@ class MainFlutterWindow: NSWindow {
     let element: AXUIElement
   }
 
-  private static func insertText(_ text: String) -> [String: String] {
+  private static func insertText(
+    _ text: String,
+    expectedAppId: String? = nil,
+    moveCaretLeft: Bool = false
+  ) -> [String: String] {
     guard AXIsProcessTrusted() else { return ["status": "rejected", "reason": "accessibility_permission_missing"] }
     guard CGPreflightPostEventAccess() else { return ["status": "rejected", "reason": "event_permission_missing"] }
     guard !text.isEmpty, text.utf16.count <= 8000 else { return ["status": "rejected", "reason": text.isEmpty ? "empty_text" : "text_too_long"] }
     guard text.unicodeScalars.allSatisfy({ !isUnsupportedControl($0) }) else { return ["status": "rejected", "reason": "unsupported_control_character"] }
     guard let target = focusedTarget(), target.pid != ProcessInfo.processInfo.processIdentifier else {
       return ["status": "rejected", "reason": "own_or_invalid_foreground"]
+    }
+    if let expectedAppId, !matchesVibeApp(expectedAppId, pid: target.pid) {
+      return ["status": "rejected", "reason": "wrong_foreground_app"]
     }
     guard !hasHeldModifier() else { return ["status": "rejected", "reason": "held_modifier"] }
     let units = Array(text.utf16)
@@ -175,6 +270,7 @@ class MainFlutterWindow: NSWindow {
     while offset < units.count {
       guard AXIsProcessTrusted(), CGPreflightPostEventAccess(),
             focusedTarget().map({ sameTarget(target, $0) }) == true,
+            expectedAppId.map({ matchesVibeApp($0, pid: target.pid) }) ?? true,
             !hasHeldModifier() else {
         return ["status": posted ? "partial" : "rejected", "reason": "target_or_permission_changed"]
       }
@@ -203,7 +299,78 @@ class MainFlutterWindow: NSWindow {
     guard focusedTarget().map({ sameTarget(target, $0) }) == true else {
       return ["status": "partial", "reason": "foreground_window_changed"]
     }
+    if moveCaretLeft {
+      guard expectedAppId.map({ matchesVibeApp($0, pid: target.pid) }) ?? true,
+            !hasHeldModifier(),
+            let down = CGEvent(keyboardEventSource: nil, virtualKey: UInt16(kVK_LeftArrow), keyDown: true),
+            let up = CGEvent(keyboardEventSource: nil, virtualKey: UInt16(kVK_LeftArrow), keyDown: false) else {
+        return ["status": "partial", "reason": "caret_move_rejected"]
+      }
+      down.flags = []
+      up.flags = []
+      down.post(tap: .cghidEventTap)
+      up.post(tap: .cghidEventTap)
+    }
     return ["status": "submitted", "reason": "all_events_posted"]
+  }
+
+  private static func executeVibeSystemAction(appId: String, actionId: String) -> [String: String] {
+    guard ["codex", "claude", "cursor"].contains(appId) else {
+      return ["status": "rejected", "reason": "unsupported_app"]
+    }
+    guard ["comma", "period", "exclamation", "quote", "screenshot"].contains(actionId) else {
+      return ["status": "rejected", "reason": "unsupported_action"]
+    }
+    guard let target = focusedTarget(), target.pid != ProcessInfo.processInfo.processIdentifier else {
+      return ["status": "rejected", "reason": "own_or_invalid_foreground"]
+    }
+    guard matchesVibeApp(appId, pid: target.pid) else {
+      return ["status": "rejected", "reason": "wrong_foreground_app"]
+    }
+    guard !hasHeldModifier() else {
+      return ["status": "rejected", "reason": "held_modifier"]
+    }
+    if actionId == "screenshot" {
+      guard focusedTarget().map({ sameTarget(target, $0) }) == true,
+            matchesVibeApp(appId, pid: target.pid),
+            !hasHeldModifier() else {
+        return ["status": "rejected", "reason": "foreground_changed_or_modifier_held"]
+      }
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+      process.arguments = ["-i", "-c"]
+      do {
+        try process.run()
+        return ["status": "launched"]
+      } catch {
+        return ["status": "rejected", "reason": "screenshot_launch_failed"]
+      }
+    }
+    let text: String
+    switch actionId {
+    case "comma": text = "，"
+    case "period": text = "。"
+    case "exclamation": text = "！"
+    default: text = "「」"
+    }
+    let insertion = insertText(text, expectedAppId: appId, moveCaretLeft: actionId == "quote")
+    if insertion["status"] == "submitted" {
+      return ["status": "delivered"]
+    }
+    return insertion
+  }
+
+  private static func matchesVibeApp(_ expectedAppId: String, pid: pid_t) -> Bool {
+    guard let app = NSRunningApplication(processIdentifier: pid),
+          let executable = app.executableURL?.deletingPathExtension().lastPathComponent.lowercased() else {
+      return false
+    }
+    switch expectedAppId {
+    case "codex": return executable == "codex" || executable == "chatgpt"
+    case "claude": return executable == "claude"
+    case "cursor": return executable == "cursor"
+    default: return false
+    }
   }
 
   private static func focusedTarget() -> FocusedTarget? {

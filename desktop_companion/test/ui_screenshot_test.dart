@@ -388,7 +388,7 @@ void main() {
       760,
       'Flutter widget test render confirming the actual mute status returned by the native control fixture.',
     );
-    await controller.assignLauncherApp(0, 'codex');
+    await controller.assignLauncherApp(0, 'chatgpt');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('launcher-edit-0')));
     await tester.pumpAndSettle();

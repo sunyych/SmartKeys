@@ -7,11 +7,250 @@ enum RemoteTargetType {
   openUrl,
   macro,
   script,
+  system,
 }
 
 enum RemoteLayoutKind { keyboard, application, codex }
 
+/// Host families used when resolving portable shortcut defaults.
+enum RemoteShortcutPlatform { apple, windows, other }
+
+const int chatGptShortcutsPerPage = 15;
+
+/// Fixed page-one controls, ordered by expected everyday use. IDs remain the
+/// source of truth so custom names and shortcut bindings do not affect order.
+const List<String> chatGptPrimaryShortcutIds = <String>[
+  'chatgpt.newChat',
+  'chatgpt.codex.send',
+  'chatgpt.codex.copy',
+  'chatgpt.codex.paste',
+  'chatgpt.codex.alternateSend',
+  'chatgpt.codex.focusInput',
+  'chatgpt.codex.backspace',
+  'chatgpt.codex.cut',
+  'chatgpt.codex.deleteToStart',
+  'chatgpt.find',
+  'chatgpt.sidebar',
+  'chatgpt.chatView',
+  'chatgpt.codexMode',
+  'chatgpt.codex.project',
+  'chatgpt.previousChat',
+];
+
+const List<String> chatGptSecondaryShortcutIds = <String>[
+  'chatgpt.codex.review',
+  'chatgpt.codex.openFolder',
+  'chatgpt.codex.commandMenu',
+  'chatgpt.codex.terminal',
+  'chatgpt.codex.voiceMode',
+  'chatgpt.codex.toggleVoiceMode',
+  'chatgpt.codex.voiceInput',
+  'chatgpt.codex.cancelClear',
+  'chatgpt.codex.nextChat',
+  'chatgpt.codex.nextProject',
+  'chatgpt.nextChat',
+  'chatgpt.codex.searchChats',
+  'chatgpt.codex.findInChat',
+  'chatgpt.codex.screenshot',
+  'chatgpt.startVoice',
+  'chatgpt.codex.voice',
+  'chatgpt.codex.comma',
+  'chatgpt.codex.period',
+  'chatgpt.codex.exclamation',
+  'chatgpt.codex.quote',
+];
+
+/// Orders the ChatGPT layout for fixed-frequency use on phone/tablet pages.
+/// This changes presentation order only; IDs, shortcut bindings, and user
+/// supplied actions are retained. Review is first among secondary controls.
+RemoteShortcutLayout orderChatGptLayout(RemoteShortcutLayout layout) {
+  if (layout.id != 'chatgpt') return layout;
+
+  final rank = {
+    for (var index = 0; index < chatGptPrimaryShortcutIds.length; index++)
+      chatGptPrimaryShortcutIds[index]: index,
+  };
+  final primary =
+      layout.buttons
+          .where((button) => rank.containsKey(button.id))
+          .toList(growable: false)
+        ..sort((left, right) => rank[left.id]!.compareTo(rank[right.id]!));
+  final secondary = layout.buttons
+      .where((button) => !rank.containsKey(button.id))
+      .toList(growable: true);
+  final secondaryRank = {
+    for (var index = 0; index < chatGptSecondaryShortcutIds.length; index++)
+      chatGptSecondaryShortcutIds[index]: index,
+  };
+  secondary.sort((left, right) {
+    final leftRank =
+        secondaryRank[left.id] ?? chatGptSecondaryShortcutIds.length;
+    final rightRank =
+        secondaryRank[right.id] ?? chatGptSecondaryShortcutIds.length;
+    final rankOrder = leftRank.compareTo(rightRank);
+    return rankOrder == 0 ? left.id.compareTo(right.id) : rankOrder;
+  });
+  return layout.copyWith(buttons: [...primary, ...secondary]);
+}
+
+/// Replaces the portable PRIMARY modifier with the host's native modifier.
+List<String> resolvePrimaryShortcut(
+  Iterable<String> keys,
+  RemoteShortcutPlatform platform,
+) => keys
+    .map((key) {
+      final normalized = key.trim().toUpperCase();
+      if (normalized != 'PRIMARY') return normalized;
+      return platform == RemoteShortcutPlatform.apple ? 'COMMAND' : 'CTRL';
+    })
+    .toList(growable: false);
+
+/// Applies the platform-specific defaults and availability for ChatGPT.
+/// Stored layouts are immutable inputs; callers should retain the original so
+/// a temporarily hidden platform action does not erase a user's binding.
+RemoteShortcutLayout projectChatGptLayout(
+  RemoteShortcutLayout layout,
+  RemoteShortcutPlatform platform,
+) {
+  if (layout.id != 'chatgpt') return layout;
+
+  const chatViewId = 'chatgpt.chatView';
+  const codexModeId = 'chatgpt.codexMode';
+  const searchChatsId = 'chatgpt.codex.searchChats';
+  const voiceId = 'chatgpt.startVoice';
+  final buttons = <RemoteShortcutButton>[];
+  for (final button in layout.buttons) {
+    if (platform == RemoteShortcutPlatform.other &&
+        button.targetType == RemoteTargetType.system) {
+      continue;
+    }
+    if (platform == RemoteShortcutPlatform.windows &&
+        button.shortcut.any(
+          (key) => const {'COMMAND', 'META', 'WIN'}.contains(key.toUpperCase()),
+        )) {
+      continue;
+    }
+    if (button.id == 'chatgpt.codex.voice' ||
+        (button.id == voiceId &&
+            platform != RemoteShortcutPlatform.apple &&
+            _sameShortcut(button.shortcut, const ['CTRL', 'SHIFT', 'V']))) {
+      continue;
+    }
+    // Search Chats is not currently assigned by ChatGPT. Keep a custom user
+    // assignment visible, while suppressing the unassigned starter binding.
+    if (button.id == searchChatsId &&
+        _isUnassignedSearchDefault(button.shortcut)) {
+      continue;
+    }
+
+    if ((button.id == 'chatgpt.codex.previousChat' &&
+            _isDuplicateConversationDefault(button.shortcut, const ['['])) ||
+        (button.id == 'chatgpt.codex.nextChat' &&
+            _isDuplicateConversationDefault(button.shortcut, const [']']))) {
+      continue;
+    }
+
+    if (button.id == chatViewId || button.id == codexModeId) {
+      final digit = button.id == chatViewId ? '1' : '3';
+      final defaultKeys = platform == RemoteShortcutPlatform.apple
+          ? <String>['CTRL', digit]
+          : <String>['ALT', digit];
+      final isKnownDefault =
+          _sameShortcut(button.shortcut, ['ALT', digit]) ||
+          _sameShortcut(button.shortcut, ['CTRL', digit]);
+      if (isKnownDefault) {
+        buttons.add(button.copyWith(shortcut: defaultKeys));
+        continue;
+      }
+    }
+    buttons.add(
+      button.copyWith(
+        shortcut: resolvePrimaryShortcut(button.shortcut, platform),
+      ),
+    );
+  }
+  return orderChatGptLayout(layout.copyWith(buttons: buttons));
+}
+
+bool _isUnassignedSearchDefault(List<String> keys) => [
+  const ['PRIMARY', 'G'],
+  const ['CTRL', 'G'],
+  const ['COMMAND', 'G'],
+  const ['META', 'G'],
+].any((candidate) => _sameShortcut(keys, candidate));
+
+bool _isDuplicateConversationDefault(List<String> keys, List<String> ending) =>
+    [
+      ['PRIMARY', 'SHIFT', ...ending],
+      ['CTRL', 'SHIFT', ...ending],
+      ['COMMAND', 'SHIFT', ...ending],
+      ['META', 'SHIFT', ...ending],
+    ].any((candidate) => _sameShortcut(keys, candidate));
+
+bool _sameShortcut(List<String> left, List<String> right) =>
+    left.length == right.length &&
+    List.generate(
+      left.length,
+      (index) =>
+          left[index].trim().toUpperCase() == right[index].trim().toUpperCase(),
+    ).every((same) => same);
+
 enum RemoteActionKind { button, launchApplication, switchProfile }
+
+enum PointerInputKind { move, scroll, button }
+
+class PointerInput {
+  const PointerInput.move(this.x, this.y)
+    : kind = PointerInputKind.move,
+      secondary = null;
+  const PointerInput.scroll(this.y)
+    : kind = PointerInputKind.scroll,
+      x = 0,
+      secondary = null;
+  const PointerInput.button({required this.secondary})
+    : kind = PointerInputKind.button,
+      x = 0,
+      y = 0;
+
+  final PointerInputKind kind;
+  final int x;
+  final int y;
+  final bool? secondary;
+
+  Map<String, Object?> toJson() => {
+    'kind': kind.name,
+    if (kind == PointerInputKind.move) 'x': x,
+    if (kind != PointerInputKind.button) 'y': y,
+    if (kind == PointerInputKind.button) 'secondary': secondary,
+  };
+
+  factory PointerInput.fromJson(Map<String, Object?> json) {
+    final kind = PointerInputKind.values.firstWhere(
+      (value) => value.name == json['kind'],
+      orElse: () => throw const FormatException('Unsupported pointer input'),
+    );
+    final x = json['x'];
+    final y = json['y'];
+    final secondary = json['secondary'];
+    switch (kind) {
+      case PointerInputKind.move:
+        if (x is! int || y is! int || x.abs() > 127 || y.abs() > 127) {
+          throw const FormatException('Invalid pointer movement');
+        }
+        return PointerInput.move(x, y);
+      case PointerInputKind.scroll:
+        if (y is! int || y == 0 || y.abs() > 127) {
+          throw const FormatException('Invalid pointer scroll');
+        }
+        return PointerInput.scroll(y);
+      case PointerInputKind.button:
+        if (secondary is! bool) {
+          throw const FormatException('Invalid pointer button');
+        }
+        return PointerInput.button(secondary: secondary);
+    }
+  }
+}
 
 class RemoteShortcutButton {
   const RemoteShortcutButton({
@@ -274,6 +513,7 @@ class DesktopManifest {
     required this.layouts,
     required this.applications,
     required this.profiles,
+    this.computerId,
     this.schemaVersion = 1,
     this.applicationActivationSequence = 0,
     this.activatedApplicationId,
@@ -286,6 +526,10 @@ class DesktopManifest {
   final List<RemoteShortcutLayout> layouts;
   final List<RemoteApplication> applications;
   final List<RemoteProfile> profiles;
+
+  /// Stable local Desktop identity used to keep phone preferences associated
+  /// with this machine. It never carries the auth token or network address.
+  final String? computerId;
   final int applicationActivationSequence;
   final String? activatedApplicationId;
 
@@ -322,6 +566,7 @@ class DesktopManifest {
     List<RemoteShortcutLayout>? layouts,
     List<RemoteApplication>? applications,
     List<RemoteProfile>? profiles,
+    String? computerId,
     int? applicationActivationSequence,
     String? activatedApplicationId,
   }) => DesktopManifest(
@@ -332,6 +577,7 @@ class DesktopManifest {
     layouts: layouts ?? this.layouts,
     applications: applications ?? this.applications,
     profiles: profiles ?? this.profiles,
+    computerId: computerId ?? this.computerId,
     applicationActivationSequence:
         applicationActivationSequence ?? this.applicationActivationSequence,
     activatedApplicationId:
@@ -356,6 +602,7 @@ class DesktopManifest {
       'schemaVersion': schemaVersion,
       'revision': revision,
       'currentProfileId': currentProfileId,
+      'computerId': computerId,
       'settings': settings.toJson(),
       'layouts': layouts
           .map((layout) => layout.toJson(includeIcons: includeIcons))
@@ -378,6 +625,7 @@ class DesktopManifest {
       schemaVersion: schemaVersion! as int,
       revision: json['revision'] is int ? json['revision']! as int : 1,
       currentProfileId: _requiredString(json, 'currentProfileId'),
+      computerId: _nullableString(json['computerId']),
       settings: RemoteSettings.fromJson(_requiredMap(json, 'settings')),
       layouts: _mapList(
         json['layouts'],
@@ -533,6 +781,61 @@ class DesktopManifest {
       shortcut('chrome.refresh', 'Refresh', 'refresh', ['PRIMARY', 'R']),
       shortcut('chrome.address', 'Address', 'link', ['PRIMARY', 'L']),
     ]);
+    RemoteShortcutLayout browserLayout(String appId, String name) =>
+        appLayout('app.$appId', name, [
+          shortcut('$appId.newTab', 'New Tab', 'add', ['PRIMARY', 'T']),
+          shortcut('$appId.closeTab', 'Close Tab', 'close', ['PRIMARY', 'W']),
+          shortcut('$appId.previousTab', 'Previous Tab', 'arrow_back', [
+            'CTRL',
+            'SHIFT',
+            'TAB',
+          ]),
+          shortcut('$appId.nextTab', 'Next Tab', 'arrow_forward', [
+            'CTRL',
+            'TAB',
+          ]),
+          shortcut('$appId.address', 'Address', 'link', ['PRIMARY', 'L']),
+          shortcut('$appId.find', 'Find on Page', 'search', ['PRIMARY', 'F']),
+          shortcut('$appId.back', 'Go Back', 'arrow_back', ['ALT', 'LEFT']),
+          shortcut('$appId.forward', 'Go Forward', 'arrow_forward', [
+            'ALT',
+            'RIGHT',
+          ]),
+          shortcut('$appId.refresh', 'Refresh', 'refresh', ['PRIMARY', 'R']),
+          shortcut('$appId.bookmark', 'Bookmark', 'bookmark', ['PRIMARY', 'D']),
+        ]);
+    final firefox = browserLayout('firefox', 'Firefox');
+    final edge = browserLayout('edge', 'Microsoft Edge');
+    final safari = browserLayout('safari', 'Safari');
+    RemoteShortcutLayout meetingLayout(
+      String appId,
+      String name,
+      List<String> mute,
+      List<String> video,
+      List<String> hand,
+      List<String>? chat,
+    ) => appLayout('app.$appId', name, [
+      shortcut('$appId.mute', 'Mute / Unmute', 'mic_off', mute),
+      shortcut('$appId.video', 'Camera On / Off', 'videocam', video),
+      shortcut('$appId.hand', 'Raise / Lower Hand', 'pan_tool', hand),
+      if (chat != null) shortcut('$appId.chat', 'Meeting Chat', 'chat', chat),
+    ]);
+    final teams = meetingLayout(
+      'teams',
+      'Microsoft Teams',
+      ['PRIMARY', 'SHIFT', 'M'],
+      ['PRIMARY', 'SHIFT', 'O'],
+      ['PRIMARY', 'SHIFT', 'K'],
+      null,
+    );
+    final zoom = meetingLayout(
+      'zoom',
+      'Zoom',
+      ['ALT', 'A'],
+      ['ALT', 'V'],
+      ['ALT', 'Y'],
+      ['ALT', 'H'],
+    );
     final illustrator = appLayout('app.illustrator', 'Illustrator', [
       shortcut('illustrator.open', 'Open', 'folder_open', ['PRIMARY', 'O']),
       shortcut('illustrator.save', 'Save', 'save', ['PRIMARY', 'S']),
@@ -603,6 +906,244 @@ class DesktopManifest {
         shortcut('codex.sidebar', 'Sidebar', 'menu_open', ['PRIMARY', 'B']),
       ],
     );
+    RemoteShortcutLayout vibeLayout(
+      String id,
+      String name,
+      List<RemoteShortcutButton> buttons,
+    ) => RemoteShortcutLayout(
+      id: 'vibe.$id',
+      name: 'Vibe Coding · $name',
+      kind: RemoteLayoutKind.application,
+      buttons: buttons,
+    );
+    RemoteShortcutButton vibeShortcut(
+      String app,
+      String action,
+      String name,
+      String icon,
+      List<String> keys,
+    ) => shortcut('vibe.$app.$action', name, icon, keys);
+    RemoteShortcutButton deleteToStartButton(
+      String app,
+    ) => RemoteShortcutButton(
+      id: 'vibe.$app.deleteToStart',
+      name: 'Delete to Line Start',
+      icon: 'format_clear',
+      targetType: RemoteTargetType.keyboardShortcut,
+      shortcut: ['SHIFT', 'HOME'],
+      description:
+          'Select to the start of the current line, then delete. Desktop checks focus before both steps.',
+    );
+    RemoteShortcutButton vibeSystemButton(
+      String app,
+      String action,
+      String name,
+      String icon,
+    ) => RemoteShortcutButton(
+      id: 'vibe.$app.$action',
+      name: name,
+      icon: icon,
+      targetType: RemoteTargetType.system,
+      target: action,
+      description:
+          'Desktop built-in $name action. Fixed action; no custom text or script.',
+    );
+    List<RemoteShortcutButton> vibeEditingButtons(String app) => [
+      vibeShortcut(app, 'send', 'Send', 'send', ['ENTER']),
+      vibeShortcut(
+        app,
+        'alternateSend',
+        'Alternate Send (app-defined)',
+        'keyboard_return',
+        ['PRIMARY', 'ENTER'],
+      ),
+      vibeShortcut(app, 'backspace', 'Backspace', 'backspace', ['BACKSPACE']),
+      deleteToStartButton(app),
+      vibeShortcut(app, 'copy', 'Copy', 'copy', ['PRIMARY', 'C']),
+      vibeShortcut(app, 'paste', 'Paste', 'paste', ['PRIMARY', 'V']),
+      vibeShortcut(app, 'cut', 'Cut', 'content_cut', ['PRIMARY', 'X']),
+      vibeSystemButton(app, 'comma', 'Insert Comma', 'text_fields'),
+      vibeSystemButton(app, 'period', 'Insert Period', 'text_fields'),
+      vibeSystemButton(app, 'exclamation', 'Insert Exclamation', 'text_fields'),
+      vibeSystemButton(app, 'quote', 'Insert Quotation Marks', 'format_quote'),
+      vibeSystemButton(app, 'screenshot', 'Screenshot Selection', 'screenshot'),
+    ];
+    final vibeCodex = vibeLayout('codex', 'Codex', [
+      vibeShortcut('codex', 'project', 'Open Project', 'folder_open', [
+        'PRIMARY',
+        'ALT',
+        'SHIFT',
+        'O',
+      ]),
+      vibeShortcut('codex', 'newChat', 'New Chat', 'add', ['PRIMARY', 'N']),
+      vibeShortcut(
+        'codex',
+        'focusInput',
+        'Focus Input',
+        'center_focus_strong',
+        ['ESC'],
+      ),
+      vibeShortcut('codex', 'previousChat', 'Previous Chat', 'arrow_back', [
+        'PRIMARY',
+        'SHIFT',
+        '[',
+      ]),
+      vibeShortcut('codex', 'nextChat', 'Next Chat', 'arrow_forward', [
+        'PRIMARY',
+        'SHIFT',
+        ']',
+      ]),
+      vibeShortcut('codex', 'terminal', 'Toggle Terminal', 'terminal', [
+        'CTRL',
+        '`',
+      ]),
+      vibeShortcut('codex', 'review', 'Review', 'difference', [
+        'CTRL',
+        'SHIFT',
+        'G',
+      ]),
+      ...vibeEditingButtons('codex'),
+    ]);
+    RemoteShortcutButton chatGptCodexButton(
+      RemoteShortcutButton button,
+      String action,
+    ) => RemoteShortcutButton(
+      id: 'chatgpt.codex.$action',
+      name: button.name,
+      icon: button.icon,
+      targetType: button.targetType,
+      shortcut: button.shortcut,
+      target: button.target,
+      description: button.description,
+      enabled: button.enabled,
+    );
+    final chatgpt = appLayout('chatgpt', 'ChatGPT', [
+      shortcut('chatgpt.chatView', 'Chat View', 'chat', ['ALT', '1']),
+      shortcut('chatgpt.codexMode', 'Codex Mode', 'code', ['ALT', '3']),
+      shortcut('chatgpt.startVoice', 'Start Voice Chat', 'mic', [
+        'CTRL',
+        'SHIFT',
+        'V',
+      ]),
+      shortcut('chatgpt.newChat', 'New Chat', 'add', ['PRIMARY', 'N']),
+      shortcut('chatgpt.previousChat', 'Previous Chat', 'arrow_back', [
+        'CTRL',
+        'SHIFT',
+        'TAB',
+      ]),
+      shortcut('chatgpt.nextChat', 'Next Chat', 'arrow_forward', [
+        'CTRL',
+        'TAB',
+      ]),
+      shortcut('chatgpt.find', 'Find', 'search', ['PRIMARY', 'F']),
+      shortcut('chatgpt.sidebar', 'Show / Hide Sidebar', 'menu_open', [
+        'PRIMARY',
+        'B',
+      ]),
+      ...codex.buttons
+          .where(
+            (button) => !const {
+              'codex.newChat',
+              'codex.focusInput',
+              'codex.previousConversation',
+              'codex.nextConversation',
+              'codex.send',
+              'codex.findInChat',
+              'codex.terminal',
+              'codex.review',
+              'codex.sidebar',
+            }.contains(button.id),
+          )
+          .map(
+            (button) => chatGptCodexButton(
+              button,
+              button.id.substring('codex.'.length),
+            ),
+          ),
+      ...vibeCodex.buttons
+          .where((button) => button.id != 'vibe.codex.newChat')
+          .map(
+            (button) => chatGptCodexButton(
+              button,
+              button.id.substring('vibe.codex.'.length),
+            ),
+          ),
+    ]);
+    final vibeClaude = vibeLayout('claude', 'Claude', [
+      RemoteShortcutButton(
+        id: 'vibe.claude.project',
+        name: 'Choose Project',
+        icon: 'folder_open',
+        targetType: RemoteTargetType.keyboardShortcut,
+        shortcut: ['PRIMARY', 'N'],
+        description:
+            'Start a new Claude Code session, then choose its project folder.',
+      ),
+      vibeShortcut('claude', 'stop', 'Stop Response', 'stop', ['ESC']),
+      vibeShortcut('claude', 'diff', 'Show Diff', 'difference', [
+        'PRIMARY',
+        'SHIFT',
+        'D',
+      ]),
+      vibeShortcut('claude', 'terminal', 'Toggle Terminal', 'terminal', [
+        'CTRL',
+        '`',
+      ]),
+      vibeShortcut('claude', 'shortcuts', 'Keyboard Shortcuts', 'keyboard', [
+        'PRIMARY',
+        '/',
+      ]),
+      vibeShortcut(
+        'claude',
+        'previousSession',
+        'Previous Session',
+        'arrow_back',
+        ['CTRL', 'SHIFT', 'TAB'],
+      ),
+      vibeShortcut('claude', 'nextSession', 'Next Session', 'arrow_forward', [
+        'CTRL',
+        'TAB',
+      ]),
+      ...vibeEditingButtons('claude'),
+    ]);
+    final vibeCursor = vibeLayout('cursor', 'Cursor', [
+      RemoteShortcutButton(
+        id: 'vibe.cursor.project',
+        name: 'Choose Project',
+        icon: 'folder_open',
+        targetType: RemoteTargetType.keyboardShortcut,
+        shortcut: ['PRIMARY', 'SHIFT', 'P'],
+        description:
+            'Opens Cursor Command Palette. Choose File: Open Folder or File: Open Recent; for direct opening, bind a dedicated Cursor shortcut and edit this button in Desktop > Shortcut Layout > Vibe Coding.',
+      ),
+      vibeShortcut('cursor', 'newChat', 'New Chat', 'add', ['PRIMARY', 'R']),
+      vibeShortcut('cursor', 'cancel', 'Cancel', 'cancel', [
+        'PRIMARY',
+        'SHIFT',
+        'BACKSPACE',
+      ]),
+      vibeShortcut('cursor', 'addContext', 'Add Selection to Chat', 'add_box', [
+        'PRIMARY',
+        'SHIFT',
+        'L',
+      ]),
+      vibeShortcut('cursor', 'previousChat', 'Previous Chat', 'arrow_back', [
+        'PRIMARY',
+        '[',
+      ]),
+      vibeShortcut('cursor', 'nextChat', 'Next Chat', 'arrow_forward', [
+        'PRIMARY',
+        ']',
+      ]),
+      vibeShortcut(
+        'cursor',
+        'agentPanel',
+        'Toggle Agent Panel',
+        'view_sidebar',
+        ['PRIMARY', 'I'],
+      ),
+      ...vibeEditingButtons('cursor'),
+    ]);
     final appleMusic = appLayout('app.appleMusic', 'Apple Music', [
       shortcut('appleMusic.playPause', 'Play / Pause', 'play', ['SPACE']),
       shortcut('appleMusic.next', 'Next Song', 'skip_next', [
@@ -663,16 +1204,39 @@ class DesktopManifest {
         illustrator,
         solidworks,
         codex,
+        chatgpt,
+        vibeCodex,
+        vibeClaude,
+        vibeCursor,
+        edge,
+        firefox,
+        safari,
+        teams,
+        zoom,
         appleMusic,
         finder,
       ],
       applications: const [
         RemoteApplication(
-          id: 'codex',
-          name: 'Codex / ChatGPT',
+          id: 'chatgpt',
+          name: 'ChatGPT',
+          icon: 'chat',
+          executable: 'ChatGPT',
+          layoutId: 'chatgpt',
+        ),
+        RemoteApplication(
+          id: 'claude',
+          name: 'Claude Code',
+          icon: 'terminal',
+          executable: 'Claude',
+          layoutId: 'vibe.claude',
+        ),
+        RemoteApplication(
+          id: 'cursor',
+          name: 'Cursor',
           icon: 'code',
-          executable: 'Codex',
-          layoutId: 'codex',
+          executable: 'Cursor',
+          layoutId: 'vibe.cursor',
         ),
         RemoteApplication(
           id: 'photoshop',
@@ -715,6 +1279,41 @@ class DesktopManifest {
           icon: 'language',
           executable: 'Google Chrome',
           layoutId: 'app.chrome',
+        ),
+        RemoteApplication(
+          id: 'firefox',
+          name: 'Firefox',
+          icon: 'language',
+          executable: 'firefox',
+          layoutId: 'app.firefox',
+        ),
+        RemoteApplication(
+          id: 'edge',
+          name: 'Microsoft Edge',
+          icon: 'language',
+          executable: 'microsoft-edge',
+          layoutId: 'app.edge',
+        ),
+        RemoteApplication(
+          id: 'safari',
+          name: 'Safari',
+          icon: 'language',
+          executable: 'Safari',
+          layoutId: 'app.safari',
+        ),
+        RemoteApplication(
+          id: 'teams',
+          name: 'Microsoft Teams',
+          icon: 'groups',
+          executable: 'Microsoft Teams',
+          layoutId: 'app.teams',
+        ),
+        RemoteApplication(
+          id: 'zoom',
+          name: 'Zoom',
+          icon: 'videocam',
+          executable: 'zoom.us',
+          layoutId: 'app.zoom',
         ),
         RemoteApplication(
           id: 'appleMusic',

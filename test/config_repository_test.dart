@@ -13,7 +13,7 @@ import 'test_support.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('schema v7 round-trips shortcut platform and profiles', () {
+  test('schema v8 round-trips shortcut platform and profiles', () {
     final original =
         testConfig(
           profiles: [
@@ -36,7 +36,7 @@ void main() {
       jsonDecode(jsonEncode(original.toJson())) as Map<String, dynamic>,
     );
 
-    expect(decoded.schemaVersion, 7);
+    expect(decoded.schemaVersion, 8);
     expect(decoded.activeProfileId, 'profile_design');
     expect(decoded.profiles, hasLength(2));
     expect(decoded.activeProfile.buttons, hasLength(controlButtonCount));
@@ -64,7 +64,7 @@ void main() {
 
     final migrated = AppConfig.fromJson(legacy);
 
-    expect(migrated.schemaVersion, 7);
+    expect(migrated.schemaVersion, 8);
     expect(migrated.activeProfile.buttons.first.action.modifiers, [
       primaryShortcutModifier,
     ]);
@@ -89,7 +89,7 @@ void main() {
   });
 
   test(
-    'schema v1 migrates into one independent schema v7 General profile',
+    'schema v1 migrates into one independent schema v8 General profile',
     () async {
       final general = (await ProfileTemplateRepository(
         bundle: rootBundle,
@@ -112,7 +112,7 @@ void main() {
         'hapticEnabled': false,
       }, general);
 
-      expect(migrated.schemaVersion, 7);
+      expect(migrated.schemaVersion, 8);
       expect(migrated.profiles, hasLength(1));
       expect(migrated.profiles.single.buttons, hasLength(controlButtonCount));
       expect(migrated.profiles.single.buttons.first.label, 'Mute');

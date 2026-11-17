@@ -32,6 +32,8 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> dictation_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> system_control_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> pointer_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> vibe_system_channel_;
   bool toggle_hotkey_registered_ = false;
 };
 

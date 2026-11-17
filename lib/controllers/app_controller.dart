@@ -12,8 +12,10 @@ import '../data/profile_template_repository.dart';
 import '../data/public_shortcut_catalog.dart';
 import '../data/shortcut_usage_repository.dart';
 import '../models/config.dart';
+import '../models/computer_setup.dart';
 import '../models/control_surface_status.dart';
 import '../services/hid_service.dart';
+import '../services/ios_companion_hid_service.dart';
 import '../services/companion_service.dart';
 import '../services/orientation_service.dart';
 import '../services/power_brightness_service.dart';
@@ -28,13 +30,21 @@ class AppController extends ChangeNotifier {
     required this.imageStore,
     required this.powerBrightnessService,
     required this.shortcutUsage,
+    this.platformOverride,
   }) {
     hid.activeHost.addListener(_handleActiveHostChanged);
     hid.connectionStatus.addListener(_handleActiveHostChanged);
+    hid.pairedHosts.addListener(notifyListeners);
     companion.activeHost.addListener(_handleCompanionHostChanged);
     companion.manifest.addListener(_handleCompanionManifestChanged);
     companion.syncStatus.addListener(_handleCompanionManifestChanged);
     companion.errorMessage.addListener(_handleCompanionManifestChanged);
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).pointerError.addListener(
+        notifyListeners,
+      );
+    }
+    desktopComputerChoices?.addListener(notifyListeners);
     powerBrightnessService.isPluggedIn.addListener(_handlePowerChanged);
   }
 
@@ -46,8 +56,12 @@ class AppController extends ChangeNotifier {
   final PrivateImageStore imageStore;
   final PowerBrightnessService powerBrightnessService;
   final ShortcutUsageRepository shortcutUsage;
+  final TargetPlatform? platformOverride;
 
   AppConfig? _config;
+  String? _acceptedCompanionSession;
+  String? _acceptedCompanionComputerId;
+  Future<void> _computerSetupSaveQueue = Future<void>.value();
   bool _isLoading = true;
   Object? _error;
   bool? _lastLandscape;
@@ -60,6 +74,14 @@ class AppController extends ChangeNotifier {
   ButtonConfig? _buttonClipboard;
   int _profileIdSequence = 0;
   bool _darkModeActive = false;
+  late final IosCompanionHidService _desktopShortcutHid =
+      hid is IosCompanionHidService
+      ? hid as IosCompanionHidService
+      : IosCompanionHidService(companion);
+  int _computerSwitchEpoch = 0;
+  String? _computerSwitchPendingId;
+  String? _computerSwitchError;
+  String? _pinnedDesktopChoiceId;
 
   static const _darkPhoneBrightness = 0.1;
   static const _displayBrightnessDownSteps = 20;
@@ -76,13 +98,759 @@ class AppController extends ChangeNotifier {
   bool get canAddProfile => config.profiles.length < freeProfileLimit;
   bool get isDarkModeActive => _darkModeActive;
   DesktopManifest? get desktopManifest => companion.manifest.value;
+  ValueListenable<List<CompanionComputerChoice>>? get desktopComputerChoices =>
+      companion is SwitchableCompanionConnection
+      ? (companion as SwitchableCompanionConnection).computerChoices
+      : null;
+  String? get selectedDesktopComputerChoiceId =>
+      companion is SwitchableCompanionConnection
+      ? (companion as SwitchableCompanionConnection).selectedComputerChoiceId
+      : null;
+  String? get computerSwitchPendingId => _computerSwitchPendingId;
+  String? get computerSwitchError => _computerSwitchError;
+  bool get hasPinnedDesktopComputer => _pinnedDesktopChoiceId != null;
+  bool get selectedDesktopSupportsMouse {
+    final host = companion.activeHost.value;
+    return host != null &&
+        _isAcceptedCompanionHost(host) &&
+        host.capabilities.contains('mouse-control-v1');
+  }
 
-  /// A retained manifest is intentionally kept for diagnostics after a LAN
-  /// timeout. It is not an active Desktop sync and must not drive the surface.
-  bool get isDesktopSynced =>
-      companion.activeHost.value != null &&
-      companion.syncStatus.value == CompanionSyncStatus.ready &&
-      desktopManifest != null;
+  bool get selectedDesktopMouseUnsupported =>
+      computerMode == ComputerMode.advanced && !selectedDesktopSupportsMouse;
+  String? get desktopPointerError => companion is CompanionPointerConnection
+      ? (companion as CompanionPointerConnection).pointerError.value
+      : null;
+
+  List<({String id, String name, String platform, String address})>
+  get switchableComputers {
+    final choices =
+        <({String id, String name, String platform, String address})>[];
+    for (final host
+        in desktopComputerChoices?.value ?? const <CompanionComputerChoice>[]) {
+      choices.add((
+        id: 'desktop:${host.id}',
+        name: host.name,
+        platform: host.platform,
+        address: host.address,
+      ));
+    }
+    choices.sort((a, b) {
+      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return byName != 0 ? byName : a.id.compareTo(b.id);
+    });
+    return choices;
+  }
+
+  String? get selectedSwitchableComputerId {
+    final host = companion.activeHost.value;
+    if (host != null && _isAcceptedCompanionHost(host)) {
+      final selectedId = selectedDesktopComputerChoiceId;
+      return 'desktop:${selectedId ?? _desktopComputerSetupId(host).substring('desktop:'.length)}';
+    }
+    return null;
+  }
+
+  Future<bool> switchComputer(String choiceId) async {
+    if (_computerSwitchPendingId != null) return false;
+    ({String id, String name, String platform, String address})? target;
+    for (final choice in switchableComputers) {
+      if (choice.id == choiceId) target = choice;
+    }
+    if (target == null) return false;
+    final epoch = ++_computerSwitchEpoch;
+    _computerSwitchPendingId = choiceId;
+    _computerSwitchError = null;
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).discardPendingPointerInputs();
+    }
+    notifyListeners();
+    try {
+      await prepareForContextChange();
+      if (epoch != _computerSwitchEpoch) return false;
+      _pinnedDesktopChoiceId = choiceId.substring('desktop:'.length);
+      if (_isAndroid &&
+          (hid.activeHost.value != null ||
+              hid.connectionStatus.value == HidConnectionStatus.connected ||
+              hid.connectionStatus.value == HidConnectionStatus.connecting)) {
+        await hid.disconnectHost();
+      }
+      if (epoch != _computerSwitchEpoch) return false;
+      final switchable = companion as SwitchableCompanionConnection;
+      await switchable.selectComputer(choiceId.substring('desktop:'.length));
+      return epoch == _computerSwitchEpoch;
+    } catch (error) {
+      if (epoch == _computerSwitchEpoch) {
+        _computerSwitchError = error.toString().replaceFirst('Exception: ', '');
+      }
+      return false;
+    } finally {
+      if (epoch == _computerSwitchEpoch) {
+        _computerSwitchPendingId = null;
+        notifyListeners();
+      }
+    }
+  }
+
+  bool get _isAndroid =>
+      (platformOverride ?? defaultTargetPlatform) == TargetPlatform.android;
+  bool get _isIos =>
+      (platformOverride ?? defaultTargetPlatform) == TargetPlatform.iOS;
+  bool get hasDesktopComputerChoices => switchableComputers.isNotEmpty;
+
+  /// Called only when the user explicitly chooses an Android Bluetooth host.
+  /// This clears a prior Desktop KVM pin so HID input can resume directly.
+  Future<void> prepareForBluetoothHostSelection() async {
+    ++_computerSwitchEpoch;
+    _computerSwitchPendingId = null;
+    _pinnedDesktopChoiceId = null;
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).discardPendingPointerInputs();
+    }
+    notifyListeners();
+    await prepareForContextChange();
+    if (companion is SwitchableCompanionConnection) {
+      await (companion as SwitchableCompanionConnection)
+          .suspendComputerSelection();
+    }
+    notifyListeners();
+  }
+
+  ComputerMode get computerMode =>
+      activeComputer?.mode ?? ComputerMode.disconnected;
+
+  /// A recently authenticated Desktop session stays selected during manifest
+  /// refreshes and action errors, provided the same host session remains.
+  ComputerTarget? get activeComputer {
+    final host = companion.activeHost.value;
+    if (_pinnedDesktopChoiceId != null &&
+        (host == null ||
+            !_isAcceptedCompanionHost(host) ||
+            selectedDesktopComputerChoiceId != _pinnedDesktopChoiceId)) {
+      return null;
+    }
+    if (host != null) {
+      if (!_isAcceptedCompanionHost(host)) return null;
+      final operatingSystem = _computerOperatingSystemFromPlatform(
+        host.platform,
+      );
+      return ComputerTarget(
+        id: _desktopComputerSetupId(host),
+        name: host.name,
+        mode: ComputerMode.advanced,
+        isApple: operatingSystem == null
+            ? host.isApple
+            : operatingSystem == ComputerOperatingSystem.macos,
+        operatingSystem: operatingSystem,
+      );
+    }
+    if (_isIos ||
+        !_isAndroid ||
+        hid.connectionStatus.value != HidConnectionStatus.connected) {
+      return null;
+    }
+    final bluetoothHost = hid.activeHost.value;
+    if (bluetoothHost == null) return null;
+    final targetId = _bluetoothComputerSetupId(bluetoothHost);
+    final operatingSystem = _standaloneOperatingSystem(bluetoothHost, targetId);
+    return ComputerTarget(
+      id: targetId,
+      name: bluetoothHost.name,
+      mode: ComputerMode.standalone,
+      isApple:
+          _standaloneShortcutPlatform(bluetoothHost) == ShortcutPlatform.apple,
+      operatingSystem: operatingSystem,
+    );
+  }
+
+  ComputerSetup? get activeComputerSetup {
+    final target = activeComputer;
+    return target == null ? null : config.computerSetups[target.id];
+  }
+
+  List<ComputerApplication> get availableComputerApplications {
+    final target = activeComputer;
+    if (target == null) return const [];
+    final selected = activeComputerSetup?.applicationIds.toSet() ?? const {};
+    return computerApplicationsOnActiveComputer
+        .where(
+          (application) =>
+              selected.contains(application.id) &&
+              isComputerApplicationSupportedOn(
+                application,
+                target.operatingSystem,
+              ),
+        )
+        .toList(growable: false);
+  }
+
+  /// App choices used when first setting up or changing this computer's
+  /// selected software. The top row uses [availableComputerApplications].
+  List<ComputerApplication> get computerApplicationsOnActiveComputer {
+    final target = activeComputer;
+    if (target == null) return const [];
+    if (target.mode == ComputerMode.standalone) {
+      return computerApplicationsForOperatingSystem(target.operatingSystem);
+    }
+    final manifest = desktopManifest;
+    if (target.mode != ComputerMode.advanced ||
+        !isDesktopSynced ||
+        manifest?.settings.enableAppsSync != true) {
+      return const [];
+    }
+    final available = <String, ComputerApplication>{};
+    for (final installed in manifest!.applications.where(
+      (application) => application.detected,
+    )) {
+      final id = canonicalComputerApplicationId(installed.id);
+      final catalogApp = computerApplicationById(id);
+      available.putIfAbsent(
+        id,
+        () =>
+            catalogApp ??
+            ComputerApplication(
+              id: id,
+              name: installed.name,
+              category: ComputerAppCategory.other,
+            ),
+      );
+    }
+    return available.values
+        .where(
+          (application) => isComputerApplicationSupportedOn(
+            application,
+            target.operatingSystem,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  bool get isStandaloneSetupComplete {
+    final target = activeComputer;
+    if (target?.mode != ComputerMode.standalone) return false;
+    final setup = activeComputerSetup;
+    // Saving the selected applications completes setup. Shortcut bindings can
+    // be added or edited later, so an incomplete set must not reopen onboarding.
+    return setup?.setupComplete ?? false;
+  }
+
+  bool get isActiveComputerSetupComplete {
+    final target = activeComputer;
+    if (target == null || activeComputerSetup == null) return false;
+    if (target.mode == ComputerMode.standalone) {
+      return isStandaloneSetupComplete;
+    }
+    return target.mode == ComputerMode.advanced &&
+        activeComputerSetup!.setupComplete;
+  }
+
+  Future<void> saveComputerSetup(ComputerTarget target, ComputerSetup setup) =>
+      _queueComputerSetupSave(
+        () => _saveComputerSetupForCurrentTarget(target, setup),
+      );
+
+  Future<void> saveComputerOperatingSystem(
+    ComputerTarget target,
+    ComputerOperatingSystem operatingSystem,
+  ) => _queueComputerSetupSave(() async {
+    _requireCurrentStandaloneTarget(target);
+    final existing = config.computerSetups[target.id];
+    await _saveComputerSetupRecord(
+      target.id,
+      ComputerSetup(
+        applicationIds: existing?.applicationIds ?? const [],
+        bindings: existing?.bindings ?? const {},
+        operatingSystem: operatingSystem,
+        setupComplete: existing?.setupComplete ?? false,
+      ),
+    );
+  });
+
+  Future<void> _queueComputerSetupSave(Future<void> Function() save) async {
+    final previousSave = _computerSetupSaveQueue;
+    final completer = Completer<void>();
+    _computerSetupSaveQueue = completer.future;
+    try {
+      try {
+        await previousSave;
+      } catch (_) {
+        // A failed previous save must not block the next connection's setup.
+      }
+      await save();
+      completer.complete();
+    } catch (error, stackTrace) {
+      completer.complete();
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<void> _saveComputerSetupForCurrentTarget(
+    ComputerTarget target,
+    ComputerSetup setup,
+  ) async {
+    final current = _requireCurrentComputerTarget(target);
+    if (target.mode == ComputerMode.advanced && !isDesktopSynced) {
+      throw StateError('Wait for Desktop to finish syncing before saving.');
+    }
+    if (target.mode == ComputerMode.advanced &&
+        setup.applicationIds.isNotEmpty &&
+        desktopManifest?.settings.enableAppsSync != true) {
+      throw StateError('Turn on Apps Sync in Desktop before choosing apps.');
+    }
+    if (target.mode == ComputerMode.advanced && setup.bindings.isNotEmpty) {
+      throw const FormatException(
+        'Desktop mode uses shortcuts saved in the Desktop companion.',
+      );
+    }
+    final previous = config.computerSetups[target.id];
+    final chosenOperatingSystem = target.mode == ComputerMode.advanced
+        ? current.operatingSystem
+        : setup.operatingSystem ?? previous?.operatingSystem;
+    final applicationOperatingSystem =
+        chosenOperatingSystem ?? current.operatingSystem;
+    final unsupportedPreviousApps = previous?.applicationIds
+        .where((appId) {
+          final application = computerApplicationById(appId);
+          return application != null &&
+              !isComputerApplicationSupportedOn(
+                application,
+                applicationOperatingSystem,
+              );
+        })
+        .toList(growable: false);
+    final preservedBindings = <String, Map<String, String>>{...setup.bindings};
+    for (final appId in unsupportedPreviousApps ?? const <String>[]) {
+      final bindings = previous?.bindings[appId];
+      if (bindings != null) preservedBindings[appId] = bindings;
+    }
+    for (final appId in setup.applicationIds) {
+      final application = _computerApplicationFor(target, appId);
+      if (application != null &&
+          !isComputerApplicationSupportedOn(
+            application,
+            applicationOperatingSystem,
+          ) &&
+          !(previous?.applicationIds.contains(appId) ?? false)) {
+        throw FormatException(
+          '${application.name} is unavailable on this operating system.',
+        );
+      }
+    }
+    final setupToSave = ComputerSetup(
+      applicationIds: [
+        ...setup.applicationIds,
+        ...?unsupportedPreviousApps?.where(
+          (appId) => !setup.applicationIds.contains(appId),
+        ),
+      ],
+      bindings: preservedBindings,
+      operatingSystem: chosenOperatingSystem,
+      setupComplete: setup.setupComplete,
+    );
+    final launchBindings = <String, String>{};
+    for (final appId in setupToSave.applicationIds) {
+      final application = _computerApplicationFor(target, appId);
+      if (application == null) {
+        throw FormatException('Unknown computer app: $appId');
+      }
+      if (!isComputerApplicationSupportedOn(
+        application,
+        setupToSave.operatingSystem,
+      )) {
+        continue;
+      }
+      if (target.mode == ComputerMode.advanced &&
+          desktopManifest!.applications.every(
+            (installed) =>
+                canonicalComputerApplicationId(installed.id) != appId ||
+                !installed.detected,
+          )) {
+        throw FormatException(
+          '${application.name} is not detected on this computer.',
+        );
+      }
+      if (target.mode == ComputerMode.standalone) {
+        for (final shortcut in computerShortcutsFor(application.category)) {
+          final chord = setup.bindingFor(appId, shortcut.id);
+          if (chord != null &&
+              chord.trim().isNotEmpty &&
+              parseComputerShortcut(chord) == null) {
+            throw FormatException(
+              '${application.name}: ${shortcut.label} has an unsupported shortcut.',
+            );
+          }
+          if (shortcut.id == 'launch' &&
+              chord != null &&
+              chord.trim().isNotEmpty) {
+            final identity = _computerChordIdentity(chord);
+            final previousApplication = launchBindings[identity];
+            if (previousApplication != null) {
+              throw FormatException(
+                'Choose a different launch shortcut for ${application.name}.',
+              );
+            }
+            launchBindings[identity] = application.name;
+          }
+        }
+      }
+      if (application.category == ComputerAppCategory.vibeCoding &&
+          target.mode == ComputerMode.standalone &&
+          _sameComputerChord(
+            setup.bindingFor(appId, 'voiceMode'),
+            setup.bindingFor(appId, 'voiceInput'),
+          )) {
+        throw const FormatException(
+          'Choose different shortcuts for voice mode and voice input.',
+        );
+      }
+      if (application.id == 'chatgpt' &&
+          target.mode == ComputerMode.standalone &&
+          _sameComputerChord(
+            setup.bindingFor(appId, 'codex.voiceMode'),
+            setup.bindingFor(appId, 'codex.voiceInput'),
+          )) {
+        throw const FormatException(
+          'Choose different shortcuts for Codex voice mode and voice input.',
+        );
+      }
+    }
+    await _saveComputerSetupRecord(target.id, setupToSave);
+  }
+
+  Future<void> _saveComputerSetupRecord(
+    String targetId,
+    ComputerSetup setup,
+  ) async {
+    var base = config;
+    var nextConfig = _computerSetupConfig(base, targetId, setup);
+    await repository.save(nextConfig);
+    while (!identical(_config, base)) {
+      base = config;
+      nextConfig = _computerSetupConfig(base, targetId, setup);
+      await repository.save(nextConfig);
+    }
+    _config = nextConfig;
+    notifyListeners();
+  }
+
+  ComputerTarget _requireCurrentStandaloneTarget(ComputerTarget target) {
+    if (target.mode != ComputerMode.standalone) {
+      throw const FormatException(
+        'Choose the computer OS in Bluetooth-only setup.',
+      );
+    }
+    return _requireCurrentComputerTarget(target);
+  }
+
+  ComputerTarget _requireCurrentComputerTarget(ComputerTarget target) {
+    final current = activeComputer;
+    if (current?.mode != target.mode ||
+        current?.id != target.id ||
+        (target.mode != ComputerMode.standalone &&
+            target.mode != ComputerMode.advanced)) {
+      throw StateError('Reconnect to the same computer to save its setup.');
+    }
+    return current!;
+  }
+
+  static AppConfig _computerSetupConfig(
+    AppConfig base,
+    String targetId,
+    ComputerSetup setup,
+  ) {
+    final setups = Map<String, ComputerSetup>.of(base.computerSetups)
+      ..[targetId] = setup;
+    return base.copyWith(
+      computerSetups: Map<String, ComputerSetup>.unmodifiable(setups),
+    );
+  }
+
+  /// Send a configured global app-launch chord from the Android wizard.
+  /// The target and Bluetooth address are rechecked immediately before use.
+  Future<void> testComputerLaunch(
+    ComputerTarget target,
+    String applicationId,
+    String chord,
+  ) async {
+    final canonicalAppId = canonicalComputerApplicationId(applicationId);
+    final actionId = canonicalComputerShortcutId(applicationId, 'launch');
+    final application = computerApplicationById(applicationId);
+    if (application == null ||
+        !computerShortcutsFor(
+          application.category,
+        ).any((shortcut) => shortcut.id == actionId)) {
+      throw const FormatException('Choose an app with a launch action.');
+    }
+    if (!isComputerApplicationSupportedOn(
+      application,
+      activeComputer?.operatingSystem,
+    )) {
+      throw FormatException('${application.name} is unavailable on this OS.');
+    }
+    await _sendStandaloneChord(target, canonicalAppId, actionId, chord);
+  }
+
+  /// Send one configured or built-in shortcut to the computer currently
+  /// selected in the app row. This method never routes a Desktop target over
+  /// Bluetooth or an old shortcut set to another paired computer.
+  Future<void> executeStandaloneShortcut(
+    ComputerTarget target,
+    String applicationId,
+    String actionId,
+  ) async {
+    final current = activeComputer;
+    final canonicalAppId = canonicalComputerApplicationId(applicationId);
+    final canonicalActionId = canonicalComputerShortcutId(
+      applicationId,
+      actionId,
+    );
+    final application = computerApplicationById(applicationId);
+    if (current?.mode != ComputerMode.standalone ||
+        current!.id != target.id ||
+        target.mode != ComputerMode.standalone ||
+        activeComputerSetup == null ||
+        !activeComputerSetup!.applicationIds.contains(canonicalAppId) ||
+        application == null ||
+        !isComputerApplicationSupportedOn(
+          application,
+          current.operatingSystem,
+        ) ||
+        !isStandaloneSetupComplete) {
+      throw StateError('Select a configured app on its paired computer.');
+    }
+    final shortcut = computerShortcutsFor(application.category)
+        .cast<ComputerShortcut?>()
+        .firstWhere(
+          (candidate) => candidate?.id == canonicalActionId,
+          orElse: () => null,
+        );
+    if (shortcut == null) {
+      throw FormatException('Unsupported ${application.name} action.');
+    }
+    final binding = activeComputerSetup!.bindingFor(
+      canonicalAppId,
+      canonicalActionId,
+    );
+    final chord = application.id == 'chatgpt'
+        ? binding != null && parseComputerShortcut(binding) != null
+              ? binding
+              : defaultComputerShortcut(target, application, canonicalActionId)
+        : binding ??
+              defaultComputerShortcut(target, application, canonicalActionId);
+    if (chord == null ||
+        chord.trim().isEmpty ||
+        parseComputerShortcut(chord) == null) {
+      // The Home app selector invokes launch when a tile is selected. If no
+      // launch key has been configured, leave the app controls open without
+      // sending a key or surfacing an error; missing action keys stay disabled.
+      if (canonicalActionId == 'launch' || canonicalActionId == 'codexMode') {
+        return;
+      }
+      throw StateError(
+        'Set ${shortcut.label} for ${application.name} in its setup.',
+      );
+    }
+    await _sendStandaloneChord(
+      target,
+      canonicalAppId,
+      canonicalActionId,
+      chord,
+    );
+  }
+
+  Future<void> _sendStandaloneChord(
+    ComputerTarget target,
+    String applicationId,
+    String actionId,
+    String chord,
+  ) async {
+    final action = parseComputerShortcut(chord);
+    if (action == null) throw const FormatException('Invalid keyboard chord.');
+    if (!_isCurrentStandaloneTarget(target)) {
+      throw StateError(
+        'Bluetooth disconnected or the selected computer changed.',
+      );
+    }
+    final app = computerApplicationById(applicationId);
+    if (app == null ||
+        !computerShortcutsFor(
+          app.category,
+        ).any((shortcut) => shortcut.id == actionId)) {
+      throw const FormatException('Unsupported app shortcut.');
+    }
+    await hid.sendStep(action);
+    if (!_isCurrentStandaloneTarget(target)) {
+      throw StateError('The Bluetooth computer changed while sending the key.');
+    }
+  }
+
+  Future<void> _sendPinnedDesktopStep(HidAction action) async {
+    if (_pinnedDesktopChoiceId == null ||
+        action.type != ActionType.keyboard ||
+        activeComputer?.mode != ComputerMode.advanced ||
+        !isDesktopSynced) {
+      return;
+    }
+    await _desktopShortcutHid.sendStep(action);
+  }
+
+  bool _isCurrentStandaloneTarget(ComputerTarget target) {
+    final current = activeComputer;
+    return target.mode == ComputerMode.standalone &&
+        current?.mode == ComputerMode.standalone &&
+        current!.id == target.id &&
+        hid.connectionStatus.value == HidConnectionStatus.connected &&
+        companion.activeHost.value == null;
+  }
+
+  bool get hasAcceptedDesktopSession {
+    final host = companion.activeHost.value;
+    return host != null && _isAcceptedCompanionHost(host);
+  }
+
+  bool _isAcceptedCompanionHost(CompanionHost host) =>
+      _acceptedCompanionSession != null &&
+      _acceptedCompanionSession == _companionSessionId(host);
+
+  static String _companionSessionId(CompanionHost host) =>
+      '${host.address}:${host.port}:${host.token}';
+
+  String _desktopComputerSetupId(CompanionHost host) {
+    final stableId = _acceptedCompanionComputerId?.trim();
+    final identity =
+        stableId != null &&
+            RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(stableId)
+        ? stableId
+        : '${host.platform}:${host.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_')}';
+    return 'desktop:$identity';
+  }
+
+  ComputerOperatingSystem? _standaloneOperatingSystem(
+    HidHost host,
+    String targetId,
+  ) {
+    final saved = config.computerSetups[targetId]?.operatingSystem;
+    if (saved != null) return saved;
+    return _computerOperatingSystemHint(host.name);
+  }
+
+  ShortcutPlatform _standaloneShortcutPlatform(HidHost host) {
+    final targetId = _bluetoothComputerSetupId(host);
+    final saved = config.computerSetups[targetId]?.operatingSystem;
+    if (saved != null) {
+      return saved == ComputerOperatingSystem.macos
+          ? ShortcutPlatform.apple
+          : ShortcutPlatform.windowsLinux;
+    }
+    final configured = config.preferences.shortcutPlatform;
+    if (configured != ShortcutPlatform.automatic) return configured;
+    final hint = _computerOperatingSystemHint(host.name);
+    if (hint != null) {
+      return hint == ComputerOperatingSystem.macos
+          ? ShortcutPlatform.apple
+          : ShortcutPlatform.windowsLinux;
+    }
+    return detectShortcutPlatform(host.name);
+  }
+
+  static ComputerOperatingSystem? _computerOperatingSystemFromPlatform(
+    String platform,
+  ) => switch (platform.trim().toLowerCase()) {
+    'windows' || 'win32' || 'win' => ComputerOperatingSystem.windows,
+    'linux' => ComputerOperatingSystem.linux,
+    'macos' || 'macosx' || 'darwin' || 'osx' => ComputerOperatingSystem.macos,
+    _ => null,
+  };
+
+  static ComputerOperatingSystem? _computerOperatingSystemHint(
+    String hostName,
+  ) {
+    final name = hostName.trim().toLowerCase();
+    if (name.contains('macbook') ||
+        name.contains('imac') ||
+        name.contains('mac mini') ||
+        name.contains('mac studio') ||
+        name.contains('apple') ||
+        RegExp(r'(^|[^a-z])mac([^a-z]|$)').hasMatch(name)) {
+      return ComputerOperatingSystem.macos;
+    }
+    if (name.contains('ubuntu') ||
+        name.contains('debian') ||
+        name.contains('fedora') ||
+        name.contains('linux') ||
+        name.contains('arch linux')) {
+      return ComputerOperatingSystem.linux;
+    }
+    if (name.contains('windows') ||
+        RegExp(r'(^|[^a-z])win(dows)?([^a-z]|$)').hasMatch(name)) {
+      return ComputerOperatingSystem.windows;
+    }
+    return null;
+  }
+
+  static String _bluetoothComputerSetupId(HidHost host) {
+    final identity = host.address.trim().isEmpty
+        ? host.id.trim()
+        : host.address.trim().toLowerCase();
+    return 'bluetooth:$identity';
+  }
+
+  static bool _sameComputerChord(String? first, String? second) {
+    if (first == null || second == null) return false;
+    final parsedFirst = parseComputerShortcut(first);
+    final parsedSecond = parseComputerShortcut(second);
+    if (parsedFirst == null || parsedSecond == null) return false;
+    final firstModifiers = parsedFirst.modifiers.toSet();
+    final secondModifiers = parsedSecond.modifiers.toSet();
+    return parsedFirst.keyCode == parsedSecond.keyCode &&
+        firstModifiers.length == secondModifiers.length &&
+        firstModifiers.containsAll(secondModifiers);
+  }
+
+  static String _computerChordIdentity(String chord) {
+    final action = parseComputerShortcut(chord)!;
+    final modifiers = action.modifiers.toList()..sort();
+    return '${action.keyCode}+${modifiers.join('+')}';
+  }
+
+  ComputerApplication? _computerApplicationFor(
+    ComputerTarget target,
+    String id,
+  ) {
+    final catalogApp = computerApplicationById(id);
+    if (catalogApp != null || target.mode != ComputerMode.advanced) {
+      return catalogApp;
+    }
+    final canonicalId = canonicalComputerApplicationId(id);
+    final installed = desktopManifest?.applications
+        .cast<RemoteApplication?>()
+        .firstWhere(
+          (application) =>
+              application != null &&
+              canonicalComputerApplicationId(application.id) == canonicalId,
+          orElse: () => null,
+        );
+    if (!isDesktopSynced || installed?.detected != true) return null;
+    return ComputerApplication(
+      id: installed!.id,
+      name: installed.name,
+      category: ComputerAppCategory.other,
+    );
+  }
+
+  /// Keep the accepted manifest usable during a same-session refresh so a
+  /// revision update does not replace the selected app workspace with the
+  /// reconnect screen. A retained manifest from an expired or changed session
+  /// still cannot drive the surface.
+  bool get isDesktopSynced {
+    final host = companion.activeHost.value;
+    if (host == null || desktopManifest == null) return false;
+    final status = companion.syncStatus.value;
+    return status == CompanionSyncStatus.ready ||
+        status == CompanionSyncStatus.syncing &&
+            _acceptedCompanionSession == _companionSessionId(host);
+  }
+
   bool get isDesktopDriven => isDesktopSynced;
   RemoteShortcutLayout? get remoteCurrentLayout =>
       desktopManifest?.currentLayout;
@@ -91,6 +859,8 @@ class AppController extends ChangeNotifier {
         (layout) => layout?.kind == RemoteLayoutKind.codex,
         orElse: () => null,
       );
+  RemoteShortcutLayout? vibeCodingLayoutFor(String applicationId) =>
+      desktopManifest?.layoutById('vibe.$applicationId');
   List<RemoteApplication> get syncedApplications {
     final manifest = desktopManifest;
     if (!isDesktopSynced ||
@@ -114,8 +884,9 @@ class AppController extends ChangeNotifier {
         orElse: () => null,
       );
 
-  RemoteShortcutLayout? get genericSyncedLayout =>
-      isDesktopSynced ? desktopManifest?.currentLayout : null;
+  RemoteShortcutLayout? get genericSyncedLayout => isDesktopSynced
+      ? _layoutForActiveDesktop(desktopManifest?.currentLayout)
+      : null;
 
   RemoteShortcutLayout? get foregroundApplicationLayout {
     final application = foregroundApplication;
@@ -127,6 +898,19 @@ class AppController extends ChangeNotifier {
   bool get hasCodexWorkspace =>
       syncedApplications.any((application) => application.id == 'codex') &&
       remoteCodexLayout != null;
+
+  /// Resolve an app row selection against older Desktop manifests that still
+  /// publish the combined ChatGPT/Codex process as `codex`. Returning its wire
+  /// ID keeps launches and button requests compatible with that Desktop.
+  RemoteApplication? remoteApplicationForComputerApp(String applicationId) {
+    final manifest = desktopManifest;
+    final exact = manifest?.applicationById(applicationId);
+    if (exact != null) return exact;
+    if (canonicalComputerApplicationId(applicationId) == 'chatgpt') {
+      return manifest?.applicationById('codex');
+    }
+    return null;
+  }
 
   ControlSurfaceStatus get controlSurfaceStatus {
     final foreground = foregroundApplication;
@@ -153,7 +937,24 @@ class AppController extends ChangeNotifier {
   }
 
   RemoteShortcutLayout? layoutForApplication(RemoteApplication application) =>
-      desktopManifest?.layoutById(application.layoutId);
+      _layoutForActiveDesktop(
+        desktopManifest?.layoutById(application.layoutId),
+      );
+
+  RemoteShortcutLayout? _layoutForActiveDesktop(RemoteShortcutLayout? layout) {
+    if (layout == null || layout.id != 'chatgpt') return layout;
+    final host = companion.activeHost.value;
+    if (host?.capabilities.contains('chatgpt-platform-layout-v1') == true) {
+      return orderChatGptLayout(layout);
+    }
+    final platform = switch (host?.platform) {
+      'macos' => RemoteShortcutPlatform.apple,
+      'windows' => RemoteShortcutPlatform.windows,
+      _ => RemoteShortcutPlatform.other,
+    };
+    return projectChatGptLayout(layout, platform);
+  }
+
   List<ProfileConfig> get orderedProfiles {
     final byId = {for (final profile in config.profiles) profile.id: profile};
     return config.profileOrder
@@ -178,14 +979,27 @@ class AppController extends ChangeNotifier {
   }
 
   ShortcutPlatform get effectiveShortcutPlatform {
-    final configured = config.preferences.shortcutPlatform;
-    if (configured != ShortcutPlatform.automatic) return configured;
     final desktop = companion.activeHost.value;
     if (desktop != null) {
+      final operatingSystem = _computerOperatingSystemFromPlatform(
+        desktop.platform,
+      );
+      if (operatingSystem != null) {
+        return operatingSystem == ComputerOperatingSystem.macos
+            ? ShortcutPlatform.apple
+            : ShortcutPlatform.windowsLinux;
+      }
       return desktop.isApple
           ? ShortcutPlatform.apple
           : ShortcutPlatform.windowsLinux;
     }
+    final bluetoothHost = hid.activeHost.value;
+    if (bluetoothHost != null &&
+        hid.connectionStatus.value == HidConnectionStatus.connected) {
+      return _standaloneShortcutPlatform(bluetoothHost);
+    }
+    final configured = config.preferences.shortcutPlatform;
+    if (configured != ShortcutPlatform.automatic) return configured;
     return detectShortcutPlatform(hid.activeHost.value?.name);
   }
 
@@ -301,7 +1115,14 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> pressButton(ButtonConfig button) async {
+    if (_computerSwitchPendingId != null) return;
     if (button.action.type == ActionType.none) return;
+    if (_pinnedDesktopChoiceId != null) {
+      if (button.action.type == ActionType.keyboard) {
+        await _sendPinnedDesktopStep(_resolveShortcutAction(button.action));
+      }
+      return;
+    }
     _recordShortcutUsage(
       _localButtonUsageKey(activeProfile, button),
       '${activeProfile.name} · ${button.label}',
@@ -340,11 +1161,34 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> executeRemoteButton(RemoteShortcutButton button) async {
+    if (_computerSwitchPendingId != null) return;
     _recordShortcutUsage('desktop:button:${button.id}', button.name);
     await companion.executeRemote(RemoteActionRequest.button(button.id));
   }
 
+  Future<void> executeVibeCodingButton(
+    String applicationId,
+    String buttonId,
+  ) async {
+    final layout = vibeCodingLayoutFor(applicationId);
+    final button = layout?.buttons.cast<RemoteShortcutButton?>().firstWhere(
+      (candidate) => candidate?.id == buttonId,
+      orElse: () => null,
+    );
+    if (!isDesktopSynced ||
+        layout == null ||
+        !desktopManifest!.settings.enableAppsSync ||
+        desktopManifest!.applicationById(applicationId)?.detected != true ||
+        button == null ||
+        !button.id.startsWith('vibe.$applicationId.') ||
+        !button.enabled) {
+      return;
+    }
+    await executeRemoteButton(button);
+  }
+
   Future<void> launchRemoteApplication(RemoteApplication application) async {
+    if (_computerSwitchPendingId != null) return;
     _recordShortcutUsage(
       'desktop:app:${application.id}',
       'Open ${application.name}',
@@ -352,6 +1196,19 @@ class AppController extends ChangeNotifier {
     await companion.executeRemote(
       RemoteActionRequest.launchApplication(application.id),
     );
+  }
+
+  Future<void> launchVibeCodingApplication(String applicationId) async {
+    final manifest = desktopManifest;
+    final application = manifest?.applicationById(applicationId);
+    if (!isDesktopSynced ||
+        manifest == null ||
+        !manifest.settings.enableAppsSync ||
+        vibeCodingLayoutFor(applicationId) == null ||
+        application?.detected != true) {
+      return;
+    }
+    await launchRemoteApplication(application!);
   }
 
   Future<void> switchRemoteProfile(RemoteProfile profile) =>
@@ -367,10 +1224,17 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> sendWheelStep(bool clockwise) async {
+    if (_computerSwitchPendingId != null) return;
     final action = clockwise
         ? activeProfile.wheel.clockwise
         : activeProfile.wheel.counterClockwise;
     if (action.type != ActionType.none) {
+      if (_pinnedDesktopChoiceId != null) {
+        if (action.type == ActionType.keyboard) {
+          await _sendPinnedDesktopStep(_resolveShortcutAction(action));
+        }
+        return;
+      }
       _recordShortcutUsage(
         'local:${activeProfile.id}:wheel:${clockwise ? 'clockwise' : 'counterClockwise'}',
         '${activeProfile.name} · ${clockwise ? 'Wheel clockwise' : 'Wheel counter-clockwise'}',
@@ -381,8 +1245,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> pressWheelCenter() async {
+    if (_computerSwitchPendingId != null) return;
     final action = activeProfile.wheel.center;
     if (action.type != ActionType.none) {
+      if (_pinnedDesktopChoiceId != null) {
+        if (action.type == ActionType.keyboard) {
+          await _sendPinnedDesktopStep(_resolveShortcutAction(action));
+        }
+        return;
+      }
       _recordShortcutUsage(
         'local:${activeProfile.id}:wheel:center',
         '${activeProfile.name} · Wheel center',
@@ -401,18 +1272,44 @@ class AppController extends ChangeNotifier {
   }
 
   void sendTouchpadMove(double deltaX, double deltaY) {
+    if (_computerSwitchPendingId != null) return;
     const sensitivity = 1.65;
     final x = (deltaX * sensitivity).round().clamp(-127, 127);
     final y = (deltaY * sensitivity).round().clamp(-127, 127);
     if (x == 0 && y == 0) return;
+    if (_useDesktopPointer) {
+      unawaited(
+        (companion as CompanionPointerConnection).sendPointerInputs([
+          PointerInput.move(x, y),
+        ]),
+      );
+      return;
+    }
+    if (_pinnedDesktopChoiceId != null ||
+        computerMode == ComputerMode.advanced) {
+      return;
+    }
     unawaited(
       hid.sendPress(HidAction(type: ActionType.mouseMove, value: '$x,$y')),
     );
   }
 
   void sendMouseClick({required bool secondary}) {
+    if (_computerSwitchPendingId != null) return;
     if (config.preferences.hapticEnabled) {
       unawaited(HapticFeedback.selectionClick());
+    }
+    if (_useDesktopPointer) {
+      unawaited(
+        (companion as CompanionPointerConnection).sendPointerInputs([
+          PointerInput.button(secondary: secondary),
+        ]),
+      );
+      return;
+    }
+    if (_pinnedDesktopChoiceId != null ||
+        computerMode == ComputerMode.advanced) {
+      return;
     }
     unawaited(
       hid.sendStep(
@@ -429,18 +1326,36 @@ class AppController extends ChangeNotifier {
   void sendSecondaryMouseClick() => sendMouseClick(secondary: true);
 
   void sendTouchpadScroll(double deltaY) {
+    if (_computerSwitchPendingId != null) return;
     const pixelsPerWheelStep = 12.0;
     _touchpadScrollAccumulator += deltaY;
     final steps = (_touchpadScrollAccumulator / pixelsPerWheelStep).truncate();
     if (steps == 0) return;
     _touchpadScrollAccumulator -= steps * pixelsPerWheelStep;
     final wheelDelta = (-steps).clamp(-127, 127);
+    if (_useDesktopPointer) {
+      unawaited(
+        (companion as CompanionPointerConnection).sendPointerInputs([
+          PointerInput.scroll(wheelDelta),
+        ]),
+      );
+      return;
+    }
+    if (_pinnedDesktopChoiceId != null ||
+        computerMode == ComputerMode.advanced) {
+      return;
+    }
     unawaited(
       hid.sendStep(
         HidAction(type: ActionType.mouseWheel, value: '$wheelDelta'),
       ),
     );
   }
+
+  bool get _useDesktopPointer =>
+      computerMode == ComputerMode.advanced &&
+      selectedDesktopSupportsMouse &&
+      companion is CompanionPointerConnection;
 
   HidAction _resolveShortcutAction(HidAction action) {
     if (action.type != ActionType.keyboard) return action;
@@ -491,7 +1406,8 @@ class AppController extends ChangeNotifier {
     }
 
     final hostTasks = <Future<void>>[];
-    if (hid.connectionStatus.value == HidConnectionStatus.connected) {
+    if (_pinnedDesktopChoiceId == null &&
+        hid.connectionStatus.value == HidConnectionStatus.connected) {
       hostTasks.add(_setHostDarkThroughHid(enabled));
     }
     if (companion.activeHost.value != null) {
@@ -546,9 +1462,39 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  void _handleCompanionHostChanged() => notifyListeners();
+  void _rememberAcceptedCompanionSession() {
+    final host = companion.activeHost.value;
+    if (host != null && isDesktopSynced) {
+      final sessionId = _companionSessionId(host);
+      if (_acceptedCompanionSession != sessionId) {
+        _acceptedCompanionSession = sessionId;
+      }
+      final computerId = desktopManifest?.computerId?.trim();
+      _acceptedCompanionComputerId =
+          computerId != null &&
+              RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(computerId)
+          ? computerId
+          : null;
+    }
+  }
 
-  void _handleCompanionManifestChanged() => notifyListeners();
+  void _handleCompanionHostChanged() {
+    _rememberAcceptedCompanionSession();
+    final choiceId = selectedDesktopComputerChoiceId;
+    if (choiceId != null &&
+        companion.activeHost.value != null &&
+        companion is SwitchableCompanionConnection &&
+        (companion as SwitchableCompanionConnection)
+            .isComputerSelectionPinned) {
+      _pinnedDesktopChoiceId = choiceId;
+    }
+    notifyListeners();
+  }
+
+  void _handleCompanionManifestChanged() {
+    _rememberAcceptedCompanionSession();
+    notifyListeners();
+  }
 
   Future<void> updateOrientationMode(OrientationMode mode) async {
     _config = config.copyWith(
@@ -568,6 +1514,20 @@ class AppController extends ChangeNotifier {
     );
     notifyListeners();
     await repository.save(config);
+  }
+
+  Future<void> setBeginnerMode(bool beginnerMode) async {
+    if (config.preferences.beginnerMode == beginnerMode) return;
+    _config = config.copyWith(
+      preferences: config.preferences.copyWith(beginnerMode: beginnerMode),
+    );
+    notifyListeners();
+    var saved = config;
+    await repository.save(saved);
+    while (!identical(_config, saved)) {
+      saved = config;
+      await repository.save(saved);
+    }
   }
 
   Future<void> updateControlSurfaceLayout(ControlSurfaceLayout value) async {
@@ -1096,7 +2056,9 @@ class AppController extends ChangeNotifier {
         if (!order.contains(profile.id)) order.add(profile.id);
       }
       final preferences = restoreSettings && backup.preferences != null
-          ? backup.preferences!
+          ? backup.preferences!.copyWith(
+              beginnerMode: config.preferences.beginnerMode,
+            )
           : config.preferences;
       nextConfig = config.copyWith(
         profiles: restoredProfiles,
@@ -1177,14 +2139,23 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _computerSwitchEpoch++;
     hid.activeHost.removeListener(_handleActiveHostChanged);
     hid.connectionStatus.removeListener(_handleActiveHostChanged);
+    hid.pairedHosts.removeListener(notifyListeners);
     companion.activeHost.removeListener(_handleCompanionHostChanged);
     companion.manifest.removeListener(_handleCompanionManifestChanged);
     companion.syncStatus.removeListener(_handleCompanionManifestChanged);
     companion.errorMessage.removeListener(_handleCompanionManifestChanged);
+    if (companion is CompanionPointerConnection) {
+      (companion as CompanionPointerConnection).pointerError.removeListener(
+        notifyListeners,
+      );
+    }
+    desktopComputerChoices?.removeListener(notifyListeners);
     powerBrightnessService.isPluggedIn.removeListener(_handlePowerChanged);
     hid.dispose();
+    if (!identical(_desktopShortcutHid, hid)) _desktopShortcutHid.dispose();
     companion.dispose();
     powerBrightnessService.dispose();
     shortcutUsage.dispose();

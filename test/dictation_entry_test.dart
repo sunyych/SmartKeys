@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
 
@@ -42,7 +43,7 @@ void main() {
     },
   );
 
-  testWidgets('homepage quick output and app voice input both gate first use', (
+  testWidgets('compact local dictation stays available in ChatGPT workspace', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -55,9 +56,15 @@ void main() {
     harness.companion.host.value = connectedCompanionHost;
     harness.companion.status.value = CompanionSyncStatus.ready;
     harness.companion.syncedManifest.value = desktopManifest(
-      installed: const {'codex'},
-      running: const {'codex'},
-      foreground: 'codex',
+      installed: const {'chatgpt', 'cursor'},
+      running: const {'chatgpt', 'cursor'},
+      foreground: 'chatgpt',
+    );
+    final target = harness.controller.activeComputer;
+    expect(target, isNotNull);
+    await harness.controller.saveComputerSetup(
+      target!,
+      ComputerSetup(applicationIds: const ['chatgpt', 'cursor']),
     );
     await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
     await tester.pumpAndSettle();
@@ -75,55 +82,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(harness.companion.remoteActions, isEmpty);
 
-    await tester.drag(
-      find.byKey(const ValueKey('profile-quick-switch-bar')),
-      const Offset(-700, 0),
-    );
+    await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
     await tester.pumpAndSettle();
-    final codexTab = find.byKey(const ValueKey('home-tab-codex'));
-    if (codexTab.evaluate().isEmpty) {
-      await tester.drag(
-        find.byKey(const ValueKey('profile-quick-switch-bar')),
-        const Offset(-700, 0),
-      );
-      await tester.pumpAndSettle();
-    }
-    await tester.tap(find.byKey(const ValueKey('home-tab-codex')));
-    await tester.pumpAndSettle();
-    final voiceButton = find.byKey(const ValueKey('remote-button-codex.voice'));
-    expect(voiceButton, findsOneWidget);
-    final semanticsNodes = tester.widgetList<Semantics>(
-      find.ancestor(of: voiceButton, matching: find.byType(Semantics)),
-    );
+    expect(find.byKey(const ValueKey('remote-layout-chatgpt')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-app-codex')), findsNothing);
+    expect(find.byKey(const ValueKey('home-tab-vibe-coding')), findsNothing);
+    expect(find.textContaining('is ready'), findsNothing);
+    expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vibe-dictation-start')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-dictation-stop')), findsNothing);
+    expect(find.byKey(const ValueKey('vibe-app-choices')), findsNothing);
     expect(
-      semanticsNodes.any(
-        (node) =>
-            node.properties.label ==
-            'Application voice input, starts the selected app voice shortcut',
-      ),
-      isTrue,
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('local-quick-output')))
+          .onPressed,
+      isNotNull,
     );
-    expect(
-      find.descendant(of: voiceButton, matching: find.byIcon(Icons.graphic_eq)),
-      findsOneWidget,
-    );
-
-    await tester.tap(voiceButton);
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('dictation-entry-explanation')),
-      findsOneWidget,
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('dictation-explanation-accept')),
+    harness.companion.syncedManifest.value = desktopManifest(
+      installed: const {'chatgpt', 'cursor'},
+      running: const {'chatgpt', 'cursor'},
+      foreground: 'cursor',
     );
     await tester.pumpAndSettle();
     expect(
-      (await SharedPreferences.getInstance()).getBool(
-        dictationConsentPreferenceKey,
-      ),
-      isTrue,
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('local-quick-output')))
+          .onPressed,
+      isNotNull,
     );
-    expect(harness.companion.remoteActions.single.buttonId, 'codex.voice');
   });
 }

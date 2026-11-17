@@ -1,5 +1,5 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -71,11 +71,11 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                       ? 'Connected to ${host.name} (${host.address})'
                       : 'Pair on the same Wi-Fi. Your microphone audio and speech recognition stay on this iPad; only final text is sent to Desktop.',
                 ),
-                if (Platform.isIOS)
+                if (defaultTargetPlatform == TargetPlatform.iOS)
                   const Padding(
                     padding: EdgeInsets.only(top: 6),
                     child: Text(
-                      'Bluetooth HID is unavailable on iPad. Desktop mode sends keyboard shortcuts only.',
+                      'On iPhone and iPad, LumiaKey Desktop is required to use apps and keyboard shortcuts.',
                     ),
                   ),
                 if (manual && !connected) ...[

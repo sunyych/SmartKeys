@@ -1,11 +1,16 @@
 # LumiaKey
 
 LumiaKey provides adaptive keyboard controls and on-device speech recognition.
-On Android 9 (API 28) and later, keyboard and media actions use the device's
-Bluetooth HID connection. On iPad, LumiaKey connects to LumiaKey Desktop over
-the same local Wi-Fi network for supported keyboard shortcuts and text output.
-The optional Desktop app in `desktop_companion/` runs on Windows and macOS and
-also provides local dictation and managed application shortcuts.
+Android 9 (API 28) and later can connect directly to a computer over Bluetooth
+or use LumiaKey Desktop. iPhone and iPad require a paired LumiaKey Desktop on
+the same local network. The Desktop app runs on Windows and macOS and provides
+managed application shortcuts and multilingual dictation output.
+
+Illustrated functional guides for the mobile/tablet app and LumiaKey Desktop:
+[中文说明书（PDF 阅读版）](docs/manuals/LumiaKey_Functional_Guide_ZH.pdf) ·
+[English guide (PDF reader edition)](docs/manuals/LumiaKey_Functional_Guide_EN.pdf).
+[Screenshot provenance and rebuilding](docs/manuals/README.md) describe the
+widget-rendered screenshots and the device-validation boundary.
 
 ## Tablet controls and iPad
 
@@ -29,14 +34,14 @@ Profiles that contain the original 15 shortcuts remain unchanged; extra
 positions are added only when edited, and banks make later positions
 accessible. Phone controls show up to 15 shortcuts at a time.
 
-iPad connects to LumiaKey Desktop on the same Wi-Fi network. In Desktop's
-**Connect an iPad** panel, choose **Copy iPad connection code**. On iPad, open
-**Settings → Desktop Companion**, paste the code, then choose **Connect**.
-Allow Local Network access when iPadOS asks. The code includes a temporary
+iPhone and iPad connect to LumiaKey Desktop on the same Wi-Fi network. In Desktop's
+connection panel, copy the connection code. On iOS, paste it in the pairing
+screen, then choose **Connect**. Allow Local Network access when iOS asks. The
+code includes a temporary
 session token: treat it like a password. LumiaKey keeps the token in memory and
 sends it in the authentication header over local HTTP; this connection is not
-encrypted, so use a trusted local network. Android continues to use Bluetooth
-HID for direct keyboard input.
+encrypted, so use a trusted local network. Android can also connect over
+Bluetooth HID for direct keyboard input.
 
 Speech recognition stays on the device. On iPad, recognized text is sent to
 Desktop for insertion into the supported focused app. The tablet guide covers
@@ -65,39 +70,32 @@ acceptance.
 - Shortcut Layout edits Button Name, Icon, Target Type, Shortcut, Launch App,
   URL, and Description. Keyboard Shortcut, Launch Application, and Open URL are
   executable in V1.2. Macro and Script are modeled but intentionally disabled.
-- Apps Manager detects the supported catalog (including Codex / ChatGPT,
+- Apps Manager detects the supported catalog (including Codex, ChatGPT,
   Photoshop,
   Illustrator, VSCode, SolidWorks, Premiere, and Chrome) on the current
   computer. Only detected applications are sent to Android; a three-second
   runtime reconciliation marks which of those apps are running.
-- The Android top strip is one unified control surface. All local Profiles are
-  available while Desktop is offline; Desktop sync keeps General as the HID
-  fallback and replaces Web, Zoom / Teams, and Custom tabs with managed Apps
-  and Workspaces. The control-menu/status pill sits at the screen's top-right,
-  outside the wheel/touchpad, and displays the highest useful state:
-  foreground app, Desktop, then HID.
-- Apps is a launch-only square button grid using offline brand icons. Tapping
-  Chrome, Codex, or VSCode sends its managed application ID to Desktop and
-  immediately opens that application's shortcut layout. Chrome ships a
+- The top row shows the applications selected for the connected computer.
+  Tapping an app launches or focuses it and opens its shortcut surface. The
+  control menu sits at the screen's top-right and opens connection settings.
+- In Desktop mode, tapping Chrome, Codex, or VSCode sends its managed app ID
+  to Desktop. Chrome ships a
   15-button common layout for navigation, tabs, clipboard, bookmarks, password
   manager, media, mute, address, and refresh.
 - Chrome already fills the 3 × 5 shortcut limit, so Page Up / Page Down remain
   deferred. Mouse-pad profiles instead expose a dedicated right-edge scroll
   strip: slide one finger vertically there for direct scrolling without
   triggering pointer movement or clicks.
-- macOS maps the installed/running `ChatGPT.app` process to the Desktop-owned
-  Codex application ID, so the phone shows one `Codex / ChatGPT` Workspace
-  without exposing a process name or executable path as an action.
+- ChatGPT has its own app row entry and shortcut grid. Desktop activates the
+  ChatGPT app and opens its Chat view. The existing Codex workspace can still
+  use an installed ChatGPT app to open Codex.
 - macOS also publishes Apple Music and Finder when detected. Their buttons open
   the Desktop-owned `Music` and `Finder` application IDs and expose managed
   playback, search, navigation, view, file, and Quick Look shortcuts.
-- Codex uses the same 3 × 5 / 5 × 3 key region and the existing wheel/touchpad,
-  rather than replacing the whole app. Its editable defaults replace Open
-  Codex with Focus Input, then prioritize Dictation, New/Previous/Next Chat,
-  Send, search, folder, command menu, Terminal, Review, navigation, and Sidebar.
-- Desktop foreground changes carry an incrementing activation sequence. Android
-  consumes each sequence once to enter the matching app tab, so ordinary
-  manifest refreshes cannot repeatedly pull the user away from a manual tab.
+- The Vibe Coding panel groups the chosen coding app's keys and shares the
+  same app row as browsers and meeting tools.
+- Desktop foreground changes carry an incrementing activation sequence. The
+  app consumes each sequence once for the selected computer's chosen apps.
 - Phone Profile JSON import/export is available from the top-right menu and
   rejects Companion actions. Desktop Shortcut Layout JSON import/export omits
   executable data, only replaces known layouts, and validates application IDs.
@@ -165,9 +163,10 @@ manifest, controller, or UI layers.
 - Configuration schema v7 owns an ordered list of independent Profiles, each
   with 15 buttons, navigation actions, icon, optional target application,
   accent color, and timestamps.
-- Cross-platform shortcuts use `PRIMARY`: Automatic mode maps it to Command on
-  Apple hosts and Ctrl on Windows/Linux hosts, with an explicit manual override
-  in Settings when a Bluetooth computer name is ambiguous.
+- Cross-platform shortcuts use `PRIMARY`. LumiaKey uses Command on macOS and
+  Ctrl on Windows and Linux. Desktop reports its operating system automatically.
+  For a Bluetooth-only connection, the setup wizard saves the operating system
+  for each computer and uses it when that computer reconnects.
 - The General default matches `docs/screenshots/default_general_layout.png`;
   the final touchpad result is in
   `docs/screenshots/final_touchpad_fullscreen.png`:
@@ -240,8 +239,8 @@ The Android native HID boundary uses the `smart_keys/hid` method channel:
 
 On Android 12 and later the app asks for Nearby devices access. It never scans
 for arbitrary peripherals; connection choices come from Android's already
-paired devices. Ordinary keyboard and mouse actions need no desktop software;
-app launching, voice input, and reliable OS detection use the Companion.
+paired devices. Android can send keyboard and mouse input without Desktop.
+App launch in that mode uses a global keyboard shortcut you set on the computer.
 
 ## LumiaKey Desktop
 
@@ -259,6 +258,64 @@ action endpoints on an ephemeral TCP port. A fresh random token is created on
 every run. Synced Android actions contain only Desktop-owned identifiers;
 legacy validated `launch`, `shortcut`, and `voiceInput` requests remain
 compatible. Arbitrary shell requests are rejected.
+
+## Choose apps for each computer
+
+The first time a computer connects, select the apps you use on it. The top row
+then shows your choices. Tap an app to launch it and open its keys. The app row
+also opens the setup again when you want to change the selection.
+
+- **Advanced** starts automatically when LumiaKey Desktop connects. Select
+  detected apps such as Chrome, Firefox, Microsoft Edge, Teams, Zoom, ChatGPT, Codex,
+  Claude, or Cursor. Safari is available on macOS. Enable **Apps Sync** and
+  **Auto Launch Apps** in Desktop → General to see the apps and launch them from
+  the phone. Desktop supplies the bindings.
+- **Bluetooth only** is available on Android. Confirm the operating system in
+  the wizard to remember it for this Bluetooth computer. **Beginner mode** in
+  Settings shows how to assign a system-wide launch shortcut using Windows
+  shortcut properties, the macOS Shortcuts app, or Linux desktop keyboard
+  settings. Set the launch shortcut on the computer first. For example, if you
+  assigned `Ctrl+Alt+1` to open Edge, enter that combination in LumiaKey using
+  the key picker or text field. You can test the launch shortcut from LumiaKey
+  and confirm the right app opened. Save your app choices and any shortcuts
+  you have entered, then reopen **Computer app settings** to finish or revise
+  them. For meeting and coding controls, use the keys assigned to each action
+  in the corresponding desktop app.
+
+ChatGPT ships with its documented default chat shortcuts for each supported
+computer OS. On macOS, ChatGPT's default `Option+Space` opens the Chat Bar when
+available. For the main window in Bluetooth mode, use the Mac launch shortcut
+you assigned to ChatGPT. Saved custom bindings override the built-in defaults.
+
+## Vibe Coding
+
+Open **Vibe Coding** before **Custom** on Home, or tap your chosen coding app in
+the top row. The panel shows that app's keys. Select the **Code** tab in Claude
+Desktop before using its controls.
+
+In Bluetooth mode, set the computer shortcuts for starting voice mode,
+starting voice input, canceling or clearing, previous and next conversation,
+and next project. Enter the keys that work in your version of the app or that
+you have assigned on the computer.
+
+Project actions and shortcut bindings are managed on Desktop under
+**Shortcut Layout → Vibe Coding**. An unassigned project action points to that
+setup screen. Codex opens its project chooser. Claude starts a new Code session
+where you can choose a project folder. Cursor opens the command palette for
+**File: Open Folder** or **File: Open Recent**. The phone sends the managed
+action ID, and you choose the project in the desktop app.
+
+In Advanced mode, the panel provides separate Start and Stop controls for
+LumiaKey Local Dictation. Start is available when the chosen Vibe app is in the
+foreground. Recognition runs on the phone and sends final text through Desktop.
+
+In Advanced mode, tap **Send** for Enter or hold it for the alternate Enter chord. Tap
+**Backspace** to delete, hold it to repeat, or right-click it to delete to the
+start of the line. The dedicated **Delete to Line Start** button also works on
+touch screens. Copy, Paste, Cut, Chinese punctuation and **Screenshot Selection**
+round out the editing controls. Screenshot Selection opens the operating
+system's region picker. The editing gestures are based on
+[Vibe Shortcut](https://github.com/Scott-Du/vibe-shortcut).
 
 ## Local quick dictation
 
@@ -360,6 +417,14 @@ documented in [`docs/GITHUB_RELEASES.md`](docs/GITHUB_RELEASES.md).
 Pairing is managed by Android/Windows. LumiaKey retains no separate pairing
 secret and exposes explicit permission, Bluetooth-off, registration, connection,
 and native error states in the connection sheet.
+
+## Switch computers
+
+Run LumiaKey Desktop on each computer you want to control through KVM. Tap
+**KVM** at the top of Home and select the computer that should receive your
+commands. LumiaKey restores that computer's saved apps and shortcuts. Android
+Bluetooth direct connections still use **Computer connection** to select a
+paired host. Android's HID Device profile provides one active Bluetooth host.
 
 ## Run and verify
 

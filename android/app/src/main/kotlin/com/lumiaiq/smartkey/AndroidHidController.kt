@@ -44,6 +44,11 @@ class AndroidHidController(
     private var appRegistered = false
     private var currentDevice: BluetoothDevice? = null
     private var pendingConnectAddress: String? = null
+    private var connectingHostAddress: String? = null
+    private var blockedHostAddress: String? = null
+    // Android's HID Device profile allows one active host. Keep the old host
+    // fenced off until its DISCONNECTED callback arrives before connecting a new one.
+    private var switchingFromAddress: String? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
     private var status = initialStatus()
     private var lastError: String? = null
@@ -208,6 +213,47 @@ class AndroidHidController(
             result.error("HOST_NOT_PAIRED", "Select a host already paired in Android Bluetooth settings.", null)
             return
         }
+        if (blockedHostAddress == host.address) blockedHostAddress = null
+        if (currentDevice?.address == host.address && switchingFromAddress == null) {
+            result.success(null)
+            return
+        }
+        if (switchingFromAddress != null) {
+            pendingConnectAddress = host.address
+            lastError = null
+            status = STATUS_CONNECTING
+            emitState()
+            result.success(null)
+            return
+        }
+        if (currentDevice == null && pendingConnectAddress != null) {
+            pendingConnectAddress = host.address
+            result.success(null)
+            return
+        }
+        val activeHost = currentDevice
+        if (activeHost != null && activeHost.address != host.address) {
+            releaseAllInput()
+            pendingConnectAddress = host.address
+            switchingFromAddress = activeHost.address
+            blockedHostAddress = activeHost.address
+            lastError = null
+            status = STATUS_CONNECTING
+            emitState()
+            if (hidDevice?.disconnect(activeHost) != true) {
+                switchingFromAddress = null
+                blockedHostAddress = null
+                pendingConnectAddress = null
+                status = STATUS_CONNECTED
+                lastError = "Android rejected the current host disconnect request."
+                emitState()
+                result.error("DISCONNECT_REJECTED", lastError, null)
+                return
+            }
+            result.success(null)
+            return
+        }
+
         pendingConnectAddress = host.address
         lastError = null
         if (!appRegistered || hidDevice == null) {
@@ -220,13 +266,15 @@ class AndroidHidController(
         status = STATUS_CONNECTING
         emitState()
         if (hidDevice?.connect(host) != true) {
+            pendingConnectAddress = null
+            connectingHostAddress = null
             status = STATUS_DISCONNECTED
             lastError = "Android rejected the HID connection request. Confirm the computer is paired."
             emitState()
             result.error("CONNECT_REJECTED", lastError, null)
             return
         }
-        pendingConnectAddress = null
+        connectingHostAddress = host.address
         result.success(null)
     }
 
@@ -234,16 +282,33 @@ class AndroidHidController(
     private fun disconnect(result: MethodChannel.Result) {
         if (!requireReadyPermission(result)) return
         val host = currentDevice
+        val inFlightHostAddress = connectingHostAddress
         forgetLastHost()
         pendingConnectAddress = null
+        connectingHostAddress = null
         releaseAllInput()
+        if (switchingFromAddress != null) {
+            // Cancel the destination but keep fencing the old host until its
+            // matching DISCONNECTED callback arrives.
+            status = STATUS_CONNECTING
+            emitState()
+            result.success(null)
+            return
+        }
         if (host == null) {
+            if (inFlightHostAddress != null) blockedHostAddress = inFlightHostAddress
             status = STATUS_DISCONNECTED
             emitState()
             result.success(null)
             return
         }
+        blockedHostAddress = host.address
+        status = STATUS_CONNECTING
+        emitState()
         if (hidDevice?.disconnect(host) != true) {
+            blockedHostAddress = null
+            status = STATUS_CONNECTED
+            emitState()
             result.error("DISCONNECT_REJECTED", "Android rejected the disconnect request.", null)
             return
         }
@@ -464,6 +529,7 @@ class AndroidHidController(
     }
 
     private fun handleSendFailure() {
+        if (status != STATUS_CONNECTED) return
         currentDevice = null
         status = STATUS_DISCONNECTED
         lastError = "The computer is not accepting Bluetooth HID reports. Reconnect it and try again."
@@ -500,6 +566,9 @@ class AndroidHidController(
             appRegistered = false
             hidDevice = null
             currentDevice = null
+            switchingFromAddress = null
+            pendingConnectAddress = null
+            connectingHostAddress = null
             status = if (bluetoothEnabled()) STATUS_DISCONNECTED else STATUS_BLUETOOTH_OFF
             emitState()
         }
@@ -535,22 +604,31 @@ class AndroidHidController(
             if (!registered) {
                 releaseAllInput()
                 currentDevice = null
+                switchingFromAddress = null
+                pendingConnectAddress = null
+                connectingHostAddress = null
                 status = if (bluetoothEnabled()) STATUS_DISCONNECTED else STATUS_BLUETOOTH_OFF
                 emitState()
                 return
             }
             lastError = null
-            currentDevice = pluggedDevice?.takeIf { device ->
-                hidDevice?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED
+            if (switchingFromAddress == null) {
+                currentDevice = pluggedDevice?.takeIf { device ->
+                    hidDevice?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED
+                }
             }
-            if (currentDevice != null) {
+            if (switchingFromAddress != null) {
+                status = STATUS_CONNECTING
+            } else if (currentDevice != null) {
                 status = STATUS_CONNECTED
             } else {
                 status = STATUS_DISCONNECTED
             }
             emitState()
             val pending = pendingConnectAddress
-            val reconnectAddress = pending ?: rememberedHostAddress() ?: pluggedDevice?.address
+            val reconnectAddress = if (switchingFromAddress == null) {
+                pending ?: rememberedHostAddress() ?: pluggedDevice?.address
+            } else null
             if (reconnectAddress != null && currentDevice == null) {
                 pendingConnectAddress = null
                 connect(reconnectAddress, NoopResult)
@@ -558,6 +636,12 @@ class AndroidHidController(
         }
 
         override fun onConnectionStateChanged(device: BluetoothDevice, state: Int) {
+            if (state != BluetoothProfile.STATE_CONNECTED &&
+                device.address != currentDevice?.address &&
+                device.address != switchingFromAddress &&
+                device.address != pendingConnectAddress &&
+                device.address != connectingHostAddress
+            ) return
             if (textBatch != null &&
                 (device.address != textBatch?.expectedAddress || state != BluetoothProfile.STATE_CONNECTED)
             ) {
@@ -565,10 +649,55 @@ class AndroidHidController(
             }
             when (state) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    if (blockedHostAddress == device.address && switchingFromAddress != device.address) {
+                        releaseAllInput()
+                        runCatching { hidDevice?.disconnect(device) }
+                        return
+                    }
+                    val switchingFrom = switchingFromAddress
+                    if (switchingFrom != null && device.address == switchingFrom) {
+                        // A late CONNECTED event from the old host must never reopen input.
+                        releaseAllInput()
+                        runCatching { hidDevice?.disconnect(device) }
+                        status = STATUS_CONNECTING
+                        emitState()
+                        return
+                    }
+                    if (switchingFrom != null &&
+                        (pendingConnectAddress != device.address || connectingHostAddress != device.address)
+                    ) {
+                        runCatching { hidDevice?.disconnect(device) }
+                        return
+                    }
+                    val inFlightAddress = connectingHostAddress
+                    if (switchingFrom == null && inFlightAddress != null && inFlightAddress != device.address) {
+                        runCatching { hidDevice?.disconnect(device) }
+                        return
+                    }
+                    if (switchingFrom == null && inFlightAddress == device.address &&
+                        pendingConnectAddress != device.address
+                    ) {
+                        // The user changed destinations while the original connect
+                        // request was in flight. Fence this host, then connect the latest target.
+                        releaseAllInput()
+                        currentDevice = device
+                        switchingFromAddress = device.address
+                        connectingHostAddress = null
+                        status = STATUS_CONNECTING
+                        runCatching { hidDevice?.disconnect(device) }
+                        emitState()
+                        return
+                    }
                     if (textBatch != null && currentDevice?.address != device.address) {
                         releaseAllInput()
                     }
                     currentDevice = device
+                    if (switchingFrom != null) {
+                        switchingFromAddress = null
+                        pendingConnectAddress = null
+                    }
+                    connectingHostAddress = null
+                    pendingConnectAddress = null
                     rememberHost(device.address)
                     status = STATUS_CONNECTED
                     lastError = null
@@ -576,6 +705,21 @@ class AndroidHidController(
                 BluetoothProfile.STATE_CONNECTING -> status = STATUS_CONNECTING
                 BluetoothProfile.STATE_DISCONNECTING -> status = STATUS_CONNECTING
                 else -> {
+                    if (switchingFromAddress == device.address) {
+                        releaseAllInput()
+                        currentDevice = null
+                        switchingFromAddress = null
+                        val nextAddress = pendingConnectAddress
+                        pendingConnectAddress = null
+                        connectingHostAddress = null
+                        status = STATUS_DISCONNECTED
+                        emitState()
+                        if (nextAddress != null) connect(nextAddress, NoopResult)
+                        return
+                    }
+                    if (switchingFromAddress != null && currentDevice?.address != device.address) {
+                        return
+                    }
                     if (currentDevice?.address == device.address) {
                         releaseAllInput()
                         currentDevice = null
@@ -596,6 +740,18 @@ class AndroidHidController(
         }
 
         override fun onVirtualCableUnplug(device: BluetoothDevice) {
+            if (switchingFromAddress == device.address) {
+                releaseAllInput()
+                currentDevice = null
+                switchingFromAddress = null
+                val nextAddress = pendingConnectAddress
+                pendingConnectAddress = null
+                status = STATUS_DISCONNECTED
+                emitState()
+                if (nextAddress != null) connect(nextAddress, NoopResult)
+                return
+            }
+            if (currentDevice?.address != device.address) return
             if (currentDevice?.address == device.address) {
                 releaseAllInput()
                 currentDevice = null
@@ -651,11 +807,21 @@ class AndroidHidController(
     )
 
     @SuppressLint("MissingPermission")
-    private fun hostMap(device: BluetoothDevice): Map<String, String> = mapOf(
+    private fun hostMap(device: BluetoothDevice): Map<String, Any> = mapOf(
         "id" to device.address,
         "name" to (device.alias ?: device.name ?: "Paired device"),
         "address" to device.address,
+        "computerCandidate" to isComputerCandidate(device),
     )
+
+    @SuppressLint("MissingPermission")
+    private fun isComputerCandidate(device: BluetoothDevice): Boolean {
+        val major = runCatching { device.bluetoothClass?.majorDeviceClass }.getOrNull() ?: return true
+        return major == 0x0100 || // Computer
+            major == 0x0200 || // Phone
+            major == 0x1f00 || // Uncategorized
+            major == 0x0000 // Miscellaneous
+    }
 
     private fun emitState() {
         handler.post {

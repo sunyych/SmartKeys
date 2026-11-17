@@ -100,6 +100,8 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
       _movedBeyondTapSlop = true;
       _lastMovePosition = event.localPosition;
       setState(() {});
+      final delta = event.localPosition - start;
+      if (delta != Offset.zero) widget.onMove(delta);
       return;
     }
 
@@ -204,19 +206,9 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
 
   @override
   Widget build(BuildContext context) {
-    final configuredLabel = widget.config.modeLabel.trim();
-    final label = configuredLabel.isEmpty || configuredLabel == 'Mouse'
-        ? 'Touchpad'
-        : configuredLabel;
     final active = _pointers.isNotEmpty;
     final scrollStripActive = _scrollStripPointer != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
-        const SizedBox(height: 6),
-        Expanded(
-          child: Stack(
+    return Stack(
             fit: StackFit.expand,
             children: [
               Semantics(
@@ -276,21 +268,6 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
                             left: 16,
                             child: _PointerCount(count: _pointers.length),
                           ),
-                        const Positioned(
-                          left: 16,
-                          right: 52,
-                          bottom: 13,
-                          child: Text(
-                            '1 finger: move / tap  •  2 fingers: scroll / right click  •  edge: scroll',
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -361,10 +338,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
                 ),
               ),
             ],
-          ),
-        ),
-      ],
-    );
+          );
   }
 }
 

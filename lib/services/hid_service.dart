@@ -43,16 +43,25 @@ enum HidConnectionStatus {
 
 @immutable
 class HidHost {
-  const HidHost({required this.id, required this.name, required this.address});
+  const HidHost({
+    required this.id,
+    required this.name,
+    required this.address,
+    this.computerCandidate = true,
+  });
 
   final String id;
   final String name;
   final String address;
+  final bool computerCandidate;
 
   factory HidHost.fromMap(Map<Object?, Object?> map) => HidHost(
     id: map['id']?.toString() ?? '',
     name: map['name']?.toString() ?? 'Paired device',
     address: map['address']?.toString() ?? '',
+    computerCandidate: map['computerCandidate'] is bool
+        ? map['computerCandidate'] as bool
+        : true,
   );
 
   @override
@@ -60,10 +69,11 @@ class HidHost {
       other is HidHost &&
       other.id == id &&
       other.name == name &&
-      other.address == address;
+      other.address == address &&
+      other.computerCandidate == computerCandidate;
 
   @override
-  int get hashCode => Object.hash(id, name, address);
+  int get hashCode => Object.hash(id, name, address, computerCandidate);
 }
 
 abstract interface class HidService {

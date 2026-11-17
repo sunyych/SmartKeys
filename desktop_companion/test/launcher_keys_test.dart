@@ -50,4 +50,17 @@ void main() {
       reloaded.dispose();
     },
   );
+
+  test('migrates the previous Codex launcher slot to ChatGPT', () async {
+    final launcher = MemoryLauncherKeyStore()
+      ..value = ['codex', null, null, null, null, null, null, null];
+    final controller = DesktopController(
+      store: MemoryDesktopConfigStore(),
+      launcherKeyStore: launcher,
+      discovery: _Discovery(),
+    );
+    await controller.initialize();
+    expect(controller.launcherAppIds.first, 'chatgpt');
+    controller.dispose();
+  });
 }
