@@ -33,6 +33,36 @@ The validation commands and raw logs are in the local `build/` directories.
 The Android matrix and Apple/Windows build jobs retain logs and artifacts in
 GitHub Actions for the corresponding source commit.
 
+## Hosted build results and delivery
+
+Application source commit: `ec6822302e9c0bed8f71c9b83477e5363536926d`.
+
+- [Android editions and Windows installer](https://github.com/sunyych/SmartKeys/actions/runs/44159767186):
+  completed successfully. Both Android builds and their native tests passed;
+  the Windows Release build and Setup installer completed successfully.
+- [Apple build checks](https://github.com/sunyych/SmartKeys/actions/runs/44159767156):
+  completed successfully. Regular iOS compiled and was archived without signing;
+  macOS Desktop compiled and produced its DMG.
+
+The downloaded iOS application's actual `Info.plist` reports version `1.4.0`,
+build `6`, minimum iOS `15.0`, iPhone and iPad device families, only the two
+landscape orientations for both families, and full-screen mode.
+
+Local delivery directory: `build/artifacts/1.4.0/`.
+
+| File | Purpose |
+|---|---|
+| `LumiaKey-Lite-1.4.0-Android.apk` | Standalone Android Bluetooth edition |
+| `LumiaKey-Regular-1.4.0-Android.apk` | Android Desktop-controlled edition |
+| `LumiaKey-Desktop-1.4.0-Windows-Setup.exe` | Hosted-build Windows installer |
+| `LumiaKey-Desktop-1.4.0-Windows-portable.zip` | Locally compiled Windows portable alternative |
+| `LumiaKey-Desktop-1.4.0-macOS.dmg` | Hosted-build macOS Desktop installer |
+| `LumiaKey-Regular-1.4.0-iOS-unsigned.zip` | Unsigned iOS build evidence, not an installable IPA |
+
+`SHA256SUMS.txt` and `BUILD-MANIFEST.json` accompany the files. The manifest records
+the application source commit, build versions, checks, and hosted evidence;
+validation-only documentation commits do not change the packaged application code.
+
 ## Android package checks
 
 Both release APKs were successfully built with Flutter 3.44.2 / Dart 3.12.2.
