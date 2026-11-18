@@ -36,6 +36,7 @@ dependencies:
     path: ../packages/lumiakeys_protocol
   local_dictation:
     path: ../packages/local_dictation
+  qr_flutter: ^4.1.0
   shared_preferences: ^2.5.5
   tray_manager: ^0.5.3
   window_manager: ^0.5.2

@@ -1,15 +1,46 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../services/companion_service.dart';
 
+Future<void> showDesktopConnectionSheet(
+  BuildContext context,
+  CompanionService companion, {
+  Future<String?> Function(BuildContext context)? scanConnectionCode,
+}) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  builder: (context) => AnimatedPadding(
+    duration: const Duration(milliseconds: 180),
+    curve: Curves.easeOut,
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(12),
+        child: DesktopConnectionPanel(
+          companion: companion,
+          scanConnectionCode: scanConnectionCode,
+        ),
+      ),
+    ),
+  ),
+);
+
 /// Explicit same-network pairing UI for platforms without UDP discovery.
 class DesktopConnectionPanel extends StatefulWidget {
-  const DesktopConnectionPanel({super.key, required this.companion});
+  const DesktopConnectionPanel({
+    super.key,
+    required this.companion,
+    this.scanConnectionCode,
+  });
 
   final CompanionService companion;
+  final Future<String?> Function(BuildContext context)? scanConnectionCode;
 
   @override
   State<DesktopConnectionPanel> createState() => _DesktopConnectionPanelState();
@@ -18,6 +49,7 @@ class DesktopConnectionPanel extends StatefulWidget {
 class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
   final _code = TextEditingController();
   bool _connecting = false;
+  bool _scanning = false;
   String? _localError;
 
   @override
@@ -40,6 +72,33 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
       if (mounted) setState(() => _connecting = false);
     }
   }
+
+  Future<void> _scan() async {
+    if (_scanning || _connecting) return;
+    setState(() {
+      _scanning = true;
+      _localError = null;
+    });
+    try {
+      final code = await (widget.scanConnectionCode ?? _openScanner)(context);
+      if (code == null || !mounted) return;
+      // This is the same strict parser and authenticated local connection path
+      // as manual entry. QR values are never opened as links.
+      _code.text = code;
+      await _connect();
+    } catch (error) {
+      if (mounted) setState(() => _localError = '$error');
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
+
+  Future<String?> _openScanner(BuildContext context) =>
+      Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (_) => const DesktopConnectionScannerScreen(),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +139,19 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                   ),
                 if (manual && !connected) ...[
                   const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const ValueKey('scan-desktop-pairing-code'),
+                    onPressed: _scanning || _connecting ? null : _scan,
+                    icon: _scanning
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.qr_code_scanner),
+                    label: const Text('Scan Desktop QR code'),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Or enter the connection code manually.'),
                   TextField(
                     controller: _code,
                     obscureText: true,
@@ -94,7 +166,9 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       OutlinedButton.icon(
                         onPressed: _connecting
@@ -110,7 +184,6 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                         icon: const Icon(Icons.content_paste),
                         label: const Text('Paste code'),
                       ),
-                      const SizedBox(width: 8),
                       FilledButton(
                         onPressed: _connecting ? null : _connect,
                         child: _connecting
@@ -163,4 +236,146 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
       },
     );
   }
+}
+
+class DesktopConnectionScannerScreen extends StatefulWidget {
+  const DesktopConnectionScannerScreen({super.key, this.cameraPreviewBuilder});
+
+  /// Allows deterministic UI rendering in screenshot tests without opening a camera.
+  final WidgetBuilder? cameraPreviewBuilder;
+
+  @override
+  State<DesktopConnectionScannerScreen> createState() =>
+      _ConnectionScannerState();
+}
+
+class _ConnectionScannerState extends State<DesktopConnectionScannerScreen>
+    with WidgetsBindingObserver {
+  final _controller = MobileScannerController(
+    formats: const [BarcodeFormat.qrCode],
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    autoStart: false,
+  );
+  bool _handled = false;
+  bool _appInForeground = true;
+  String? _cameraError;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.cameraPreviewBuilder != null) return;
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_startScanner(requestPermission: true));
+    });
+  }
+
+  Future<void> _startScanner({bool requestPermission = false}) async {
+    final scannerState = _controller.value;
+    if (!mounted ||
+        _handled ||
+        scannerState.isStarting ||
+        scannerState.isRunning ||
+        (!requestPermission && !scannerState.hasCameraPermission)) {
+      return;
+    }
+    try {
+      await _controller.start();
+      if (mounted && !_appInForeground) await _stopScanner();
+    } catch (error) {
+      if (mounted) setState(() => _cameraError = error.toString());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_handled) return;
+    if (state == AppLifecycleState.resumed) {
+      _appInForeground = true;
+      unawaited(_startScanner());
+    } else {
+      _appInForeground = false;
+      final scannerState = _controller.value;
+      if (scannerState.hasCameraPermission && scannerState.isRunning) {
+        unawaited(_stopScanner());
+      }
+    }
+  }
+
+  Future<void> _stopScanner() async {
+    try {
+      await _controller.stop();
+    } catch (_) {
+      // A denied or unavailable camera is already shown as a manual fallback.
+    }
+  }
+
+  @override
+  void dispose() {
+    if (widget.cameraPreviewBuilder == null) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    final code = capture.barcodes
+        .map((barcode) => barcode.rawValue)
+        .whereType<String>()
+        .firstOrNull;
+    if (code == null) return;
+    _handled = true;
+    unawaited(_stopScanner());
+    Navigator.of(context).pop(code);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Scan Desktop QR code'),
+      leading: IconButton(
+        tooltip: 'Cancel scanning',
+        icon: const Icon(Icons.close),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    ),
+    body: Column(
+      children: [
+        Expanded(
+          child: _cameraError != null
+              ? const ConnectionScannerUnavailable()
+              : widget.cameraPreviewBuilder?.call(context) ??
+                    MobileScanner(
+                      controller: _controller,
+                      onDetect: _onDetect,
+                      errorBuilder: (context, error) =>
+                          const ConnectionScannerUnavailable(),
+                    ),
+        ),
+        const Padding(
+          padding: EdgeInsets.all(20),
+          child: Text(
+            'Point your camera at the code shown in LumiaKey Desktop.',
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class ConnectionScannerUnavailable extends StatelessWidget {
+  const ConnectionScannerUnavailable({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Center(
+    child: Padding(
+      padding: EdgeInsets.all(24),
+      child: Text(
+        'Camera unavailable. Allow camera access to scan, or close this screen and enter the code manually.',
+        textAlign: TextAlign.center,
+      ),
+    ),
+  );
 }
