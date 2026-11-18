@@ -27,6 +27,12 @@ private data of either app. A debug APK is a development-signed validation
 artifact. Release signing still requires all four Android signing environment
 values; an unsigned release APK is not an installable release delivery.
 
+The final local delivery uses release optimization for both Android products
+with the existing Android development certificate. Lite's default installable
+APK is about 48.1 MiB; the larger debug build remains test evidence. See the
+[completed handoff validation](handoffs/2026-11-17-completion-validation.md)
+for actual platform builds and computer/phone installation results.
+
 ## Build
 
 ```sh

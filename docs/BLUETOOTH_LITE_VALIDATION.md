@@ -44,8 +44,15 @@ expected paths:
 
 The exported APK's signature verified as `CN=Android Debug` (development
 signature). Release signing protection was retained; no unsigned release APK
-is presented as an installable release. These tests did not install, replace,
-or uninstall any existing phone application.
+is presented as an installable release.
+
+The final default installation package was subsequently built with release
+optimization and the existing local Android development key supplied through
+the four signing environment values. Its actual signature and APK isolation
+checks passed again. It is 50,429,973 bytes (48.1 MiB), installed successfully
+on the connected Moto, and launched with only the required Bluetooth runtime
+permissions granted. Full and the historical Lite installation/data were
+preserved. This is a development-signed build, not a store production signature.
 
 The actual source/export APK checks found only the four Bluetooth permissions
 and AndroidX's package-private receiver permission. Neither APK requests

@@ -33,12 +33,12 @@
 
 **Produces:** Independently buildable Android app, accurate isolation checks, safe fresh-directory Full/Lite exports, current Lite screenshots.
 
-- [ ] Fix Gradle build directories so Flutter finds the APK in the independent project's expected `build/app/outputs/flutter-apk/` location.
-- [ ] Supply local profiles, editing and persistence, touchpad/mouse/media controls, save-failure feedback, modifier-only handling, and held-input release on background/context changes.
-- [ ] Test independent Shift (no extra character), successful and failed saves, restart persistence, lifecycle release, and local control interactions.
-- [ ] Verify the resolved dependency graph, plugin registration, source sets, and actual release/debug manifests: no Full/cloud/recording/network dependencies or permissions.
-- [ ] Implement fresh-destination/staging exports with no overwrite, unsafe symlinks, Git data, signing keys, build output, local configuration, or parent-repository dependencies.
-- [ ] Resolve dependencies, analyze, test, and build the exported Lite outside the repository. Validate the Full export excludes the independent Lite project.
+- [x] Fix Gradle build directories so Flutter finds the APK in the independent project's expected `build/app/outputs/flutter-apk/` location.
+- [x] Supply local profiles, editing and persistence, touchpad/mouse/media controls, save-failure feedback, modifier-only handling, and held-input release on background/context changes.
+- [x] Test independent Shift (no extra character), successful and failed saves, restart persistence, lifecycle release, and local control interactions.
+- [x] Verify the resolved dependency graph, plugin registration, source sets, and actual release/debug manifests: no Full/cloud/recording/network dependencies or permissions.
+- [x] Implement fresh-destination/staging exports with no overwrite, unsafe symlinks, Git data, signing keys, build output, local configuration, or parent-repository dependencies.
+- [x] Resolve dependencies, analyze, test, and build the exported Lite outside the repository. Validate the Full export excludes the independent Lite project.
 
 ## Task 2: Full mobile, shared manifest, and icons
 
@@ -50,13 +50,13 @@
 
 **Produces:** `launcherSlotCount = 12`, optional compatible `launcherApplicationIds` with configuration-presence semantics, Desktop-owned twelve-slot Launchpad, per-computer persistent icon caching, and genuine Full-root regression coverage.
 
-- [ ] Resolve the Home and protocol conflicts, retaining main's compact defaults and legacy component contracts while putting the product Launcher in `RegularHomeScreen`.
-- [ ] Publish/consume twelve slots, pad old eight-slot lists, validate references, hide synchronized application/slot data when Apps Sync is off, and distinguish absent configuration from intentionally cleared slots.
-- [ ] Preserve default Launcher entry, explicit return, clock/media controls, disconnected/unconfigured CTAs, fixed landscape, and persistent touchpad. Never edit launcher bindings on the phone.
-- [ ] Require the correct computer and a fresh application activation acknowledgement before enabling app shortcuts. Ignore stale activation notifications after returning home or switching computers.
-- [ ] Complete original-icon request, authenticated download, bounded PNG validation, per-computer cache and artwork fallback. Honor Sync Icons in both requests and rendering; late responses cannot cross computer sessions.
-- [ ] Test startup, no configuration, offline/disconnect, activation failure, stale notifications, return home, host switching, cache invalidation, invalid/oversized icons, and disabled synchronization.
-- [ ] Keep valid existing regressions and generate current Full phone/tablet screenshots without individual image review.
+- [x] Resolve the Home and protocol conflicts, retaining main's compact defaults and legacy component contracts while putting the product Launcher in `RegularHomeScreen`.
+- [x] Publish/consume twelve slots, pad old eight-slot lists, validate references, hide synchronized application/slot data when Apps Sync is off, and distinguish absent configuration from intentionally cleared slots.
+- [x] Preserve default Launcher entry, explicit return, clock/media controls, disconnected/unconfigured CTAs, fixed landscape, and persistent touchpad. Never edit launcher bindings on the phone.
+- [x] Require the correct computer and a fresh application activation acknowledgement before enabling app shortcuts. Ignore stale activation notifications after returning home or switching computers.
+- [x] Complete original-icon request, authenticated download, bounded PNG validation, per-computer cache and artwork fallback. Honor Sync Icons in both requests and rendering; late responses cannot cross computer sessions.
+- [x] Test startup, no configuration, offline/disconnect, activation failure, stale notifications, return home, host switching, cache invalidation, invalid/oversized icons, and disabled synchronization.
+- [x] Keep valid existing regressions and generate current Full phone/tablet screenshots without individual image review.
 
 ## Task 3: Desktop, central icon service, and Linux
 
@@ -68,22 +68,22 @@
 
 **Produces:** Atomic launcher configuration and manifest revision updates, authenticated bounded native icon endpoint, complete registered icon catalog in the existing dashboard, honest Linux capabilities and artifact build checks.
 
-- [ ] Resolve `desktop_actions.dart` while retaining both WIP icons/Linux work and main's General media behavior.
-- [ ] Make the manifest the atomic source of launcher assignments and revision. Handle save failures, restart, old eight-slot migration, and explicitly cleared settings.
-- [ ] Validate/cancel/time-limit native icon extraction on supported platforms. Enforce authentication, Sync Icons gating, known application IDs, size/type/dimensions, and ETag behavior at the companion endpoint.
-- [ ] Register actual distinct artwork for every supported brand; document canonical IDs, compatibility aliases, original provenance, license uncertainty and trademark guidance accurately. Do not count aliases as additional artwork.
-- [ ] Extend the existing Rust dashboard with search, catalog/download, offline/error/unknown states, strict registered sources, and bounded downloads. Keep the Docker image self-contained and preview mode independent of PostgreSQL.
-- [ ] Support Linux X11 keyboard/pointer/media/fixed tools only where the required backend exists; do not announce unavailable pointer capability or call an unimplemented native channel. Fix locale-dependent parsing and CI native dependencies.
-- [ ] Run protocol/Desktop/Rust tests, native platform builds through artifact CI, browser behavior/overflow checks, and current web/Desktop screenshots for the combined index.
+- [x] Resolve `desktop_actions.dart` while retaining both WIP icons/Linux work and main's General media behavior.
+- [x] Make the manifest the atomic source of launcher assignments and revision. Handle save failures, restart, old eight-slot migration, and explicitly cleared settings.
+- [x] Validate/cancel/time-limit native icon extraction on supported platforms. Enforce authentication, Sync Icons gating, known application IDs, size/type/dimensions, and ETag behavior at the companion endpoint.
+- [x] Register actual distinct artwork for every supported brand; document canonical IDs, compatibility aliases, original provenance, license uncertainty and trademark guidance accurately. Do not count aliases as additional artwork.
+- [x] Extend the existing Rust dashboard with search, catalog/download, offline/error/unknown states, strict registered sources, and bounded downloads. Keep the Docker image self-contained and preview mode independent of PostgreSQL.
+- [x] Support Linux X11 keyboard/pointer/media/fixed tools only where the required backend exists; do not announce unavailable pointer capability or call an unimplemented native channel. Fix locale-dependent parsing and CI native dependencies.
+- [x] Run protocol/Desktop/Rust tests, native platform builds through artifact CI, browser behavior/overflow checks, and current web/Desktop screenshots for the combined index.
 
 ## Task 4: Integration and delivery
 
 **Owner:** Primary agent; fixes stay with their Luna owners.
 
-- [ ] Review conflict resolutions and capability/product boundaries against the handoff and direct user decisions.
-- [ ] Run appropriate complete analysis and tests for Full mobile, protocol, Desktop, independent Lite, and Rust; distinguish optional database/native-model skips from passing tests.
-- [ ] Verify standalone exported builds and actual APK dependency/permission isolation.
-- [ ] Build final Android and Desktop artifacts; use artifact-only hosted checks for iOS/macOS/Linux/Windows and wait for terminal results.
-- [ ] Generate one current screenshot index for mobile, Desktop, Lite and web, without mixing prior delivery images or inspecting each image individually.
-- [ ] Update the handoff with verified completion, residual platform/device limits, and reproducible commands.
-- [ ] Review the final diff, commit and push the feature branch, and deliver artifact links with accurate installability/signing limits. Do not publish tags/releases or overwrite main.
+- [x] Review conflict resolutions and capability/product boundaries against the handoff and direct user decisions.
+- [x] Run appropriate complete analysis and tests for Full mobile, protocol, Desktop, independent Lite, and Rust; distinguish optional database/native-model skips from passing tests.
+- [x] Verify standalone exported builds and actual APK dependency/permission isolation.
+- [x] Build final Android and Desktop artifacts; use artifact-only hosted checks for iOS/macOS/Linux/Windows and wait for terminal results.
+- [x] Generate one current screenshot index for mobile, Desktop, Lite and web, without mixing prior delivery images or inspecting each image individually.
+- [x] Update the handoff with verified completion, residual platform/device limits, and reproducible commands.
+- [x] Review the final diff, commit and push the feature branch, and deliver artifact links with accurate installability/signing limits. Do not publish tags/releases or overwrite main.
