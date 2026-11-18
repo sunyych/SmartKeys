@@ -21,12 +21,13 @@ on:
   workflow_dispatch:
     inputs:
       apple_runner:
-        description: Apple runner (Intel is an optional capacity fallback)
+        description: Apple runner for manual validation
         type: choice
-        default: macos-latest
+        default: macos-26-intel
         options:
           - macos-latest
           - macos-15-intel
+          - macos-26-intel
 
 permissions:
   contents: read
@@ -63,7 +64,7 @@ jobs:
 
   macos-desktop:
     name: macOS Desktop release package
-    runs-on: ${{ inputs.apple_runner || 'macos-latest' }}
+    runs-on: ${{ inputs.apple_runner || 'macos-26-intel' }}
     steps:
       - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
