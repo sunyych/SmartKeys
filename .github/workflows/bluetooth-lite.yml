@@ -23,6 +23,8 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      SMARTKEYS_SCREENSHOT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
     outputs:
       version: ${{ steps.version.outputs.value }}
     steps:
@@ -53,6 +55,14 @@ jobs:
         with:
           flutter-version: '3.44.2'
           cache: true
+      - name: Prepare screenshot fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          flutter precache --linux
+          test -f "$SMARTKEYS_SCREENSHOT_FONT"
+          test -f "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+          ls -l "$SMARTKEYS_SCREENSHOT_FONT" "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
       - name: Check Lite dependency and permission boundary
         run: |
           test ! -e pubspec.yaml

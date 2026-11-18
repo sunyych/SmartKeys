@@ -23,7 +23,7 @@ jobs:
       - name: Install Flutter Linux build libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev libasound2-dev libpulse-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-good pulseaudio pulseaudio-utils xdotool playerctl xvfb
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev libasound2-dev libpulse-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-good pulseaudio pulseaudio-utils xdotool playerctl xvfb fonts-noto-cjk
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -35,14 +35,20 @@ jobs:
       - name: Resolve and analyze Full Linux desktop app
         working-directory: desktop_companion
         run: |
+          flutter precache --linux
           flutter pub get
           flutter analyze
       - name: Test with an isolated virtual PulseAudio sink
         working-directory: desktop_companion
         env:
           SMARTKEYS_LINUX_AUDIO_TEST: '1'
+          SMARTKEYS_SCREENSHOT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
         run: |
           set -euo pipefail
+          material_icon_font="${FLUTTER_ROOT:?}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+          test -s "$material_icon_font"
+          test -s "$SMARTKEYS_SCREENSHOT_FONT"
+          ls -l "$material_icon_font" "$SMARTKEYS_SCREENSHOT_FONT"
           audio_dir="$(mktemp -d "$RUNNER_TEMP/lumiakey-pulse.XXXXXX")"
           export PULSE_RUNTIME_PATH="$audio_dir"
           export PULSE_STATE_PATH="$audio_dir/state"

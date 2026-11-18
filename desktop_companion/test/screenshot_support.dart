@@ -24,13 +24,13 @@ Future<void> _loadScreenshotFonts() async {
   final fonts = _materialFontsDirectory();
   final configured = Platform.environment['SMARTKEYS_SCREENSHOT_FONT'];
   final regular = configured == null || configured.isEmpty
-      ? File('${fonts.path}${Platform.pathSeparator}roboto-regular.ttf')
+      ? File('${fonts.path}${Platform.pathSeparator}Roboto-Regular.ttf')
       : File(configured);
   final bold = configured == null || configured.isEmpty
-      ? File('${fonts.path}${Platform.pathSeparator}roboto-bold.ttf')
+      ? File('${fonts.path}${Platform.pathSeparator}Roboto-Bold.ttf')
       : File(configured);
   final icons = File(
-    '${fonts.path}${Platform.pathSeparator}materialicons-regular.otf',
+    '${fonts.path}${Platform.pathSeparator}MaterialIcons-Regular.otf',
   );
   if (!await regular.exists() ||
       !await bold.exists() ||

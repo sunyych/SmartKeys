@@ -35,13 +35,13 @@ class ScreenshotSupport {
     final sdkFonts = _findFlutterRoot();
     final configured = Platform.environment['SMARTKEYS_SCREENSHOT_FONT'];
     final roboto = configured == null || configured.isEmpty
-        ? File('${sdkFonts.path}${Platform.pathSeparator}roboto-regular.ttf')
+        ? File('${sdkFonts.path}${Platform.pathSeparator}Roboto-Regular.ttf')
         : File(configured);
     final bold = configured == null || configured.isEmpty
-        ? File('${sdkFonts.path}${Platform.pathSeparator}roboto-bold.ttf')
+        ? File('${sdkFonts.path}${Platform.pathSeparator}Roboto-Bold.ttf')
         : File(configured);
     final iconFont = File(
-      '${sdkFonts.path}${Platform.pathSeparator}materialicons-regular.otf',
+      '${sdkFonts.path}${Platform.pathSeparator}MaterialIcons-Regular.otf',
     );
     if (!await roboto.exists() ||
         !await bold.exists() ||
