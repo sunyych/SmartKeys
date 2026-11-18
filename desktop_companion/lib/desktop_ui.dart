@@ -6,8 +6,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'companion_server.dart';
+import 'desktop_actions.dart';
 import 'desktop_controller.dart';
 import 'app_library_page.dart';
 import 'phone_sidebar_page.dart';
@@ -110,7 +112,7 @@ class DesktopSettingsHome extends StatelessWidget {
     2 => _ShortcutLayoutsPage(controller: controller),
     3 => _AppsPage(controller: controller),
     4 => _ProfilesPage(controller: controller),
-    5 => const _AboutPage(),
+    5 => _AboutPage(inputBackend: controller.actions.inputBackend),
     6 => _LocalDictationPage(dictation: dictation),
     _ => _LauncherPage(controller: controller),
   };
@@ -1673,18 +1675,27 @@ class _ProfilesPage extends StatelessWidget {
   );
 }
 
-class _AboutPage extends StatelessWidget {
-  const _AboutPage();
+class _AboutPage extends StatefulWidget {
+  const _AboutPage({required this.inputBackend});
+
+  final DesktopInputBackend inputBackend;
 
   @override
-  Widget build(BuildContext context) => const _PageBody(
+  State<_AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends State<_AboutPage> {
+  late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+
+  @override
+  Widget build(BuildContext context) => _PageBody(
     children: [
       Card(
         child: Padding(
-          padding: EdgeInsets.all(28),
+          padding: const EdgeInsets.all(28),
           child: Column(
             children: [
-              Image(
+              const Image(
                 key: ValueKey('desktop-about-logo-image'),
                 image: AssetImage(desktopBrandAsset),
                 width: 80,
@@ -1692,15 +1703,37 @@ class _AboutPage extends StatelessWidget {
                 filterQuality: FilterQuality.high,
                 semanticLabel: 'LumiaKey logo',
               ),
-              SizedBox(height: 16),
-              Text(
+              const SizedBox(height: 16),
+              const Text(
                 'LumiaKey',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
               ),
-              SizedBox(height: 6),
-              Text('Version 1.2'),
-              SizedBox(height: 18),
-              Text(
+              const SizedBox(height: 6),
+              FutureBuilder<PackageInfo>(
+                future: _packageInfo,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Text('Loading version…');
+                  }
+                  final version = snapshot.data?.version.trim() ?? '';
+                  if (version.isEmpty) {
+                    return const Text('Version unavailable');
+                  }
+                  final build = snapshot.data?.buildNumber.trim() ?? '';
+                  return Text(
+                    'Version $version${build.isEmpty ? '' : ' (build $build)'}',
+                  );
+                },
+              ),
+              const SizedBox(height: 6),
+              Text(switch (widget.inputBackend) {
+                DesktopInputBackend.standard => 'Input backend: Standard',
+                DesktopInputBackend.rust => 'Input backend: Rust (selected)',
+                DesktopInputBackend.rustShortcuts =>
+                  'Input backend: Rust shortcuts (selected)',
+              }),
+              const SizedBox(height: 18),
+              const Text(
                 'The desktop-driven shortcut platform for LumiaKey Android. Layouts, app definitions, profiles, icons, and execution logic live on this computer.',
                 textAlign: TextAlign.center,
               ),

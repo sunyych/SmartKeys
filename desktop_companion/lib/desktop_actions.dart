@@ -79,6 +79,8 @@ class SystemDesktopProcessRunner implements DesktopProcessRunner {
       Process.start(executable, arguments, mode: ProcessStartMode.detached);
 }
 
+enum DesktopInputBackend { standard, rust, rustShortcuts }
+
 class DesktopActions {
   DesktopActions({
     DesktopProcessRunner? runner,
@@ -153,6 +155,18 @@ class DesktopActions {
       : _isMacOS
       ? 'macos'
       : 'linux';
+  DesktopInputBackend get inputBackend {
+    if (!_hasPointerOverride &&
+        _desktopBackend is RustDesktopBackend &&
+        (_isWindows || _isMacOS || _isLinux)) {
+      return DesktopInputBackend.rust;
+    }
+    if (_isWindows && _useRustWindowsShortcuts) {
+      return DesktopInputBackend.rustShortcuts;
+    }
+    return DesktopInputBackend.standard;
+  }
+
   bool get supportsNativeDictation => _isWindows || _isMacOS;
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;

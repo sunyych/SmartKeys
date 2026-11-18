@@ -33,6 +33,7 @@ dependencies:
   ffi: ^2.2.0
   image: 4.13.1
   file_picker: ^10.3.10
+  package_info_plus: 9.0.1
   flutter:
     sdk: flutter
   lumiakeys_protocol:
