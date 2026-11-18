@@ -15,6 +15,7 @@ corresponding app-launch shortcut on the computer. Unconfigured slots open a loc
 editor and send no input. Sidebar profile selection changes only the local page.
 Lite settings manage profiles, media shortcuts and launch bindings on the phone.
 It has no KVM, microphone/voice feature, Desktop transport or online service.
+See [Lite 1.2 validation and phone installation](handoffs/2026-11-17-lite-bluetooth-parity-validation.md).
 
 Full 1.7 keeps twelve landscape keys and the right touchpad. Its shared top bar
 places host, clock and media controls next to the current workspace title; the
