@@ -104,7 +104,10 @@ class PrivateImageStore {
 
   static bool _validDesktopIconKey(String computerId, String appId) =>
       RegExp(r'^[a-f0-9]{32}$').hasMatch(computerId) &&
-      RegExp(r'^[A-Za-z][A-Za-z0-9_-]{0,63}$').hasMatch(appId);
+      (RegExp(r'^[A-Za-z][A-Za-z0-9_-]{0,63}$').hasMatch(appId) ||
+          RegExp(
+            r'^installed\.[a-f0-9]{32}(?:_[a-f0-9]{12})?$',
+          ).hasMatch(appId));
 
   Future<String?> importFromGallery(String profileId) async {
     final selection = await _imagePicker.pickImage(source: ImageSource.gallery);

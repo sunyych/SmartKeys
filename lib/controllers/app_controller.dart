@@ -153,13 +153,13 @@ class AppController extends ChangeNotifier {
     final host = companion.activeHost.value;
     if (scope == null ||
         host == null ||
-        !remoteApplicationIconAppIds.contains(appId) ||
-        desktopManifest?.applicationById(appId) == null) {
+        !_allowsDesktopApplicationIcon(appId)) {
       return Future.value(null);
     }
     final session = _companionSessionId(host);
     final app = desktopManifest!.applicationById(appId)!;
     bool current() =>
+        _allowsDesktopApplicationIcon(appId) &&
         desktopIconScope == scope &&
         companion.activeHost.value != null &&
         _companionSessionId(companion.activeHost.value!) == session &&
@@ -227,6 +227,18 @@ class AppController extends ChangeNotifier {
         _desktopAppIconLoads.remove(requestKey);
       }
     });
+  }
+
+  bool _allowsDesktopApplicationIcon(String appId) {
+    final manifest = desktopManifest;
+    final app = manifest?.applicationById(appId);
+    if (manifest == null || app == null) return false;
+    if (remoteApplicationIconAppIds.contains(appId)) return true;
+    return isInstalledApplicationId(appId) &&
+        app.launchOnly &&
+        app.detected &&
+        manifest.settings.enableAppsSync &&
+        manifest.launcherApplicationIds.contains(appId);
   }
 
   ValueListenable<List<CompanionComputerChoice>>? get desktopComputerChoices =>

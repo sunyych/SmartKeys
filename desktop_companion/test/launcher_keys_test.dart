@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:lumiakeys_companion/desktop_controller.dart';
+import 'package:lumiakeys_companion/installed_app_registry.dart';
 
 class _Discovery implements ApplicationDiscovery {
   @override
@@ -74,6 +75,7 @@ void main() {
         store: store,
         launcherKeyStore: launcher,
         discovery: _Discovery(),
+        installedRegistry: InstalledAppRegistry(),
       );
       await controller.initialize();
       final before = List<String?>.from(controller.launcherAppIds);

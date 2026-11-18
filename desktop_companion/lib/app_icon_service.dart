@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import 'installed_app_launcher.dart';
 
 /// Reads an installed app's local icon. This never resolves a URL or accepts
 /// arbitrary executable names from remote actions; `application.executable`
@@ -19,6 +20,8 @@ class NativeAppIconService {
     this.processRunner,
     this.linuxDesktopDirectories,
     this.linuxIconDirectories,
+    this.registeredTargetResolver,
+    this.installedChannel,
     DateTime Function()? now,
   }) : channel = channel ?? const MethodChannel('lumiakeys/app_icon'),
        environment = environment ?? Platform.environment,
@@ -52,19 +55,35 @@ class NativeAppIconService {
   processRunner;
   final List<String>? linuxDesktopDirectories;
   final List<String>? linuxIconDirectories;
+  InstalledTargetResolver? registeredTargetResolver;
+  final MethodChannel? installedChannel;
+  late final InstalledApplicationLauncher _installedLauncher =
+      InstalledApplicationLauncher(
+        resolve: (id) => registeredTargetResolver?.call(id),
+        channel: installedChannel,
+        platformOverride: platformOverride,
+        timeout: timeout,
+      );
   final DateTime Function() _now;
   final Map<String, (DateTime, Uint8List?)> _cache = {};
   final Map<String, Future<Uint8List?>> _pending = {};
 
   Future<Uint8List?> getNativeIcon(RemoteApplication application) async {
-    if (!supportedAppIds.contains(application.id) ||
-        application.executable.length > 1024 ||
-        application.executable.codeUnits.any(
-          (unit) => unit < 32 || unit == 127,
-        )) {
+    final registered = application.launchOnly
+        ? _installedLauncher.registeredTarget(application.id)
+        : null;
+    if (application.launchOnly && registered == null ||
+        !application.launchOnly &&
+            (!supportedAppIds.contains(application.id) ||
+                application.executable.length > 1024 ||
+                application.executable.codeUnits.any(
+                  (unit) => unit < 32 || unit == 127,
+                ))) {
       return null;
     }
-    final key = '${application.id}\u0000${application.executable}';
+    final key = registered == null
+        ? '${application.id}\u0000${application.executable}'
+        : '${registered.id}\u0000${registered.kind.name}\u0000${registered.identity}\u0000${registered.locator}';
     final cached = _cache[key];
     if (cached != null && _now().isBefore(cached.$1)) return cached.$2;
     return _pending[key] ??= _extract(application)
@@ -77,7 +96,7 @@ class NativeAppIconService {
             ),
             bytes,
           );
-          if (_cache.length > supportedAppIds.length * 2) {
+          if (_cache.length > 128) {
             _cache.remove(_cache.keys.first);
           }
           return bytes;
@@ -90,15 +109,22 @@ class NativeAppIconService {
   Future<Uint8List?> _extract(RemoteApplication application) async {
     try {
       final platform = platformOverride ?? defaultTargetPlatform;
-      final bytes = await (switch (platform) {
-        TargetPlatform.linux => _linuxDesktopIcon(application),
-        TargetPlatform.windows => _windowsNativeIcon(application.id),
-        TargetPlatform.macOS => channel.invokeMethod<Uint8List>('get', {
-          'appId': application.id,
-          'executable': application.executable,
-        }),
-        _ => Future<Uint8List?>.value(),
-      }).timeout(timeout);
+      final bytes =
+          await (application.launchOnly
+                  ? _installedLauncher.icon(application.id)
+                  : switch (platform) {
+                      TargetPlatform.linux => _linuxDesktopIcon(application),
+                      TargetPlatform.windows => _windowsNativeIcon(
+                        application.id,
+                      ),
+                      TargetPlatform.macOS =>
+                        channel.invokeMethod<Uint8List>('get', {
+                          'appId': application.id,
+                          'executable': application.executable,
+                        }),
+                      _ => Future<Uint8List?>.value(),
+                    })
+              .timeout(timeout);
       return bytes != null && validApplicationIconPng(bytes) ? bytes : null;
     } catch (_) {
       return null;

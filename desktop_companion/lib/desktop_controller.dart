@@ -9,6 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'desktop_actions.dart';
 import 'app_icon_service.dart';
+import 'installed_app_registry.dart';
+import 'installed_app_discovery.dart';
+import 'icons/builtin_icon_catalog.g.dart';
 
 abstract interface class DesktopConfigStore {
   Future<DesktopManifest?> load();
@@ -107,6 +110,14 @@ abstract interface class ApplicationDiscovery {
 class PlatformApplicationDiscovery implements ApplicationDiscovery {
   PlatformApplicationDiscovery();
 
+  DateTime? _installedChecked;
+  List<String> _cachedMacNames = [], _cachedWindowsNames = [];
+  final Map<String, String?> _cachedExecutablePaths = {};
+  void invalidateInstalledCache() {
+    _installedChecked = null;
+    _cachedExecutablePaths.clear();
+  }
+
   // ChatGPT and Codex can share one desktop process. The controller updates
   // this after an explicit phone activation so subsequent probes retain the
   // panel the user asked to open.
@@ -115,12 +126,18 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
   static const _macOnlyApplicationIds = {'appleMusic', 'finder', 'safari'};
   @override
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async {
-    final installedMacApps = Platform.isMacOS
-        ? await _macApplicationNames()
-        : const <String>[];
-    final installedWindowsApps = Platform.isWindows
-        ? await _windowsApplicationNames()
-        : const <String>[];
+    final now = DateTime.now();
+    if (_installedChecked == null ||
+        now.difference(_installedChecked!) >= const Duration(seconds: 60)) {
+      if (Platform.isMacOS) _cachedMacNames = await _macApplicationNames();
+      if (Platform.isWindows) {
+        _cachedWindowsNames = await _windowsApplicationNames();
+      }
+      _cachedExecutablePaths.clear();
+      _installedChecked = now;
+    }
+    final installedMacApps = _cachedMacNames;
+    final installedWindowsApps = _cachedWindowsNames;
     final runningProcesses = await _runningProcessNames();
     final foregroundProcess = await _foregroundProcessName();
     final foregroundAppId = resolveForegroundApplicationId(
@@ -163,10 +180,17 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         }
         if (Platform.isWindows) {
           final executable = _windowsExecutable(app);
-          final result = await Process.run('where.exe', [executable]);
-          final resolved = result.exitCode == 0
-              ? result.stdout.toString().split(RegExp(r'[\r\n]+')).first.trim()
-              : executable;
+          if (!_cachedExecutablePaths.containsKey(executable)) {
+            final result = await Process.run('where.exe', [executable]);
+            _cachedExecutablePaths[executable] = result.exitCode == 0
+                ? result.stdout
+                      .toString()
+                      .split(RegExp(r'[\r\n]+'))
+                      .first
+                      .trim()
+                : null;
+          }
+          final resolved = _cachedExecutablePaths[executable];
           final detectedByName = installedWindowsApps.any(
             (installed) => candidates.any(installed.contains),
           );
@@ -179,14 +203,12 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
                     (process) => process.contains('chatgpt'),
                   ));
           return app.copyWith(
-            detected: result.exitCode == 0 || detectedByName || running,
+            detected: resolved != null || detectedByName || running,
             running: running,
             foreground: foreground,
             executable: chatGptDetected
                 ? 'ChatGPT.exe'
-                : result.exitCode == 0
-                ? resolved
-                : app.executable,
+                : resolved ?? app.executable,
           );
         }
         if (app.id == 'safari') {
@@ -447,19 +469,51 @@ class DesktopController extends ChangeNotifier {
     required this.store,
     DesktopActions? actions,
     ApplicationDiscovery? discovery,
+    InstalledAppRegistry? installedRegistry,
     LauncherKeyStore? launcherKeyStore,
     this.foregroundProbe,
   }) : actions = actions ?? DesktopActions(),
+       installedRegistry =
+           installedRegistry ??
+           (store is MemoryDesktopConfigStore
+               ? InstalledAppRegistry()
+               : InstalledAppRegistry(
+                   discover: PlatformInstalledApplicationDiscovery().discover,
+                   store: SharedPreferencesInstalledRegistryStore(),
+                 )),
        discovery = discovery ?? PlatformApplicationDiscovery(),
        launcherKeyStore =
            launcherKeyStore ??
            (store is MemoryDesktopConfigStore
                ? MemoryLauncherKeyStore()
-               : SharedPreferencesLauncherKeyStore());
+               : SharedPreferencesLauncherKeyStore()) {
+    this.actions.registeredTargetResolver = this.installedRegistry.resolve;
+    this.actions.installedLaunchAuthorizer = (id) =>
+        _installedLaunchAllowed(id) && launcherAppIds.contains(id);
+    this.actions.installedButtonLaunchAuthorizer = (id, buttonId) {
+      final button = _manifest.buttonById(buttonId);
+      return _installedLaunchAllowed(id) &&
+          button != null &&
+          button.enabled &&
+          button.targetType == RemoteTargetType.launchApplication &&
+          button.target == id;
+    };
+  }
+
+  bool _installedLaunchAllowed(String id) {
+    final app = _manifest.applicationById(id);
+    return isInstalledApplicationId(id) &&
+        _manifest.settings.autoLaunchApps &&
+        app != null &&
+        app.launchOnly &&
+        app.detected &&
+        installedRegistry.resolve(id) != null;
+  }
 
   final DesktopConfigStore store;
   final DesktopActions actions;
   final ApplicationDiscovery discovery;
+  final InstalledAppRegistry installedRegistry;
   final LauncherKeyStore launcherKeyStore;
   final Future<bool> Function(RemoteApplication)? foregroundProbe;
   bool _managedActionRunning = false;
@@ -474,6 +528,8 @@ class DesktopController extends ChangeNotifier {
   bool _configurationReady = false;
   bool _refreshingApplications = false;
   Timer? _applicationMonitor;
+  Timer? _installedApplicationMonitor;
+  bool _installedRefreshBusy = false;
   Future<void> _launcherSaveQueue = Future<void>.value();
   Future<void> _manifestSaveQueue = Future<void>.value();
 
@@ -494,14 +550,20 @@ class DesktopController extends ChangeNotifier {
   DesktopManifest get manifestForExport => _manifest;
   List<RemoteApplication> get applicationsForCurrentPlatform => _manifest
       .applications
-      .where((app) => Platform.isMacOS || app.id != 'safari')
+      .where(
+        (app) => !app.launchOnly && (Platform.isMacOS || app.id != 'safari'),
+      )
       .toList(growable: false);
   bool get loading => _loading;
   String? get error => _error;
+  String? get installedApplicationsError => installedRegistry.error;
   String? get connectedPhone => _connectedPhone;
   int get selectedSection => _selectedSection;
   List<String?> get launcherAppIds =>
       List.unmodifiable(_manifest.launcherApplicationIds);
+  List<RemoteApplication> get launcherApplications => _manifest.applications
+      .where((app) => app.detected || launcherAppIds.contains(app.id))
+      .toList(growable: false);
   RemoteApplication? get foregroundApplication =>
       _manifest.applications.cast<RemoteApplication?>().firstWhere(
         (application) => application?.foreground == true,
@@ -553,8 +615,15 @@ class DesktopController extends ChangeNotifier {
           'Could not load the previous launcher configuration: $error',
         );
       }
-      final apps = await discovery.refresh(_manifest.applications);
-      _manifest = _withApplications(apps);
+      try {
+        await installedRegistry.refresh();
+      } catch (_) {
+        /* Preserve existing configuration; registered launches fail closed. */
+      }
+      final apps = await discovery.refresh(
+        _manifest.applications.where((app) => !app.launchOnly).toList(),
+      );
+      _manifest = _withInstalledApplications(apps);
       if (jsonEncode(_manifest.toJson()) != jsonEncode(loaded.toJson())) {
         _manifest = _manifest.copyWith(revision: loaded.revision + 1);
       }
@@ -570,6 +639,10 @@ class DesktopController extends ChangeNotifier {
         _applicationMonitor = Timer.periodic(
           const Duration(seconds: 3),
           (_) => unawaited(_refreshRuntimeApplications()),
+        );
+        _installedApplicationMonitor = Timer.periodic(
+          const Duration(seconds: 60),
+          (_) => unawaited(refreshApplications(forceInstalled: false)),
         );
       }
     }
@@ -588,6 +661,12 @@ class DesktopController extends ChangeNotifier {
     if (appId != null &&
         !_manifest.applications.any((app) => app.id == appId)) {
       throw const FormatException('Unknown launcher application');
+    }
+    if (appId != null &&
+        isInstalledApplicationId(appId) &&
+        installedRegistry.resolve(appId) == null &&
+        launcherAppIds[index] != appId) {
+      throw const FormatException('This installed application is unavailable');
     }
     final operation = _launcherSaveQueue.then((_) async {
       await _commit((current) {
@@ -673,6 +752,11 @@ class DesktopController extends ChangeNotifier {
   }
 
   Future<void> updateApplication(RemoteApplication updated) async {
+    if (updated.launchOnly || isInstalledApplicationId(updated.id)) {
+      throw const FormatException(
+        'Installed applications are managed in the Launchpad picker',
+      );
+    }
     await _commit((current) {
       final apps = current.applications
           .map((app) => app.id == updated.id ? updated : app)
@@ -740,23 +824,59 @@ class DesktopController extends ChangeNotifier {
     });
   }
 
-  Future<void> refreshApplications() async {
-    if (!_configurationReady) return;
+  Future<void> refreshApplications({bool forceInstalled = true}) async {
+    if (!_configurationReady || _installedRefreshBusy) return;
+    _installedRefreshBusy = true;
     final generation = _applicationRefreshGeneration;
     try {
-      final apps = await discovery.refresh(_manifest.applications);
+      try {
+        await installedRegistry.refresh(force: forceInstalled);
+      } catch (_) {
+        /* Publish unavailable state without erasing saved slots. */
+      }
+      if (discovery case final PlatformApplicationDiscovery source) {
+        source.invalidateInstalledCache();
+      }
+      final apps = await discovery.refresh(
+        _manifest.applications.where((app) => !app.launchOnly).toList(),
+      );
       await _commit(
         (current) =>
             generation == _applicationRefreshGeneration &&
                 !_managedActionRunning
-            ? _withApplications(apps, base: current)
+            ? _withInstalledApplications(apps, base: current)
             : current,
       );
       _error = null;
     } catch (error) {
       _error = 'App discovery failed: $error';
       notifyListeners();
+    } finally {
+      _installedRefreshBusy = false;
     }
+  }
+
+  Future<void> addInstalledApplication(InstalledLaunchTarget target) async {
+    if (!_configurationReady) {
+      throw StateError('Desktop configuration is not ready');
+    }
+    await installedRegistry.addManual(target);
+    await _commit(
+      (current) => _withInstalledApplications(
+        current.applications.where((app) => !app.launchOnly).toList(),
+        base: current,
+      ),
+    );
+  }
+
+  Future<void> removeManualApplication(String id) async {
+    await installedRegistry.removeManual(id);
+    await _commit(
+      (current) => _withInstalledApplications(
+        current.applications.where((app) => !app.launchOnly).toList(),
+        base: current,
+      ),
+    );
   }
 
   Future<void> _refreshRuntimeApplications() async {
@@ -768,15 +888,18 @@ class DesktopController extends ChangeNotifier {
     _refreshingApplications = true;
     final generation = _applicationRefreshGeneration;
     try {
-      final apps = await discovery.refresh(_manifest.applications);
+      final apps = await discovery.refresh(
+        _manifest.applications.where((app) => !app.launchOnly).toList(),
+      );
+      final projected = _withInstalledApplications(apps).applications;
       if (generation == _applicationRefreshGeneration &&
           !_managedActionRunning &&
-          !_sameApplications(apps, _manifest.applications)) {
+          !_sameApplications(projected, _manifest.applications)) {
         await _commit(
           (current) =>
               generation == _applicationRefreshGeneration &&
                   !_managedActionRunning
-              ? _withApplications(apps, base: current)
+              ? _withInstalledApplications(apps, base: current)
               : current,
         );
       }
@@ -803,11 +926,52 @@ class DesktopController extends ChangeNotifier {
           a.layoutId != b.layoutId ||
           a.detected != b.detected ||
           a.running != b.running ||
-          a.foreground != b.foreground) {
+          a.foreground != b.foreground ||
+          a.launchOnly != b.launchOnly) {
         return false;
       }
     }
     return true;
+  }
+
+  DesktopManifest _withInstalledApplications(
+    List<RemoteApplication> legacy, {
+    DesktopManifest? base,
+  }) {
+    final current = base ?? _manifest;
+    final merged = <String, RemoteApplication>{
+      for (final app in legacy)
+        if (!app.launchOnly) app.id: app,
+    };
+    for (final previous in current.applications.where(
+      (app) =>
+          app.launchOnly && current.launcherApplicationIds.contains(app.id),
+    )) {
+      merged[previous.id] = previous.copyWith(
+        icon: canonicalBuiltinIconId(previous.icon) ?? 'apps',
+        detected: false,
+        running: false,
+        foreground: false,
+      );
+    }
+    for (final target in installedRegistry.entries) {
+      merged[target.id] = RemoteApplication(
+        id: target.id,
+        name: target.name,
+        icon: canonicalBuiltinIconId(target.iconKey ?? '') ?? 'apps',
+        executable: 'Desktop-managed',
+        layoutId: installedLaunchOnlyLayoutId,
+        detected: target.available,
+        launchOnly: true,
+      );
+    }
+    final layouts = current.layouts;
+    final shaped =
+        merged.values.any((app) => app.launchOnly) &&
+            !layouts.any((layout) => layout.id == installedLaunchOnlyLayoutId)
+        ? current.copyWith(layouts: [...layouts, installedLaunchOnlyLayout])
+        : current;
+    return _withApplications(merged.values.toList(), base: shaped);
   }
 
   DesktopManifest _withApplications(
@@ -1301,6 +1465,22 @@ class DesktopController extends ChangeNotifier {
           requestedAppId == 'codex' ? 'chatgpt' : requestedAppId,
         );
         if (app == null) throw const FormatException('Unknown application');
+        if (app.launchOnly) {
+          if (!isInstalledApplicationId(app.id) ||
+              !launcherAppIds.contains(app.id) ||
+              !app.detected ||
+              installedRegistry.resolve(app.id) == null) {
+            throw const FormatException(
+              'Installed application is not configured or is unavailable',
+            );
+          }
+          await _serializeManagedAction(
+            () => actions.activateInstalledApplication(app.id),
+          );
+          // OS acceptance is not proof of foreground state and does not grant
+          // this launch-only app any managed shortcut/injection capability.
+          return;
+        }
         if (!_isManagedLaunchApp(app.id) && !_isStarterLaunchApp(app.id)) {
           throw const FormatException('Unsupported application');
         }
@@ -1449,14 +1629,30 @@ class DesktopController extends ChangeNotifier {
     return null;
   }
 
-  Future<void> executeLegacy(Map<String, Object?> request) =>
-      actions.executeLegacy(request);
+  Future<void> executeLegacy(Map<String, Object?> request) {
+    if (request['kind'] == 'launch') {
+      final id = request['target'];
+      if (id is! String ||
+          request.keys.any((key) => key != 'kind' && key != 'target') ||
+          _manifest.applicationById(id) == null) {
+        throw const FormatException(
+          'Legacy application launch requires a registered application ID',
+        );
+      }
+      return executeRemote(RemoteActionRequest.launchApplication(id));
+    }
+    return actions.executeLegacy(request);
+  }
 
   Future<void> applyPointerInputs(List<PointerInput> inputs) =>
       actions.applyPointerInputs(inputs);
 
   Future<Uint8List?> applicationIcon(String appId) async {
-    if (!remoteApplicationIconAppIds.contains(appId) ||
+    final dynamic = isInstalledApplicationId(appId);
+    if ((!remoteApplicationIconAppIds.contains(appId) && !dynamic) ||
+        (dynamic &&
+            (!launcherAppIds.contains(appId) ||
+                installedRegistry.resolve(appId) == null)) ||
         !_manifest.settings.enableAppsSync ||
         !_manifest.settings.syncIcons) {
       return null;
@@ -1469,6 +1665,9 @@ class DesktopController extends ChangeNotifier {
           .timeout(const Duration(seconds: 4));
       if (!_manifest.settings.enableAppsSync ||
           !_manifest.settings.syncIcons ||
+          (dynamic &&
+              (!launcherAppIds.contains(appId) ||
+                  installedRegistry.resolve(appId) == null)) ||
           _manifest.applicationById(appId)?.detected != true) {
         return null;
       }
@@ -1522,6 +1721,7 @@ class DesktopController extends ChangeNotifier {
   @override
   void dispose() {
     _applicationMonitor?.cancel();
+    _installedApplicationMonitor?.cancel();
     super.dispose();
   }
 }

@@ -1,6 +1,6 @@
 # LumiaKey
 
-Current versions are **Full / Desktop 1.6.0+8** and the independent
+Current versions are **Full / Desktop 1.7.0+9** and the independent
 **Android Bluetooth Lite 1.1.0+2**. Use [current editions and build entry points](docs/EDITIONS.md).
 The 1.4 flavor architecture below is historical compatibility documentation.
 
@@ -13,6 +13,12 @@ The 1.4 flavor architecture below is historical compatibility documentation.
   has left navigation, a twelve-key Launchpad/shortcut grid, and a persistent
   right touchpad. Applications and executable shortcuts are managed on the
   computer. Regular does not fall back to Bluetooth.
+
+Desktop's Launchpad picker searches the operating system's installed application
+directory and supports adding portable or unindexed apps from a local file picker.
+Applications without a managed shortcut profile act as launch-only keys. The
+mobile header places host, clock and media controls beside the workspace title,
+and the rail shows the LumiaKey icon and wordmark together at the top.
 
 Both Android editions require Android 9 (API 28) or later and can be installed
 together. LumiaKey Desktop runs on Windows, macOS, and Linux; Linux input

@@ -580,7 +580,7 @@ class LanCompanionService
 
   @override
   Future<Uint8List?> fetchApplicationIcon(String appId) async {
-    if (!remoteApplicationIconAppIds.contains(appId)) return null;
+    if (!_allowsApplicationIcon(appId)) return null;
     final host = _host.value;
     if (host == null ||
         !host.capabilities.contains('app-icons-v1') ||
@@ -611,6 +611,7 @@ class LanCompanionService
       ).timeout(const Duration(seconds: 4));
       if (_disposed ||
           !_sameDesktopSession(_host.value, host) ||
+          !_allowsApplicationIcon(appId) ||
           _manifest.value?.settings.syncIcons != true ||
           !AppIconValidation.isValidPng(bytes)) {
         return null;
@@ -627,6 +628,18 @@ class LanCompanionService
     } finally {
       client.close(force: true);
     }
+  }
+
+  bool _allowsApplicationIcon(String appId) {
+    final manifest = _manifest.value;
+    final app = manifest?.applicationById(appId);
+    if (manifest == null || app == null) return false;
+    if (remoteApplicationIconAppIds.contains(appId)) return true;
+    return isInstalledApplicationId(appId) &&
+        app.launchOnly &&
+        app.detected &&
+        manifest.settings.enableAppsSync &&
+        manifest.launcherApplicationIds.contains(appId);
   }
 
   static Future<Uint8List> _readBoundedBytes(

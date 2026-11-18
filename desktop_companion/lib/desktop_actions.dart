@@ -5,6 +5,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'vibe_system_tools.dart';
 import 'app_icon_service.dart';
+import 'installed_app_launcher.dart';
 
 abstract interface class MacSystemControl {
   Future<void> setDark(bool enabled);
@@ -117,6 +118,24 @@ class DesktopActions {
   final DesktopPointerInput pointerInput;
   final VibeSystemTools vibeSystemTools;
   final NativeAppIconService appIconService;
+  InstalledTargetResolver? _registeredTargetResolver;
+  bool Function(String id)? installedLaunchAuthorizer;
+  bool Function(String id, String buttonId)? installedButtonLaunchAuthorizer;
+  InstalledTargetResolver? get registeredTargetResolver =>
+      _registeredTargetResolver;
+  set registeredTargetResolver(InstalledTargetResolver? value) {
+    _registeredTargetResolver = value;
+    appIconService.registeredTargetResolver = value;
+  }
+
+  bool get supportsInstalledLauncher => _registeredTargetResolver != null;
+  late final InstalledApplicationLauncher _installedLauncher =
+      InstalledApplicationLauncher(
+        resolve: (id) => _registeredTargetResolver?.call(id),
+        platformOverride: platformOverride,
+      );
+  Future<void> activateInstalledApplication(String id) =>
+      _installedLauncher.launch(id, authorize: installedLaunchAuthorizer);
   final MethodChannel mediaChannel;
   int? _windowsBrightnessBeforeDark;
 
@@ -196,6 +215,22 @@ class DesktopActions {
           throw StateError('Automatic app launching is disabled');
         }
         final app = manifest.applicationById(button.target ?? '');
+        if (app?.launchOnly == true ||
+            (button.target?.startsWith('installed.') ?? false)) {
+          if (app == null || !app.launchOnly) {
+            throw const FormatException(
+              'The registered application is no longer configured.',
+            );
+          }
+          await _installedLauncher.launch(
+            app.id,
+            authorize: (id) =>
+                installedButtonLaunchAuthorizer?.call(id, button.id) ??
+                installedLaunchAuthorizer?.call(id) ??
+                true,
+          );
+          return;
+        }
         await launchApplication(
           app?.executable ?? _requiredText(button.target),
         );

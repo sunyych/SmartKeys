@@ -1,12 +1,19 @@
 # LumiaKey editions
 
-Current versions are **Full / Desktop 1.6.0+8** and independent
+Current versions are **Full / Desktop 1.7.0+9** and independent
 **Bluetooth Lite 1.1.0+2**. The shared-package Android
 `lite` flavor and `lib/main_lite.dart` remain historical 1.4 compatibility
 source and are not the independent Lite product. See
 [the 1.4 validation record](MOBILE_EDITIONS_VALIDATION.md) for those older builds.
 
 Full has mobile and Desktop companion projects; Bluetooth Lite builds independently.
+
+Full 1.7 keeps twelve landscape keys and the right touchpad. Its shared top bar
+places host, clock and media controls next to the current workspace title; the
+LumiaKey wordmark sits below the brand icon at the top of the rail. Desktop can
+search all OS-discovered launchable apps and add portable/unindexed programs
+through a local file picker. These additional apps provide launch-only keys;
+the existing managed profiles retain their shortcut and foreground behavior.
 
 | Edition | App project | Platforms | Includes |
 | --- | --- | --- | --- |
@@ -38,6 +45,8 @@ The [earlier 1.5 / Lite 1.0 handoff validation](handoffs/2026-11-17-completion-v
 records those prior artifacts and installations. Current artifact sizes,
 signatures and platform results are in the
 [1.6 / Lite 1.1 completion validation](handoffs/app-icon-library/COMPLETION.md).
+The subsequent [1.7 installed-application and header validation](handoffs/2026-11-17-installed-launchpad-and-header-validation.md)
+records the current Full/Desktop increment and installation scope.
 
 ## Build
 

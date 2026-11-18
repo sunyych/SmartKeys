@@ -54,6 +54,213 @@ void _connect(
 
 void main() {
   test(
+    'installed native icon permission requires current slot flags and safe cache identity',
+    () async {
+      const id = 'installed.0123456789abcdef0123456789abcdef';
+      const app = RemoteApplication(
+        id: id,
+        name: 'Word',
+        icon: 'word',
+        executable: 'Desktop-managed',
+        layoutId: installedLaunchOnlyLayoutId,
+        detected: true,
+        launchOnly: true,
+      );
+      final service = _Icons()..bytes = _png(31);
+      final harness = await TestHarness.create(companionService: service);
+      addTearDown(harness.dispose);
+      _connect(harness);
+      final base = service.syncedManifest.value!;
+      final manifest = base.copyWith(
+        layouts: [...base.layouts, installedLaunchOnlyLayout],
+        applications: [...base.applications, app],
+        launcherApplicationIds: [id, ...List<String?>.filled(11, null)],
+      );
+      service.syncedManifest.value = manifest;
+      expect(
+        await harness.controller.loadDesktopApplicationIcon(id),
+        service.bytes,
+      );
+      expect(service.requests, [id]);
+      final cached = await harness.directory
+          .list(recursive: true)
+          .where((file) => file.path.endsWith('.png'))
+          .toList();
+      expect(cached, hasLength(1));
+      expect(path.basename(cached.single.path), startsWith('${id}_'));
+      service.syncedManifest.value = manifest.copyWith(
+        launcherApplicationIds: List<String?>.filled(12, null),
+      );
+      expect(await harness.controller.loadDesktopApplicationIcon(id), isNull);
+      service.syncedManifest.value = manifest.copyWith(
+        settings: manifest.settings.copyWith(enableAppsSync: false),
+      );
+      expect(await harness.controller.loadDesktopApplicationIcon(id), isNull);
+      service.syncedManifest.value = manifest.copyWith(
+        settings: manifest.settings.copyWith(syncIcons: false),
+      );
+      expect(await harness.controller.loadDesktopApplicationIcon(id), isNull);
+      service.syncedManifest.value = manifest.copyWith(
+        applications: [...base.applications, app.copyWith(detected: false)],
+      );
+      expect(await harness.controller.loadDesktopApplicationIcon(id), isNull);
+      service.syncedManifest.value = manifest.copyWith(
+        applications: [...base.applications, app.copyWith(launchOnly: false)],
+      );
+      expect(await harness.controller.loadDesktopApplicationIcon(id), isNull);
+      expect(
+        await harness.controller.loadDesktopApplicationIcon(
+          'installed.0123456789abcdef0123456789abcdef/../secret',
+        ),
+        isNull,
+      );
+      expect(service.requests, [id]);
+      service.syncedManifest.value = manifest;
+      expect(
+        await harness.controller.loadDesktopApplicationIcon(id),
+        service.bytes,
+      );
+      expect(service.requests, [id]);
+    },
+  );
+  test('late installed icon is discarded after its slot is removed', () async {
+    const id = 'installed.0123456789abcdef0123456789abcdef';
+    const app = RemoteApplication(
+      id: id,
+      name: 'Word',
+      icon: 'word',
+      executable: 'Desktop-managed',
+      layoutId: installedLaunchOnlyLayoutId,
+      detected: true,
+      launchOnly: true,
+    );
+    final started = Completer<void>(), bytes = Completer<Uint8List?>();
+    final service = _Icons()
+      ..onIcon = (_) {
+        started.complete();
+        return bytes.future;
+      };
+    final harness = await TestHarness.create(companionService: service);
+    addTearDown(harness.dispose);
+    _connect(harness);
+    final base = service.syncedManifest.value!;
+    service.syncedManifest.value = base.copyWith(
+      layouts: [...base.layouts, installedLaunchOnlyLayout],
+      applications: [...base.applications, app],
+      launcherApplicationIds: [id, ...List<String?>.filled(11, null)],
+    );
+    final pending = harness.controller.loadDesktopApplicationIcon(id);
+    await started.future;
+    service.syncedManifest.value = service.syncedManifest.value!.copyWith(
+      launcherApplicationIds: List<String?>.filled(12, null),
+    );
+    bytes.complete(_png(21));
+    expect(await pending, isNull);
+    final cached = await harness.directory
+        .list(recursive: true)
+        .where((file) => file.path.endsWith('.png'))
+        .toList();
+    expect(cached, isEmpty);
+  });
+  test(
+    'authenticated HTTP native endpoint accepts assigned installed IDs and hides unslotted apps',
+    () async {
+      const token = '0123456789abcdef0123456789abcdef',
+          id = 'installed.0123456789abcdef0123456789abcdef';
+      const app = RemoteApplication(
+        id: id,
+        name: 'Word',
+        icon: 'word',
+        executable: 'Desktop-managed',
+        layoutId: installedLaunchOnlyLayoutId,
+        detected: true,
+        launchOnly: true,
+      );
+      final base = DesktopManifest.regularStarter();
+      var manifest = base.copyWith(
+        layouts: [...base.layouts, installedLaunchOnlyLayout],
+        applications: [...base.applications, app],
+        launcherApplicationIds: [id, ...List<String?>.filled(11, null)],
+      );
+      final requested = <String>[], tokens = <String?>[];
+      Completer<void>? heldIcon;
+      final iconEntered = Completer<void>();
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final companion = LanCompanionService(enableDiscovery: false);
+      addTearDown(() async {
+        companion.dispose();
+        await server.close(force: true);
+      });
+      server.listen((request) async {
+        if (request.uri.path.startsWith('/icons/')) {
+          requested.add(request.uri.path);
+          tokens.add(request.headers.value('x-lumiakeys-token'));
+          if (heldIcon case final hold?) {
+            iconEntered.complete();
+            await hold.future;
+          }
+          request.response.headers.contentType = ContentType('image', 'png');
+          request.response.add(_png(77));
+        } else {
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode(
+              request.uri.path == '/info'
+                  ? {
+                      'name': 'Apps',
+                      'platform': 'windows',
+                      'version': 2,
+                      'revision': manifest.revision,
+                      'capabilities': [
+                        'manifest',
+                        'app-icons-v1',
+                        'installed-launcher-v1',
+                      ],
+                    }
+                  : manifest.toJson(forSync: true),
+            ),
+          );
+        }
+        await request.response.close();
+      });
+      await companion.connectManually('127.0.0.1:${server.port} $token');
+      expect(await companion.fetchApplicationIcon(id), _png(77));
+      expect(tokens, [token]);
+      expect(
+        await companion.fetchApplicationIcon(
+          'installed.0123456789abcdef0123456789abcdeZ',
+        ),
+        isNull,
+      );
+      expect(
+        await companion.fetchApplicationIcon(
+          'installed.0123456789abcdef0123456789abcdef/../../x',
+        ),
+        isNull,
+      );
+      heldIcon = Completer<void>();
+      final pending = companion.fetchApplicationIcon(id);
+      await iconEntered.future;
+      manifest = manifest.copyWith(
+        revision: 2,
+        launcherApplicationIds: List<String?>.filled(12, null),
+      );
+      await companion.refreshManifest();
+      heldIcon.complete();
+      expect(await pending, isNull);
+      expect(await companion.fetchApplicationIcon(id), isNull);
+      expect(requested, ['/icons/$id', '/icons/$id']);
+      manifest = manifest.copyWith(
+        revision: 3,
+        launcherApplicationIds: [id, ...List<String?>.filled(11, null)],
+        settings: manifest.settings.copyWith(enableAppsSync: false),
+      );
+      await companion.refreshManifest();
+      expect(await companion.fetchApplicationIcon(id), isNull);
+      expect(requested, hasLength(2));
+    },
+  );
+  test(
     'PNG validation rejects excessive dimensions, payloads and invalid decoders',
     () {
       final valid = _png(120);
