@@ -39,16 +39,26 @@ Shared protocol models
 are in `../packages/lumiakeys_protocol/`.
 
 Windows builds also need Rust and Cargo with the matching MSVC target
-(`x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`). To try the Rust
-shortcut backend, quit LumiaKey Desktop from the tray and launch the bundled
-executable from PowerShell with the backend selected:
+(`x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`). The default Windows
+backend uses the existing Dart and Windows runner paths. To try the Rust
+backend, quit LumiaKey Desktop from the tray and launch the bundled
+executable from PowerShell:
 
 ```powershell
-$env:LUMIAKEY_WINDOWS_SHORTCUT_BACKEND = 'rust'
+$env:LUMIAKEY_WINDOWS_DESKTOP_BACKEND = 'rust'
 & '.\lumiakeys_companion.exe'
 ```
 
-To switch back, quit LumiaKey Desktop, run
-`Remove-Item Env:LUMIAKEY_WINDOWS_SHORTCUT_BACKEND`, and launch again. The
-automated checks cover routing, key sequences and DLL loading. Use an
-interactive Windows desktop to verify real input and end-to-end latency.
+This enables Rust for shortcuts, pointer batches, running and foreground
+process queries, and App Paths and uninstall registry reads. The older
+`LUMIAKEY_WINDOWS_SHORTCUT_BACKEND=rust` setting still enables shortcuts alone.
+Registered artwork uses the existing Windows Shell icon handler. The scanner
+continues to get AppsFolder and Start Menu entries through the existing Shell
+query. Read-only operations can use their compatibility paths when a native
+query fails or no registered icon is available. Input requests use the selected
+backend once, with availability determined at startup for pointer capability.
+
+To switch back, quit LumiaKey Desktop, clear the backend settings with
+`Remove-Item Env:LUMIAKEY_WINDOWS_DESKTOP_BACKEND, Env:LUMIAKEY_WINDOWS_SHORTCUT_BACKEND -ErrorAction SilentlyContinue`,
+and launch again. Use an interactive Windows desktop to verify real input and
+end-to-end latency.

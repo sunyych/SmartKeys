@@ -6,6 +6,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'vibe_system_tools.dart';
 import 'app_icon_service.dart';
 import 'installed_app_launcher.dart';
+import 'windows_desktop_backend.dart';
 import 'windows_shortcut_backend.dart';
 
 abstract interface class MacSystemControl {
@@ -86,14 +87,26 @@ class DesktopActions {
     DesktopPointerInput? pointerInput,
     VibeSystemTools? vibeSystemTools,
     NativeAppIconService? appIconService,
+    WindowsDesktopBackend? windowsDesktopBackend,
     WindowsShortcutBackend Function()? loadWindowsShortcutBackend,
     this.mediaChannel = const MethodChannel('lumiakeys/system_control'),
   }) : _hasPointerOverride = pointerInput != null,
        environment = environment ?? Platform.environment,
        _useRustWindowsShortcuts =
            (environment ??
-               Platform.environment)[windowsShortcutBackendEnvironment] ==
-           'rust',
+                   Platform.environment)[windowsShortcutBackendEnvironment] ==
+               'rust' ||
+           (environment ??
+                   Platform.environment)[windowsDesktopBackendEnvironment] ==
+               'rust',
+       _windowsDesktopBackend =
+           windowsDesktopBackend ??
+           selectWindowsDesktopBackend(
+             isWindows:
+                 platformOverride == TargetPlatform.windows ||
+                 (platformOverride == null && Platform.isWindows),
+             environment: environment ?? Platform.environment,
+           ),
        _loadWindowsShortcutBackend =
            loadWindowsShortcutBackend ?? RustWindowsShortcutBackend.load,
        runner = runner ?? const SystemDesktopProcessRunner(),
@@ -101,12 +114,18 @@ class DesktopActions {
            macSystemControl ?? const MethodChannelMacSystemControl(),
        pointerInput = pointerInput ?? const MethodChannelDesktopPointerInput(),
        vibeSystemTools = vibeSystemTools ?? VibeSystemTools(),
-       appIconService = appIconService ?? NativeAppIconService();
+       appIconService =
+           appIconService ??
+           NativeAppIconService(
+             environment: environment,
+             windowsDesktopBackend: windowsDesktopBackend,
+           );
 
   final TargetPlatform? platformOverride;
   final Map<String, String> environment;
   final bool _hasPointerOverride;
   final bool _useRustWindowsShortcuts;
+  final WindowsDesktopBackend? _windowsDesktopBackend;
   final WindowsShortcutBackend Function() _loadWindowsShortcutBackend;
   late final WindowsShortcutBackend _windowsShortcutBackend =
       _loadWindowsShortcutBackend();
@@ -154,10 +173,15 @@ class DesktopActions {
   Future<Uint8List?> getApplicationIcon(RemoteApplication app) =>
       appIconService.getNativeIcon(app);
 
-  Future<void> applyPointerInputs(List<PointerInput> inputs) =>
-      _isLinux && !_hasPointerOverride
-      ? _applyLinuxPointerInputs(inputs)
-      : pointerInput.apply(inputs);
+  Future<void> applyPointerInputs(List<PointerInput> inputs) {
+    if (_hasPointerOverride) return pointerInput.apply(inputs);
+    if (_isLinux) return _applyLinuxPointerInputs(inputs);
+    if (_windowsDesktopBackend case final backend? when _isWindows) {
+      return backend.applyPointerInputs(inputs);
+    }
+    return pointerInput.apply(inputs);
+  }
+
   Future<bool> Function()? confirmVoiceInputFirstUse;
 
   static final Set<String> allowedKeys = {
@@ -316,6 +340,9 @@ class DesktopActions {
 
   Future<bool> probePointerSupport() async {
     if (_hasPointerOverride) return true;
+    if (_windowsDesktopBackend case final backend? when _isWindows) {
+      return backend.supportsPointer();
+    }
     if (_isWindows || _isMacOS) return true;
     try {
       _requireLinuxX11();

@@ -113,12 +113,12 @@ jobs:
           cargo test --locked --manifest-path native/windows_shortcuts/Cargo.toml --target-dir build/rust-shortcut-tests
           if ($LASTEXITCODE -ne 0) { throw 'Rust shortcut tests failed.' }
           flutter build windows --release --build-name=$env:APP_VERSION --build-number=$env:APP_BUILD_NUMBER
-      - name: Test Windows shortcut backends and bundled Rust DLL
+      - name: Test Windows desktop backends and bundled Rust DLL
         working-directory: desktop_companion
         shell: pwsh
         run: |
           $env:LUMIAKEY_TEST_WINDOWS_SHORTCUT_DLL = (Resolve-Path 'build/windows/x64/runner/Release/lumiakeys_windows_shortcuts.dll').Path
-          flutter test --no-pub test/windows_shortcut_contract_test.dart test/windows_rust_shortcut_test.dart
+          flutter test --no-pub test/windows_shortcut_contract_test.dart test/windows_rust_shortcut_test.dart test/rust_desktop_abi_test.dart test/rust_desktop_icon_route_test.dart test/rust_desktop_pointer_route_test.dart test/rust_desktop_process_route_test.dart test/rust_desktop_registry_route_test.dart
       - name: Build Windows installer
         shell: pwsh
         run: |

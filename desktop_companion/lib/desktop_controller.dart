@@ -14,6 +14,7 @@ import 'desktop_actions.dart';
 import 'app_icon_service.dart';
 import 'installed_app_registry.dart';
 import 'installed_app_discovery.dart';
+import 'windows_desktop_backend.dart';
 import 'icons/builtin_icon_catalog.g.dart';
 
 abstract interface class DesktopConfigStore {
@@ -111,8 +112,20 @@ abstract interface class ApplicationDiscovery {
 }
 
 class PlatformApplicationDiscovery implements ApplicationDiscovery {
-  PlatformApplicationDiscovery();
+  PlatformApplicationDiscovery({
+    WindowsDesktopBackend? windowsDesktopBackend,
+    InstalledProcessRunner? runProcess,
+  }) : _windowsDesktopBackend =
+           windowsDesktopBackend ??
+           selectWindowsDesktopBackend(
+             isWindows: Platform.isWindows,
+             environment: Platform.environment,
+           ),
+       _runProcess = runProcess ?? Process.run;
 
+  final WindowsDesktopBackend? _windowsDesktopBackend;
+  final InstalledProcessRunner _runProcess;
+  WindowsRegistryInventory? _windowsRegistry;
   DateTime? _installedChecked;
   List<String> _cachedMacNames = [], _cachedWindowsNames = [];
   final Map<String, String?> _cachedExecutablePaths = {};
@@ -134,15 +147,26 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         now.difference(_installedChecked!) >= const Duration(seconds: 60)) {
       if (Platform.isMacOS) _cachedMacNames = await _macApplicationNames();
       if (Platform.isWindows) {
-        _cachedWindowsNames = await _windowsApplicationNames();
+        final registry = await _readWindowsRegistry();
+        _windowsRegistry = registry;
+        _cachedWindowsNames = [
+          if (registry != null)
+            for (final name in registry.installedNames)
+              ..._normalizedLines(name),
+          ...await _windowsApplicationNames(shellOnly: registry != null),
+        ];
       }
       _cachedExecutablePaths.clear();
       _installedChecked = now;
     }
     final installedMacApps = _cachedMacNames;
     final installedWindowsApps = _cachedWindowsNames;
-    final runningProcesses = await _runningProcessNames();
-    final foregroundProcess = await _foregroundProcessName();
+    final snapshot = await _readWindowsProcesses();
+    final runningProcesses =
+        snapshot?.runningProcesses ?? await _runningProcessNames();
+    final foregroundProcess = snapshot != null
+        ? snapshot.foregroundProcess
+        : await _legacyForegroundProcessName();
     final foregroundAppId = resolveForegroundApplicationId(
       apps,
       foregroundProcess,
@@ -184,7 +208,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         if (Platform.isWindows) {
           final executable = _windowsExecutable(app);
           if (!_cachedExecutablePaths.containsKey(executable)) {
-            final result = await Process.run('where.exe', [executable]);
+            final result = await _runProcess('where.exe', [executable]);
             _cachedExecutablePaths[executable] = result.exitCode == 0
                 ? result.stdout
                       .toString()
@@ -206,7 +230,11 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
                     (process) => process.contains('chatgpt'),
                   ));
           return app.copyWith(
-            detected: resolved != null || detectedByName || running,
+            detected:
+                resolved != null ||
+                _windowsRegistry?.findExecutable(executable) != null ||
+                detectedByName ||
+                running,
             running: running,
             foreground: foreground,
             executable: chatGptDetected
@@ -223,7 +251,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         }
         var linuxExecutableFound = false;
         for (final executable in _linuxExecutables(app)) {
-          final result = await Process.run('which', [executable]);
+          final result = await _runProcess('which', [executable]);
           if (result.exitCode == 0) {
             linuxExecutableFound = true;
             break;
@@ -353,29 +381,53 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
         app.executable.toLowerCase().contains('chatgpt');
   }
 
-  static Future<List<String>> _windowsApplicationNames() async {
-    final result = await Process.run('powershell.exe', const [
+  Future<WindowsRegistryInventory?> _readWindowsRegistry() async {
+    final backend = _windowsDesktopBackend;
+    if (backend == null || !Platform.isWindows) return null;
+    try {
+      return await backend.readRegistry().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<WindowsProcessSnapshot?> _readWindowsProcesses() async {
+    final backend = _windowsDesktopBackend;
+    if (backend == null || !Platform.isWindows) return null;
+    try {
+      return await backend.readProcesses().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<String>> _windowsApplicationNames({
+    required bool shellOnly,
+  }) async {
+    final result = await _runProcess('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      r'$paths = @('
-          r"'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',"
-          r"'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',"
-          r"'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'); "
-          r'Get-ItemProperty $paths -ErrorAction SilentlyContinue | '
-          r'Where-Object DisplayName | Select-Object -ExpandProperty DisplayName; '
-          r'Get-StartApps | Select-Object -ExpandProperty Name',
+      shellOnly
+          ? r'Get-StartApps | Select-Object -ExpandProperty Name'
+          : r'$paths = @('
+                r"'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',"
+                r"'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',"
+                r"'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'); "
+                r'Get-ItemProperty $paths -ErrorAction SilentlyContinue | '
+                r'Where-Object DisplayName | Select-Object -ExpandProperty DisplayName; '
+                r'Get-StartApps | Select-Object -ExpandProperty Name',
     ]);
     if (result.exitCode != 0) return const [];
     return _normalizedLines(result.stdout);
   }
 
-  static Future<List<String>> _runningProcessNames() async {
+  Future<List<String>> _runningProcessNames() async {
     ProcessResult result;
     if (Platform.isWindows) {
-      result = await Process.run('tasklist.exe', const ['/FO', 'CSV', '/NH']);
+      result = await _runProcess('tasklist.exe', const ['/FO', 'CSV', '/NH']);
     } else {
-      result = await Process.run('ps', const ['-axo', 'comm=']);
+      result = await _runProcess('ps', const ['-axo', 'comm=']);
     }
     if (result.exitCode != 0) return const [];
     return _normalizedLines(result.stdout);
@@ -384,15 +436,29 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
   /// Obtains only the process name needed to map the OS foreground window to a
   /// Desktop-owned application record. The value is never sent as a command or
   /// executable path to the phone.
-  static Future<String?> _foregroundProcessName() async {
+  Future<String?> _foregroundProcessName() async {
+    final backend = _windowsDesktopBackend;
+    if (backend != null && Platform.isWindows) {
+      try {
+        return await backend.readForegroundProcess().timeout(
+          const Duration(seconds: 3),
+        );
+      } catch (_) {
+        // The compatibility probe is read-only.
+      }
+    }
+    return _legacyForegroundProcessName();
+  }
+
+  Future<String?> _legacyForegroundProcessName() async {
     ProcessResult result;
     if (Platform.isMacOS) {
-      result = await Process.run('/usr/bin/osascript', const [
+      result = await _runProcess('/usr/bin/osascript', const [
         '-e',
         'tell application "System Events" to get name of first application process whose frontmost is true',
       ]);
     } else if (Platform.isWindows) {
-      result = await Process.run('powershell.exe', const [
+      result = await _runProcess('powershell.exe', const [
         '-NoProfile',
         '-NonInteractive',
         '-Command',
@@ -410,14 +476,14 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             r'if ($name -ne "ChatGPT" -or ([LK]::IsWindowVisible($hwnd) -and ($style -band 0x80) -eq 0 -and ($style -band 0x08000000) -eq 0 -and $owner -eq [IntPtr]::Zero)) { $name } }',
       ]);
     } else {
-      final window = await Process.run('xdotool', const [
+      final window = await _runProcess('xdotool', const [
         'getactivewindow',
         'getwindowpid',
       ]);
       if (window.exitCode != 0) return null;
       final pid = int.tryParse(window.stdout.toString().trim());
       if (pid == null) return null;
-      result = await Process.run('ps', ['-p', '$pid', '-o', 'comm=']);
+      result = await _runProcess('ps', ['-p', '$pid', '-o', 'comm=']);
     }
     if (result.exitCode != 0) return null;
     final name = result.stdout.toString().trim().toLowerCase();

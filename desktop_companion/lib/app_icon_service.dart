@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'installed_app_launcher.dart';
+import 'installed_app_registry.dart';
+import 'windows_desktop_backend.dart';
 
 /// Reads an installed app's local icon. This never resolves a URL or accepts
 /// arbitrary executable names from remote actions; `application.executable`
@@ -20,11 +22,22 @@ class NativeAppIconService {
     this.processRunner,
     this.linuxDesktopDirectories,
     this.linuxIconDirectories,
+    WindowsDesktopBackend? windowsDesktopBackend,
     this.registeredTargetResolver,
     this.installedChannel,
     DateTime Function()? now,
   }) : channel = channel ?? const MethodChannel('lumiakeys/app_icon'),
        environment = environment ?? Platform.environment,
+       _windowsDesktopBackend =
+           windowsDesktopBackend ??
+           (processRunner != null
+               ? null
+               : selectWindowsDesktopBackend(
+                   isWindows:
+                       (platformOverride ?? defaultTargetPlatform) ==
+                       TargetPlatform.windows,
+                   environment: environment ?? Platform.environment,
+                 )),
        _now = now ?? DateTime.now;
 
   static const supportedAppIds = <String>{
@@ -57,6 +70,7 @@ class NativeAppIconService {
   final List<String>? linuxIconDirectories;
   InstalledTargetResolver? registeredTargetResolver;
   final MethodChannel? installedChannel;
+  final WindowsDesktopBackend? _windowsDesktopBackend;
   late final InstalledApplicationLauncher _installedLauncher =
       InstalledApplicationLauncher(
         resolve: (id) => registeredTargetResolver?.call(id),
@@ -192,6 +206,34 @@ $script
   }
 
   Future<Uint8List?> _windowsNativeIcon(String appId) async {
+    final backend = _windowsDesktopBackend;
+    final names = _windowsIconExecutables[appId];
+    if (backend != null && names != null) {
+      try {
+        final inventory = await backend.readRegistry().timeout(timeout);
+        for (final name in names) {
+          final entry = inventory.findExecutable(name);
+          if (entry == null) continue;
+          final target = InstalledLaunchTarget.discovered(
+            name: entry.name,
+            kind: InstalledLaunchKind.windowsExecutable,
+            identity: 'apppath:${entry.path.toLowerCase()}',
+            locator: entry.path,
+            executablePath: entry.path,
+          );
+          final launcher = InstalledApplicationLauncher(
+            resolve: (id) => target.id == id ? target : null,
+            channel: installedChannel,
+            platformOverride: TargetPlatform.windows,
+            timeout: timeout,
+          );
+          final bytes = await launcher.icon(target.id);
+          if (bytes != null && validApplicationIconPng(bytes)) return bytes;
+        }
+      } catch (_) {
+        // Existing read-only artwork lookup also covers non-registry apps.
+      }
+    }
     try {
       final result =
           await (processRunner ?? runBoundedDesktopProcess)('powershell.exe', [
@@ -215,6 +257,23 @@ $script
       return null;
     }
   }
+
+  static const _windowsIconExecutables = <String, List<String>>{
+    'codex': ['Codex.exe'],
+    'chatgpt': ['ChatGPT.exe'],
+    'claude': ['Claude.exe'],
+    'cursor': ['Cursor.exe'],
+    'chrome': ['chrome.exe'],
+    'edge': ['msedge.exe'],
+    'firefox': ['firefox.exe'],
+    'teams': ['ms-teams.exe', 'Teams.exe'],
+    'zoom': ['Zoom.exe'],
+    'photoshop': ['Photoshop.exe'],
+    'illustrator': ['Illustrator.exe'],
+    'vscode': ['Code.exe'],
+    'solidworks': ['SLDWORKS.exe'],
+    'premiere': ['Adobe Premiere Pro.exe'],
+  };
 
   Future<Uint8List?> _linuxDesktopIcon(RemoteApplication application) async {
     final aliases = _linuxAliases(application.id, application.executable);
