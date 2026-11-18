@@ -1,22 +1,29 @@
 # LumiaKey
 
-The current integration keeps LumiaKey Full and a genuinely independent
-Android Bluetooth Lite project. Use [current editions and build entry points](docs/EDITIONS.md).
+Current versions are **Full / Desktop 1.6.0+8** and the independent
+**Android Bluetooth Lite 1.1.0+2**. Use [current editions and build entry points](docs/EDITIONS.md).
 The 1.4 flavor architecture below is historical compatibility documentation.
 
 - **LumiaKey Lite** is Android-only and sends keyboard and mouse input directly
   over Bluetooth. General, ChatGPT, and Chrome are local profiles, edited on
   the phone. Lite does not discover Desktop, launch applications, or follow
   the computer's foreground application.
-- **LumiaKey (Regular)** runs on Android, iPhone, and iPad and requires
+- **LumiaKey Full (Regular)** runs on Android, iPhone, and iPad and requires
   LumiaKey Desktop on the same local network. Its landscape control surface
   has left navigation, a twelve-key Launchpad/shortcut grid, and a persistent
   right touchpad. Applications and executable shortcuts are managed on the
   computer. Regular does not fall back to Bluetooth.
 
 Both Android editions require Android 9 (API 28) or later and can be installed
-together. LumiaKey Desktop runs on Windows and macOS. See
-[historical 1.4 behavior, builds, and installation](docs/MOBILE_EDITIONS.md).
+together. LumiaKey Desktop runs on Windows, macOS, and Linux; Linux input
+automation requires X11. All editions include **50 offline application icons**.
+Full can download additional registered icons from a configured HTTPS center;
+Lite's icon library stays offline. Error logs are local by default. Full offers
+separate, voluntary error sharing, **off by default**; Lite keeps logs local and
+has no uploader. See [icon library and error diagnostics](docs/FULL_ICON_LIBRARY_AND_DIAGNOSTICS.md)
+and [artwork sources and usage terms](docs/APP_ICON_SOURCES.md).
+
+See [historical 1.4 behavior, builds, and installation](docs/MOBILE_EDITIONS.md).
 Current product boundaries are in [EDITIONS.md](docs/EDITIONS.md). The V1.1/V1.2 sections below record earlier behavior
 and do not override those edition boundaries.
 

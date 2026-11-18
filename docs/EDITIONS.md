@@ -1,16 +1,23 @@
 # LumiaKey editions
 
-This is the current 1.5 integration architecture. The shared-package Android
+Current versions are **Full / Desktop 1.6.0+8** and independent
+**Bluetooth Lite 1.1.0+2**. The shared-package Android
 `lite` flavor and `lib/main_lite.dart` remain historical 1.4 compatibility
 source and are not the independent Lite product. See
 [the 1.4 validation record](MOBILE_EDITIONS_VALIDATION.md) for those older builds.
 
-LumiaKey ships as two independently built products in this repository.
+Full has mobile and Desktop companion projects; Bluetooth Lite builds independently.
 
 | Edition | App project | Platforms | Includes |
 | --- | --- | --- | --- |
-| Full | repository root | Android, iOS, Windows, macOS, Linux | Desktop-connected controls, profiles, setup, companion features, and full app integrations |
-| Bluetooth Lite | `apps/bluetooth` | Android only | Bluetooth HID keyboard, mouse/touchpad, media controls, and manually edited shortcuts stored locally on the phone |
+| Full mobile | repository root | Android, iPhone, iPad | Desktop-connected controls, profiles, setup, fifty offline icons and configurable online additions |
+| Desktop companion | `desktop_companion` | Windows, macOS, Linux (X11 input) | Desktop-owned applications and shortcuts, native artwork and the same fifty bundled icons |
+| Bluetooth Lite | `apps/bluetooth` | Android only | Bluetooth HID keyboard, mouse/touchpad, media controls, local shortcut editing, fifty offline icons and local error logs |
+
+Full error diagnostics stay local unless the user separately allows sharing;
+sharing defaults off and uses only a configured HTTPS center. Lite has no
+network uploader. See [icon library and diagnostics](FULL_ICON_LIBRARY_AND_DIAGNOSTICS.md)
+and [artwork sources and terms](APP_ICON_SOURCES.md).
 
 Bluetooth Lite has its own Flutter package, Android Gradle project, `applicationId` (`com.lumiaiq.bluetoothlite`), launcher, manifest, and entry point. It does not depend on root Flutter packages, desktop companion code, community server code, account services, or the local dictation package. Its manifest declares nearby Bluetooth permissions only; it does not request Internet or microphone access. The Android HID controller keeps the paired-device flow, runtime permission requests, host switching, connection errors, and key release behavior.
 
@@ -27,11 +34,9 @@ private data of either app. A debug APK is a development-signed validation
 artifact. Release signing still requires all four Android signing environment
 values; an unsigned release APK is not an installable release delivery.
 
-The final local delivery uses release optimization for both Android products
-with the existing Android development certificate. Lite's default installable
-APK is about 48.1 MiB; the larger debug build remains test evidence. See the
-[completed handoff validation](handoffs/2026-11-17-completion-validation.md)
-for actual platform builds and computer/phone installation results.
+The [earlier 1.5 / Lite 1.0 handoff validation](handoffs/2026-11-17-completion-validation.md)
+records those prior artifacts and installations. Current artifact sizes,
+signatures and platform results are recorded separately after verification.
 
 ## Build
 
