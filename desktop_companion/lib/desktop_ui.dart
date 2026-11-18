@@ -10,6 +10,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'companion_server.dart';
 import 'desktop_controller.dart';
 import 'app_library_page.dart';
+import 'phone_sidebar_page.dart';
 import 'desktop_application_artwork.dart';
 import 'installed_app_picker.dart';
 import 'app_icon_service.dart';
@@ -945,6 +946,20 @@ class _AppsPage extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 18),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          key: const ValueKey('desktop-open-phone-sidebar'),
+          icon: const Icon(Icons.view_sidebar_outlined),
+          label: const Text('Phone sidebar'),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => PhoneSidebarPage(controller: controller),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
       ...controller.applicationsForCurrentPlatform.map(
         (app) => Padding(
           padding: const EdgeInsets.only(bottom: 10),

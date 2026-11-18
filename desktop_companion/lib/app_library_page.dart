@@ -213,7 +213,7 @@ class _DesktopAppLibraryPageState extends State<DesktopAppLibraryPage> {
                           state(() {
                             saving = false;
                             feedback =
-                                'App icon and shortcuts saved. Choose the profile on your phone.';
+                                'App icon and shortcuts saved. Manage its visibility in Apps → Phone sidebar.';
                           });
                         }
                       } catch (_) {

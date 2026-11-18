@@ -21,6 +21,7 @@ import '../icons/app_icon_validation.dart';
 import '../services/hid_service.dart';
 import '../services/ios_companion_hid_service.dart';
 import '../services/companion_service.dart';
+import '../services/pointer_diagnostics.dart';
 import '../services/orientation_service.dart';
 import '../services/power_brightness_service.dart';
 
@@ -1430,6 +1431,7 @@ class AppController extends ChangeNotifier {
   }
 
   void sendTouchpadMove(double deltaX, double deltaY) {
+    _recordPointerGate(PointerDiagnosticEvent.moveGate);
     if (_computerSwitchPendingId != null) return;
     const sensitivity = 1.65;
     final x = (deltaX * sensitivity).round().clamp(-127, 127);
@@ -1453,6 +1455,7 @@ class AppController extends ChangeNotifier {
   }
 
   void sendMouseClick({required bool secondary}) {
+    _recordPointerGate(PointerDiagnosticEvent.clickGate);
     if (_computerSwitchPendingId != null) return;
     if (config.preferences.hapticEnabled) {
       unawaited(HapticFeedback.selectionClick());
@@ -1484,6 +1487,7 @@ class AppController extends ChangeNotifier {
   void sendSecondaryMouseClick() => sendMouseClick(secondary: true);
 
   void sendTouchpadScroll(double deltaY) {
+    _recordPointerGate(PointerDiagnosticEvent.scrollGate);
     if (_computerSwitchPendingId != null) return;
     const pixelsPerWheelStep = 12.0;
     _touchpadScrollAccumulator += deltaY;
@@ -1514,6 +1518,24 @@ class AppController extends ChangeNotifier {
       computerMode == ComputerMode.advanced &&
       selectedDesktopSupportsMouse &&
       companion is CompanionPointerConnection;
+
+  void _recordPointerGate(PointerDiagnosticEvent event) {
+    if (!pointerDiagnosticsEnabled) return;
+    final host = companion.activeHost.value;
+    PointerDiagnostics.record(
+      event,
+      synced: isDesktopSynced,
+      capability: selectedDesktopSupportsMouse,
+      pending: _computerSwitchPendingId != null,
+      pinMatch:
+          _pinnedDesktopChoiceId == null ||
+          _pinnedDesktopChoiceId == selectedDesktopComputerChoiceId,
+      acceptedHost: host != null && _isAcceptedCompanionHost(host),
+      routeDesktop: _useDesktopPointer,
+      mode: computerMode.index,
+      inputEpoch: _inputEpoch,
+    );
+  }
 
   HidAction _resolveShortcutAction(HidAction action) {
     if (action.type != ActionType.keyboard) return action;

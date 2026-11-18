@@ -2,7 +2,7 @@ name: Apple build checks
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library, codex/host-switch-pointer-and-sidebar]
     paths:
       - 'ios/**'
       - 'desktop_companion/**'
