@@ -44,6 +44,14 @@ pub(super) struct IconRecord {
 
 include!("builtin_icon_catalog.g.rs");
 
+/// Exact canonical registration only: public App identities never use legacy
+/// artwork aliases (in particular codex -> chatgpt).
+pub(super) fn registered_png(id: &str) -> Option<(&'static str, &'static [u8])> {
+    let record = ICONS.iter().find(|record| record.canonical_id == id)?;
+    let bytes = png_asset(record.canonical_id)?;
+    valid_png(bytes).then_some((record.sha256, bytes))
+}
+
 const LEGACY_ALIASES: &[LegacyAlias] = &[LegacyAlias {
     app_id: "codex",
     canonical_id: "chatgpt",

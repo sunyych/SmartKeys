@@ -218,7 +218,7 @@ void main() {
   );
 
   testWidgets(
-    'settings and its real icon library route cancel input until returning home',
+    'settings and its real App library route cancel input until returning home',
     (tester) async {
       final fixture = LiteHomeFixture();
       await fixture.initialize(slots: configuredSurfaceSlots());
@@ -236,7 +236,8 @@ void main() {
         await tester.ensureVisible(key('lite-icon-library-entry'));
         await tester.tap(key('lite-icon-library-entry'));
         await tester.pumpAndSettle();
-        expect(find.byType(LiteIconLibraryScreen), findsOneWidget);
+        expect(key('lite-app-library-catalog'), findsOneWidget);
+        expect(key('lite-app-library-os'), findsOneWidget);
         expect(fixture.inputs, isEmpty);
         await tester.pageBack();
         await tester.pumpAndSettle();

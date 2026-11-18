@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 
 import '../icons/app_icon_catalog.dart';
 import '../icons/icon_library.dart';
+import '../app.dart';
+import '../app_library/app_library.dart';
 
 class AppIconLibraryScreen extends StatefulWidget {
   const AppIconLibraryScreen({super.key, this.library});
@@ -17,11 +19,22 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
   IconLibrary? _library;
   bool _ownsLibrary = false;
   String _query = '', _filter = 'All';
+  String _targetOS = 'windows';
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_library != null) return;
+    final hostOS = context
+        .dependOnInheritedWidgetOfExactType<SmartKeysScope>()
+        ?.notifier
+        ?.companion
+        .activeHost
+        .value
+        ?.platform;
+    if (const {'macos', 'windows', 'linux'}.contains(hostOS)) {
+      _targetOS = hostOS!;
+    }
     _library = widget.library ?? IconLibraryScope.maybeOf(context);
     _ownsLibrary = _library == null;
     _library ??= IconLibrary();
@@ -47,10 +60,36 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
       child: AnimatedBuilder(
         animation: library,
         builder: (context, _) {
-          final entries = library.entries
+          final entriesById = {
+            for (final entry in library.entries) entry.id: entry,
+          };
+          for (final app in AppLibraryCatalog.builtin.apps) {
+            entriesById.putIfAbsent(
+              app.id,
+              () => LibraryIcon(
+                id: app.id,
+                name: app.name,
+                aliases: app.aliases,
+                sha256: registeredAppIconHash(app.iconId)!,
+                version: app.libraries.first.version,
+                width: 256,
+                height: 256,
+                bundled: app.bundled,
+                available: false,
+                sourceUrl: '',
+                sourcePageUrl: '',
+                termsUrl: '',
+              ),
+            );
+          }
+          final entries = entriesById.values
               .where(
                 (entry) =>
                     entry.matches(_query) &&
+                    AppLibraryCatalog.builtin
+                            .appById(entry.id)
+                            ?.libraryForOS(_targetOS) !=
+                        null &&
                     switch (_filter) {
                       'Built-in' => entry.bundled,
                       'Online' => !entry.bundled,
@@ -61,9 +100,9 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
               )
               .toList();
           return Scaffold(
-            key: const ValueKey('app-icon-library'),
+            key: const ValueKey('app-library-catalog'),
             appBar: AppBar(
-              title: const Text('App icon library'),
+              title: const Text('App library'),
               actions: [
                 IconButton(
                   key: const ValueKey('icon-library-refresh'),
@@ -74,20 +113,64 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
               ],
             ),
             body: CustomScrollView(
-              key: const ValueKey('icon-library-scroll'),
+              key: const ValueKey('app-icon-library'),
               slivers: [
                 SliverToBoxAdapter(
                   child: Column(
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                        child: TextField(
-                          key: const ValueKey('icon-library-search'),
-                          decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.search),
-                            labelText: 'Search app name or ID',
-                          ),
-                          onChanged: (value) => setState(() => _query = value),
+                        child: LayoutBuilder(
+                          builder: (context, bounds) {
+                            final search = TextField(
+                              key: const ValueKey('icon-library-search'),
+                              decoration: const InputDecoration(
+                                prefixIcon: Icon(Icons.search),
+                                labelText: 'Search App name or ID',
+                              ),
+                              onChanged: (value) =>
+                                  setState(() => _query = value),
+                            );
+                            final systems = DropdownButtonFormField<String>(
+                              key: const ValueKey('app-library-os'),
+                              initialValue: _targetOS,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Computer OS',
+                              ),
+                              items: [
+                                for (final value in const [
+                                  'macos',
+                                  'windows',
+                                  'linux',
+                                ])
+                                  DropdownMenuItem(
+                                    value: value,
+                                    child: Text(appLibraryOSLabel(value)),
+                                  ),
+                              ],
+                              onChanged: (value) =>
+                                  setState(() => _targetOS = value!),
+                            );
+                            return bounds.maxWidth >= 600
+                                ? Row(
+                                    children: [
+                                      Expanded(child: search),
+                                      const SizedBox(width: 16),
+                                      SizedBox(width: 180, child: systems),
+                                    ],
+                                  )
+                                : Column(children: [search, systems]);
+                          },
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: Text(
+                          'Set up in LumiaKey Desktop → Apps → App library.',
                         ),
                       ),
                       Padding(
@@ -122,7 +205,7 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                               ),
                             ),
                             Text(
-                              '${entries.length} icons',
+                              '${entries.length} Apps',
                               key: const ValueKey('icon-library-count'),
                             ),
                           ],
@@ -159,7 +242,7 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                             vertical: 5,
                           ),
                           child: Text(
-                            '50 built-in icons work offline. Online additions are available when the icon service is configured.',
+                            'Bundled artwork works offline. App shortcut previews are included; optional artwork additions require a configured icon service.',
                           ),
                         ),
                     ],
@@ -170,7 +253,7 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                     hasScrollBody: false,
                     child: Center(
                       child: Text(
-                        'No icons match this search.',
+                        'No Apps match this search and computer OS.',
                         key: ValueKey('icon-library-empty'),
                       ),
                     ),
@@ -257,6 +340,31 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (AppLibraryCatalog.builtin
+                    .appById(entry.id)
+                    ?.libraryForOS(_targetOS)
+                case final appLibrary?) ...[
+              Text(
+                '${appLibraryOSLabel(_targetOS)} · ${appLibraryContextLabel(appLibrary.context)} · v${appLibrary.version}',
+                key: const ValueKey('app-library-variant'),
+              ),
+              const Text('Set up in LumiaKey Desktop → Apps → App library.'),
+              for (final action in appLibrary.actions)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(action.title),
+                  subtitle: Text(
+                    action.isConfigured
+                        ? formatAppLibraryChord(action.keys, _targetOS)
+                        : 'Unassigned · configure before use',
+                  ),
+                ),
+              const Text('Shortcut sources'),
+              for (final source in appLibrary.sourceUrls)
+                SelectableText(source),
+              const Divider(),
+            ],
             Center(
               child: AppArtwork(
                 appId: entry.id,

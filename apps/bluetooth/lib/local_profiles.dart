@@ -7,17 +7,26 @@ class LocalShortcut {
     required this.title,
     required this.keyCode,
     required this.modifiers,
-  }) : consumerUsage = null;
+  }) : consumerUsage = null,
+       requiresConfiguration = false;
   const LocalShortcut.consumer({required this.title, required String usage})
     : consumerUsage = usage,
       keyCode = '',
-      modifiers = const [];
+      modifiers = const [],
+      requiresConfiguration = false;
+  const LocalShortcut.unassigned({required this.title})
+    : keyCode = '',
+      modifiers = const [],
+      consumerUsage = null,
+      requiresConfiguration = true;
   final String title;
   final String keyCode;
   final List<String> modifiers;
   final String? consumerUsage;
+  final bool requiresConfiguration;
+  bool get isConfigured => !requiresConfiguration;
   bool get isConsumer => consumerUsage != null;
-  bool get isKeyboard => consumerUsage == null;
+  bool get isKeyboard => consumerUsage == null && !requiresConfiguration;
   static const consumerUsages = {
     'PLAY_PAUSE',
     'MUTE',
@@ -27,11 +36,19 @@ class LocalShortcut {
     'PREVIOUS_TRACK',
     'STOP',
   };
-  Map<String, Object> toHidAction() => isConsumer
+  Map<String, Object> toHidAction() => requiresConfiguration
+      ? throw StateError('Configure this shortcut before sending input.')
+      : isConsumer
       ? {'type': 'consumerControl', 'value': consumerUsage!}
       : {
           'type': 'keyboard',
-          'keyCode': keyCode,
+          'keyCode':
+              const {
+                'EQUAL': 'EQUALS',
+                'QUOTE': 'APOSTROPHE',
+                'BACKTICK': 'GRAVE',
+              }[keyCode] ??
+              keyCode,
           'modifiers': List<String>.of(modifiers),
         };
 
@@ -42,12 +59,14 @@ class LocalShortcut {
     'LEFT_META',
   };
   static bool validKey(String key) => RegExp(
-    r'^(?:[A-Z]|[0-9]|F(?:[1-9]|1[0-2])|ENTER|ESC|ESCAPE|BACKSPACE|TAB|SPACE|LEFT|RIGHT|UP|DOWN|DELETE|HOME|END|PAGE_UP|PAGE_DOWN)$',
+    r'^(?:[A-Z]|[0-9]|F(?:[1-9]|1[0-2])|ENTER|ESC|ESCAPE|BACKSPACE|TAB|SPACE|LEFT|RIGHT|UP|DOWN|DELETE|HOME|END|PAGE_UP|PAGE_DOWN|MINUS|EQUAL|EQUALS|LEFT_BRACKET|RIGHT_BRACKET|BACKSLASH|SEMICOLON|QUOTE|APOSTROPHE|BACKTICK|GRAVE|COMMA|PERIOD|SLASH)$',
   ).hasMatch(key);
 
   Map<String, Object> toJson() => {
     'title': title,
-    if (isConsumer)
+    if (requiresConfiguration)
+      'requiresConfiguration': true
+    else if (isConsumer)
       'consumerUsage': consumerUsage!
     else ...{
       'keyCode': keyCode,
@@ -56,6 +75,16 @@ class LocalShortcut {
   };
   factory LocalShortcut.fromJson(Map<String, dynamic> json) {
     final title = json['title'];
+    if (json.containsKey('requiresConfiguration')) {
+      if (json.length != 2 ||
+          json['requiresConfiguration'] != true ||
+          title is! String ||
+          title.trim().isEmpty ||
+          title.length > 40) {
+        throw const FormatException('Invalid unassigned Bluetooth shortcut.');
+      }
+      return LocalShortcut.unassigned(title: title.trim());
+    }
     if (json.containsKey('consumerUsage')) {
       final usage = json['consumerUsage'];
       if (title is! String ||
@@ -97,14 +126,26 @@ class LocalProfile {
     required this.name,
     required this.shortcuts,
     this.iconId,
+    this.sourceAppId,
+    this.sourceLibraryId,
+    this.sourceLibraryVersion,
+    this.sourceIconId,
+    this.sourceOperatingSystem,
+    this.sourceActionHashes = const {},
   });
   final String id;
   final String name;
   final List<LocalShortcut> shortcuts;
   final String? iconId;
+  final String? sourceAppId,
+      sourceLibraryId,
+      sourceLibraryVersion,
+      sourceIconId,
+      sourceOperatingSystem;
+  final Map<String, String> sourceActionHashes;
 
   LocalProfile withShortcuts(List<LocalShortcut> values) =>
-      LocalProfile(id: id, name: name, shortcuts: values, iconId: iconId);
+      copyWith(shortcuts: values);
   LocalProfile copyWith({
     String? name,
     String? iconId,
@@ -115,14 +156,55 @@ class LocalProfile {
     name: name ?? this.name,
     iconId: clearIcon ? null : iconId ?? this.iconId,
     shortcuts: shortcuts ?? this.shortcuts,
+    sourceAppId: sourceAppId,
+    sourceLibraryId: sourceLibraryId,
+    sourceLibraryVersion: sourceLibraryVersion,
+    sourceIconId: sourceIconId,
+    sourceOperatingSystem: sourceOperatingSystem,
+    sourceActionHashes: sourceActionHashes,
   );
   Map<String, Object> toJson() => {
     'id': id,
     'name': name,
     'shortcuts': shortcuts.map((value) => value.toJson()).toList(),
     'iconId': ?iconId,
+    'sourceAppId': ?sourceAppId,
+    'sourceLibraryId': ?sourceLibraryId,
+    'sourceLibraryVersion': ?sourceLibraryVersion,
+    'sourceIconId': ?sourceIconId,
+    'sourceOperatingSystem': ?sourceOperatingSystem,
+    if (sourceActionHashes.isNotEmpty) 'sourceActionHashes': sourceActionHashes,
   };
   factory LocalProfile.fromJson(Map<String, dynamic> json) {
+    final app = json['sourceAppId'],
+        library = json['sourceLibraryId'],
+        version = json['sourceLibraryVersion'];
+    final hashes = json['sourceActionHashes'] ?? <String, String>{};
+    if (app != null &&
+            (app is! String ||
+                app == 'codex' ||
+                json['sourceIconId'] != app ||
+                json['iconId'] != app ||
+                library is! String ||
+                !library.startsWith('$app.') ||
+                version is! String ||
+                version.isEmpty ||
+                version.length > 80 ||
+                !const {
+                  'macos',
+                  'windows',
+                  'linux',
+                }.contains(json['sourceOperatingSystem'])) ||
+        hashes is! Map ||
+        hashes.length > 12 ||
+        hashes.entries.any(
+          (e) =>
+              e.key is! String ||
+              e.value is! String ||
+              !RegExp(r'^[a-f0-9]{64}$').hasMatch(e.value as String),
+        )) {
+      throw const FormatException('Invalid local App library metadata.');
+    }
     if (json['id'] is! String ||
         !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(json['id'] as String) ||
         json['name'] is! String ||
@@ -140,6 +222,14 @@ class LocalProfile {
       id: json['id'] as String,
       name: json['name'] as String,
       iconId: json['iconId'] as String?,
+      sourceAppId: app as String?,
+      sourceLibraryId: library as String?,
+      sourceLibraryVersion: version as String?,
+      sourceIconId: json['sourceIconId'] as String?,
+      sourceOperatingSystem: json['sourceOperatingSystem'] as String?,
+      sourceActionHashes: Map<String, String>.unmodifiable(
+        hashes.cast<String, String>(),
+      ),
       shortcuts: List<LocalShortcut>.unmodifiable(
         (json['shortcuts'] as List)
             .map(

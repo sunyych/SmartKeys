@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#071419"><title>LumiaKey App 与快捷键库</title>
+  <link rel="stylesheet" href="/assets/apps.css"><script src="/assets/apps.js" defer></script>
+</head>
+<body><main class="shell">
+  <header><a class="brand" href="/">LUMIAKEY COMMUNITY</a><h1>App 与快捷键库</h1>
+    <p>图标与对应快捷键一起下载。选择电脑操作系统，预览已记录来源的快捷键；未分配的项目需要自行配置。</p>
+    <nav><a href="/dashboard">社区排行榜</a><a href="/icons">独立图标下载</a></nav>
+  </header>
+  <section class="controls" aria-label="筛选 App">
+    <label>搜索名称或 App ID<input id="search" type="search" placeholder="例如 Chrome、Safari" autocomplete="off"></label>
+    <label>电脑操作系统<select id="os"><option value="all">所有系统</option><option value="macos">macOS</option><option value="windows">Windows</option><option value="linux">Linux</option></select></label>
+  </section>
+  <p id="status" role="status" aria-live="polite">正在加载 App 目录…</p><button id="retry" hidden>重新加载目录</button>
+  <section id="apps" class="grid" aria-label="App 与快捷键库"></section><p id="empty" hidden>没有匹配的 App 或此系统可用的快捷键库。</p>
+  <footer><p>下载包只包含图标及单组键盘组合的配置，不会启动 App 或执行快捷键。请在 LumiaKey Desktop 中导入下载包；Lite 使用内置的离线库。本机是否安装该 App 由电脑端检查。</p>
+    <p>Windows/Linux 表示键位族，具体支持系统以每个库的标注为准。Web 或终端上下文单独标注。图标、商标及产品名称属于其所有者；使用前请查看对应来源和品牌条款。</p>
+  </footer>
+</main></body></html>

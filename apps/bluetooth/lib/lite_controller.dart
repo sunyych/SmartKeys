@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'local_diagnostics.dart';
 import 'local_launcher.dart';
 import 'local_profiles.dart';
+import 'app_library/app_library.dart';
 
 class LiteHost {
   const LiteHost(this.id, this.name, this.address);
@@ -70,6 +71,7 @@ class LiteController extends ChangeNotifier {
   double _scrollRemainder = 0;
   Future<void>? _initializing;
   Future<void> _writes = Future.value();
+  int _installationSequence = 0;
 
   List<LocalProfile> get profiles => List.unmodifiable(_profiles);
   List<LocalLaunchSlot> get launcherSlots => List.unmodifiable(_launcherSlots);
@@ -419,6 +421,7 @@ class LiteController extends ChangeNotifier {
   Future<bool> executeShortcut(LocalShortcut shortcut) {
     try {
       final safe = LocalShortcut.fromJson(shortcut.toJson());
+      if (!safe.isConfigured) return Future.value(false);
       return _send(safe.toHidAction());
     } catch (_) {
       return Future.value(false);
@@ -530,6 +533,69 @@ class LiteController extends ChangeNotifier {
       await profileStore.save(next);
       if (!_disposed) _profiles = next;
     });
+  }
+
+  /// Publishes icon and keys in one durable profile write. Private launcher
+  /// slots are deliberately outside this transaction and are never modified.
+  Future<LocalProfile> installAppLibrary(
+    String appId,
+    String operatingSystem,
+  ) async {
+    final app = AppLibraryCatalog.builtin.appById(appId);
+    final library = app?.libraryForOS(operatingSystem);
+    if (app == null || app.id != appId || !app.bundled || library == null) {
+      throw const FormatException(
+        'This offline App library is not available for the selected computer OS.',
+      );
+    }
+    const modifiers = {
+      'CTRL': 'LEFT_CTRL',
+      'ALT': 'LEFT_ALT',
+      'SHIFT': 'LEFT_SHIFT',
+      'META': 'LEFT_META',
+    };
+    final shortcuts = [
+      for (final action in library.actions)
+        action.isConfigured
+            ? LocalShortcut(
+                title: action.title.length > 40
+                    ? action.title.substring(0, 40)
+                    : action.title,
+                keyCode: action.keys.last,
+                modifiers: action.keys
+                    .take(action.keys.length - 1)
+                    .map((k) => modifiers[k]!)
+                    .toList(),
+              )
+            : LocalShortcut.unassigned(
+                title: action.title.length > 40
+                    ? action.title.substring(0, 40)
+                    : action.title,
+              ),
+    ];
+    final suffix = operatingSystem == 'macos'
+        ? 'macOS'
+        : operatingSystem == 'windows'
+        ? 'Windows'
+        : 'Linux';
+    final name = '${app.name} ($suffix)';
+    final profile = LocalProfile(
+      id: 'app_${DateTime.now().microsecondsSinceEpoch}_${_installationSequence++}',
+      name: name.length > 40 ? name.substring(0, 40) : name,
+      iconId: app.iconId,
+      shortcuts: shortcuts,
+      sourceAppId: app.id,
+      sourceIconId: app.iconId,
+      sourceLibraryId: library.id,
+      sourceLibraryVersion: library.version,
+      sourceOperatingSystem: operatingSystem,
+      sourceActionHashes: {
+        for (final action in library.actions)
+          action.id: registeredAppActionHash(library.id, action.id)!,
+      },
+    );
+    await saveProfile(profile);
+    return _profiles.firstWhere((p) => p.id == profile.id);
   }
 
   Future<void> deleteProfile(String id) => _save(() async {

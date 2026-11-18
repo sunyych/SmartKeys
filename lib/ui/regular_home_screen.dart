@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../app.dart';
+import '../icons/source_profile_icon.dart';
 import '../controllers/app_controller.dart';
 import '../models/config.dart';
 import '../icons/app_icon_catalog.dart';
@@ -29,6 +30,7 @@ class RegularHomeScreen extends StatefulWidget {
 class _RegularHomeScreenState extends State<RegularHomeScreen> {
   static const _launchpad = 'launchpad';
   static const _general = 'general';
+  static const _libraryPrefix = 'library-profile:';
   static const _pageSize = 12;
 
   final _dictation = GlobalKey<LocalDictationEntryButtonState>();
@@ -105,10 +107,26 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
 
   bool _applicationReady(AppController controller) {
     if (_selection == _launchpad || _selection == _general) return true;
+    final libraryProfile = _selectedLibraryProfile(controller);
+    if (libraryProfile != null) {
+      return libraryProfile.applicationId == null ||
+          controller.desktopManifest
+                  ?.applicationById(libraryProfile.applicationId!)
+                  ?.foreground ==
+              true;
+    }
     return _confirmedApplication == _selection &&
         _confirmedSession == _session(controller) &&
         controller.desktopManifest?.applicationById(_selection)?.foreground ==
             true;
+  }
+
+  RemoteProfile? _selectedLibraryProfile(AppController controller) {
+    if (!_selection.startsWith(_libraryPrefix)) return null;
+    final id = _selection.substring(_libraryPrefix.length);
+    return controller.desktopManifest?.profiles
+        .where((profile) => profile.id == id && profile.isLibraryProfile)
+        .firstOrNull;
   }
 
   Future<bool> _confirmActivation(
@@ -339,7 +357,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       final id = manifest.launcherApplicationIds[index];
       return id == null ? null : manifest.applicationById(id);
     });
-    final layout = _selection == _general
+    final libraryProfile = _selectedLibraryProfile(controller);
+    final layout = libraryProfile != null
+        ? manifest?.layoutById(libraryProfile.layoutId)
+        : _selection == _general
         ? manifest?.layoutById('keyboard') ??
               manifest?.layouts.cast<RemoteShortcutLayout?>().firstWhere(
                 (layout) => layout?.kind == RemoteLayoutKind.keyboard,
@@ -356,7 +377,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
         ? 'Launchpad'
         : _selection == _general
         ? 'General'
-        : application?.name ?? 'Application';
+        : libraryProfile?.name ?? application?.name ?? 'Application';
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -435,6 +456,39 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                         controller,
                                         app.id,
                                         application: app,
+                                      )
+                                    : null,
+                              ),
+                            for (final profile
+                                in manifest?.profiles.where(
+                                      (p) =>
+                                          p.isLibraryProfile &&
+                                          p.platform ==
+                                              controller
+                                                  .companion
+                                                  .activeHost
+                                                  .value
+                                                  ?.platform,
+                                    ) ??
+                                    const <RemoteProfile>[])
+                              _NavigationItem(
+                                id: 'library-profile-${profile.id}',
+                                label: profile.name,
+                                icon: AppArtwork(
+                                  appId:
+                                      profile.sourceIconId ??
+                                      profile.sourceAppId ??
+                                      '',
+                                  pngBytes: sourceProfileIcon(profile),
+                                  size: 24,
+                                ),
+                                selected:
+                                    _selection ==
+                                    '$_libraryPrefix${profile.id}',
+                                onTap: ready
+                                    ? () => _select(
+                                        controller,
+                                        '$_libraryPrefix${profile.id}',
                                       )
                                     : null,
                               ),
@@ -543,7 +597,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                           'Set up the twelve slots in Desktop',
                                         ),
                                       ),
+                                    if (libraryProfile != null &&
+                                        libraryProfile.applicationId == null)
+                                      const _StatusBanner(
+                                        message:
+                                            'Manual keyboard profile: focus the intended application on your computer before sending shortcuts. Selecting this profile does not launch or verify an app.',
+                                      ),
                                     if (!launcher &&
+                                        libraryProfile == null &&
                                         _selection != _general &&
                                         !_applicationReady(controller) &&
                                         _pendingApplication == null)
@@ -623,6 +684,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                 forceDesktopOutput: true,
                 entryEnabled:
                     ready &&
+                    libraryProfile == null &&
                     _pendingApplication == null &&
                     _applicationReady(controller),
                 topOffset: 9,

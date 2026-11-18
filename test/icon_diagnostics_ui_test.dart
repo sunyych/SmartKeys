@@ -9,6 +9,7 @@ import 'package:smart_keys/diagnostics/diagnostics_service.dart';
 import 'package:smart_keys/diagnostics/diagnostics_store.dart';
 import 'package:smart_keys/icons/app_icon_catalog.dart';
 import 'package:smart_keys/icons/icon_library.dart';
+import 'package:smart_keys/app_library/app_library.dart';
 import 'package:smart_keys/ui/app_icon_library_screen.dart';
 import 'package:smart_keys/ui/diagnostics_consent_screen.dart';
 import 'package:smart_keys/ui/error_log_screen.dart';
@@ -94,14 +95,22 @@ void main() {
         screen(const AppIconLibraryScreen(), library: library, scale: 1.3),
       );
       await tester.pumpAndSettle();
-      expect(find.text('50 icons'), findsOneWidget);
+      expect(
+        find.text(
+          '${AppLibraryCatalog.builtin.apps.where((app) => app.libraryForOS("windows") != null).length} Apps',
+        ),
+        findsOneWidget,
+      );
       await tester.enterText(
         find.byKey(const ValueKey('icon-library-search')),
         'Google Chrome',
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('library-icon-chrome')), findsOneWidget);
-      expect(find.text('1 icons'), findsOneWidget);
+      expect(find.text('1 Apps'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('library-icon-chrome')),
+      );
       await tester.tap(find.byKey(const ValueKey('library-icon-chrome')));
       await tester.pumpAndSettle();
       expect(
@@ -119,6 +128,52 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('icon-library-empty')), findsOneWidget);
       expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'App library shows human macOS and Command labels without changing bindings',
+    (tester) async {
+      final library = PreviewLibrary();
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(844, 390);
+      final app = AppLibraryCatalog.builtin.appById('chrome')!;
+      final before = jsonEncode(app.toJson());
+      try {
+        await tester.pumpWidget(
+          screen(const AppIconLibraryScreen(), library: library),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('app-library-os')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('macOS').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('icon-library-search')),
+          'Chrome',
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('library-icon-chrome')),
+        );
+        await tester.tap(find.byKey(const ValueKey('library-icon-chrome')));
+        await tester.pumpAndSettle();
+        expect(find.text('Command + T'), findsWidgets);
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('app-library-variant')))
+              .data,
+          'macOS · Desktop app · v${app.libraryForOS('macos')!.version}',
+        );
+        expect(find.textContaining('META +'), findsNothing);
+        expect(find.textContaining('This phone does not write'), findsNothing);
+        expect(jsonEncode(app.toJson()), before);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        library.dispose();
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      }
     },
   );
   testWidgets(
@@ -353,6 +408,9 @@ void main() {
       'chrome',
     );
     await capture('full-icon-library-search', 'Full searchable icon library');
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('library-icon-chrome')),
+    );
     await tester.tap(find.byKey(const ValueKey('library-icon-chrome')));
     await capture(
       'full-icon-library-preview',

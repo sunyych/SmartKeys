@@ -37,9 +37,9 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             key: const ValueKey('open-app-icon-library'),
             leading: const Icon(Icons.apps),
-            title: const Text('App icon library'),
+            title: const Text('App library'),
             subtitle: const Text(
-              '50 built-in icons and downloadable additions',
+              'App icons and shortcuts for your computer OS',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(

@@ -4,6 +4,9 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
+import 'app_library/app_library.dart';
+import 'app_library_bundle.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -472,7 +475,15 @@ class DesktopController extends ChangeNotifier {
     InstalledAppRegistry? installedRegistry,
     LauncherKeyStore? launcherKeyStore,
     this.foregroundProbe,
-  }) : actions = actions ?? DesktopActions(),
+    String? libraryOperatingSystem,
+  }) : libraryOperatingSystem =
+           libraryOperatingSystem ??
+           (Platform.isMacOS
+               ? 'macos'
+               : Platform.isWindows
+               ? 'windows'
+               : 'linux'),
+       actions = actions ?? DesktopActions(),
        installedRegistry =
            installedRegistry ??
            (store is MemoryDesktopConfigStore
@@ -510,6 +521,7 @@ class DesktopController extends ChangeNotifier {
         installedRegistry.resolve(id) != null;
   }
 
+  final String libraryOperatingSystem;
   final DesktopConfigStore store;
   final DesktopActions actions;
   final ApplicationDiscovery discovery;
@@ -722,6 +734,11 @@ class DesktopController extends ChangeNotifier {
     RemoteShortcutButton updated,
   ) async {
     await _commit((current) {
+      if (current.profiles.any(
+        (p) => p.isLibraryProfile && p.layoutId == layoutId,
+      )) {
+        _validateLibraryButton(updated);
+      }
       final layouts = current.layouts
           .map((layout) {
             if (layout.id != layoutId) return layout;
@@ -765,6 +782,207 @@ class DesktopController extends ChangeNotifier {
     });
   }
 
+  /// Installs reviewed keyboard defaults in the same manifest record as their
+  /// canonical icon association. No app executable or launch slot is changed.
+  Future<String> installAppLibrary(
+    String appId,
+    String libraryId, {
+    String? replaceProfileId,
+    AppLibraryBundle? bundle,
+  }) async {
+    final app = AppLibraryCatalog.builtin.appById(appId);
+    final library = app?.libraryForOS(libraryOperatingSystem);
+    if (bundle != null && bundle.app.id != appId) {
+      throw const FormatException('Bundle App mismatch');
+    }
+    if (app == null ||
+        app.id != appId ||
+        library == null ||
+        library.id != libraryId) {
+      throw const FormatException(
+        'This App library is not available for this computer OS.',
+      );
+    }
+    late String installedId;
+    await _commit((current) {
+      final replacing = replaceProfileId == null
+          ? null
+          : current.profiles.where((p) => p.id == replaceProfileId).firstOrNull;
+      if (replaceProfileId != null &&
+          (replacing == null ||
+              replacing.sourceAppId != app.id ||
+              replacing.platform != libraryOperatingSystem)) {
+        throw const FormatException(
+          'Choose an existing library profile for this App and OS.',
+        );
+      }
+      installedId = replacing?.id ?? 'library.${_newComputerId()}';
+      final layoutId = replacing?.layoutId ?? installedId;
+      final existing = replacing == null ? null : current.layoutById(layoutId);
+      if (replacing != null &&
+          (existing == null ||
+              current.applications.any((a) => a.layoutId == layoutId) ||
+              current.profiles.any(
+                (p) => p.id != replacing.id && p.layoutId == layoutId,
+              ))) {
+        throw const FormatException(
+          'This shared layout cannot be replaced. Add a copy instead.',
+        );
+      }
+      final originals = <String, String>{};
+      final freshById = <String, RemoteShortcutButton>{};
+      final actionIds = <String, String>{};
+      for (final action in library.actions) {
+        final id = '$layoutId.${action.id}';
+        final fresh = RemoteShortcutButton(
+          id: id,
+          name: action.title,
+          icon: 'keyboard',
+          targetType: RemoteTargetType.keyboardShortcut,
+          shortcut: action.keys.map(canonicalKeyToLiteral).toList(),
+          enabled: action.isConfigured,
+          description: action.isConfigured
+              ? ''
+              : 'Configure this shortcut in Desktop before use.',
+        );
+        originals[action.id] = _libraryActionHash(fresh);
+        freshById[id] = fresh;
+        actionIds[id] = action.id;
+      }
+      final buttons = <RemoteShortcutButton>[];
+      for (final prior in existing?.buttons ?? const <RemoteShortcutButton>[]) {
+        final fresh = freshById.remove(prior.id);
+        final baseline = replacing?.sourceActionHashes[actionIds[prior.id]];
+        buttons.add(
+          fresh != null &&
+                  baseline != null &&
+                  _libraryActionHash(prior) == baseline
+              ? fresh
+              : prior,
+        );
+      }
+      for (final fresh in freshById.values) {
+        // A missing action with an installed baseline was explicitly deleted.
+        // Keep its deletion; retain existing order and append only new defaults.
+        if (replacing?.sourceActionHashes.containsKey(actionIds[fresh.id]) ==
+            true) {
+          continue;
+        }
+        buttons.add(fresh);
+      }
+      final managed = current.applications
+          .where(
+            (a) => a.id == app.id && !a.launchOnly && _isManagedLaunchApp(a.id),
+          )
+          .firstOrNull;
+      final priorIcon =
+          replacing ??
+          current.profiles
+              .where(
+                (p) => p.sourceAppId == app.id && p.sourceIconPngBase64 != null,
+              )
+              .firstOrNull;
+      final iconBase64 = bundle == null
+          ? priorIcon?.sourceIconPngBase64
+          : base64Encode(bundle.pngBytes);
+      final iconHash = bundle?.iconHash ?? priorIcon?.sourceIconSha256;
+      if (!app.bundled && iconBase64 == null) {
+        throw const FormatException(
+          'Download and import this App bundle to install its icon and shortcuts together.',
+        );
+      }
+      if (iconBase64 != null) {
+        AppLibraryBundle.decode(
+          utf8.encode(
+            jsonEncode({
+              'schemaVersion': 1,
+              'app': app.toJson(),
+              'icon': {
+                'id': app.iconId,
+                'sha256': iconHash,
+                'pngBase64': iconBase64,
+              },
+            }),
+          ),
+        );
+      }
+      final profile = RemoteProfile(
+        id: installedId,
+        name: replacing?.name ?? '${app.name} · ${library.family}',
+        layoutId: layoutId,
+        platform: libraryOperatingSystem,
+        applicationId: managed?.id,
+        sourceAppId: app.id,
+        sourceLibraryId: library.id,
+        sourceLibraryVersion: library.version,
+        sourceIconId: app.iconId,
+        sourceActionHashes: Map.unmodifiable(originals),
+        sourceIconPngBase64: iconBase64,
+        sourceIconSha256: iconHash,
+      );
+      final layout = RemoteShortcutLayout(
+        id: layoutId,
+        name: replacing == null ? profile.name : existing!.name,
+        kind: RemoteLayoutKind.application,
+        buttons: buttons,
+      );
+      return current.copyWith(
+        layouts: [
+          for (final item in current.layouts)
+            if (item.id != layoutId) item,
+          layout,
+        ],
+        profiles: [
+          for (final item in current.profiles)
+            if (item.id != installedId) item,
+          profile,
+        ],
+      );
+    });
+    return installedId;
+  }
+
+  static void _validateLibraryButton(RemoteShortcutButton button) {
+    if (button.targetType != RemoteTargetType.keyboardShortcut ||
+        button.target != null ||
+        (button.enabled && button.shortcut.isEmpty)) {
+      throw const FormatException(
+        'App library profiles accept keyboard shortcuts only; assign keys before enabling.',
+      );
+    }
+    if (button.shortcut.isEmpty) return;
+    final keys = button.shortcut.map((k) => k.toUpperCase()).toList();
+    const mods = {'CTRL', 'ALT', 'SHIFT', 'META', 'COMMAND', 'PRIMARY', 'WIN'};
+    final normal = keys.where((k) => !mods.contains(k)).toList();
+    if (keys.length > 5 ||
+        keys.toSet().length != keys.length ||
+        normal.length != 1 ||
+        keys.last != normal.single ||
+        !(isAppLibraryKey(normal.single) ||
+            const {
+              '[',
+              ']',
+              r'\',
+              ';',
+              "'",
+              '`',
+              ',',
+              '.',
+              '/',
+              '-',
+              '=',
+              'PAGEUP',
+              'PAGEDOWN',
+            }.contains(normal.single))) {
+      throw const FormatException(
+        'Use one supported keyboard key with optional modifiers.',
+      );
+    }
+  }
+
+  static String _libraryActionHash(RemoteShortcutButton button) =>
+      sha256.convert(utf8.encode(jsonEncode(button.toJson()))).toString();
+
   Future<void> importShortcutLayouts(
     List<RemoteShortcutLayout> imported,
   ) async {
@@ -777,6 +995,13 @@ class DesktopController extends ChangeNotifier {
       };
       for (final layout in imported) {
         final existing = existingById[layout.id];
+        if (current.profiles.any(
+          (p) => p.isLibraryProfile && p.layoutId == layout.id,
+        )) {
+          for (final button in layout.buttons) {
+            _validateLibraryButton(button);
+          }
+        }
         if (existing == null || existing.kind != layout.kind) {
           throw const FormatException(
             'Imported JSON contains an unknown shortcut layout',
@@ -1417,13 +1642,25 @@ class DesktopController extends ChangeNotifier {
         );
         final button = manifest.buttonById(canonicalButtonId);
         if (button == null) throw const FormatException('Unknown button');
+        final libraryProfile = _libraryProfileForButton(button);
+        if (libraryProfile != null &&
+            (button.targetType != RemoteTargetType.keyboardShortcut ||
+                button.shortcut.isEmpty)) {
+          throw const FormatException(
+            'Library profiles permit configured keyboard shortcuts only',
+          );
+        }
         final vibeAppId = _vibeAppForButton(button.id);
         final managedAppId =
-            vibeAppId ?? _managedAppForButton(button, _manifest);
+            vibeAppId ??
+            libraryProfile?.applicationId ??
+            _managedAppForButton(button, _manifest);
         if (managedAppId != null) {
           await _serializeManagedAction(() async {
             final app = _manifest.applicationById(managedAppId);
-            if (app == null) throw StateError('The app is not configured');
+            if (app == null || app.launchOnly || !_isManagedLaunchApp(app.id)) {
+              throw StateError('The app is not configured for managed input');
+            }
             if (!button.enabled) throw StateError('Shortcut is disabled');
             final allowedPasswordManager =
                 managedAppId == 'chrome' &&
@@ -1612,6 +1849,36 @@ class DesktopController extends ChangeNotifier {
       if (id.startsWith('vibe.$app.')) return app;
     }
     return null;
+  }
+
+  RemoteProfile? _libraryProfileForButton(RemoteShortcutButton button) {
+    final profiles = _manifest.profiles.where(
+      (p) =>
+          p.isLibraryProfile &&
+          (_manifest
+                  .layoutById(p.layoutId)
+                  ?.buttons
+                  .any((b) => b.id == button.id) ??
+              false),
+    );
+    if (profiles.isEmpty) return null;
+    final profile = profiles.first;
+    if (profile.platform != libraryOperatingSystem) {
+      throw StateError('This library belongs to a different computer OS');
+    }
+    if (profile.applicationId != null &&
+        (profile.applicationId != profile.sourceAppId ||
+            !_isManagedLaunchApp(profile.applicationId!))) {
+      throw const FormatException('Invalid managed library binding');
+    }
+    // Namespace changes cannot remove a known application's foreground guard.
+    if (profile.applicationId == null &&
+        _isManagedLaunchApp(profile.sourceAppId!)) {
+      throw StateError(
+        'The managed App is unavailable. Install its Desktop application before using this library.',
+      );
+    }
+    return profile;
   }
 
   static String? _managedAppForButton(

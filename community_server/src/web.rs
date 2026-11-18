@@ -53,6 +53,28 @@ pub async fn icons_js() -> Response<Body> {
     )
 }
 
+pub async fn apps_index() -> Response<Body> {
+    response(
+        include_str!("web/apps.html"),
+        "text/html; charset=utf-8",
+        "no-cache",
+    )
+}
+pub async fn apps_css() -> Response<Body> {
+    response(
+        include_str!("web/apps.css"),
+        "text/css; charset=utf-8",
+        "public, max-age=3600",
+    )
+}
+pub async fn apps_js() -> Response<Body> {
+    response(
+        include_str!("web/apps.js"),
+        "text/javascript; charset=utf-8",
+        "public, max-age=3600",
+    )
+}
+
 fn response(
     content: &'static str,
     content_type: &'static str,

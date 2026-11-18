@@ -19,6 +19,7 @@ use std::{
 use tokio::net::TcpListener;
 
 mod account_backup;
+mod app_library;
 mod auth;
 mod contributions;
 mod diagnostics;
@@ -169,6 +170,7 @@ fn app(state: AppState) -> Router {
         ))
         .with_state(state.clone());
     Router::new()
+        .merge(app_library::routes())
         .route("/", get(web::index))
         .route("/dashboard", get(web::index))
         .route("/assets/dashboard.css", get(web::css))
@@ -199,6 +201,10 @@ fn app(state: AppState) -> Router {
 
 fn icons_preview_app() -> Router {
     Router::new()
+        .merge(app_library::routes())
+        .route("/dashboard", get(web::index))
+        .route("/assets/dashboard.css", get(web::css))
+        .route("/assets/dashboard.js", get(web::js))
         .route("/", get(web::icons_index))
         .route("/icons", get(web::icons_index))
         .route("/assets/icons.css", get(web::icons_css))
@@ -217,7 +223,7 @@ fn env_limit(name: &str, default: u32, max: u32) -> u32 {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if env::args().any(|arg| arg == "--icons-preview") {
+    if env::args().any(|arg| arg == "--icons-preview" || arg == "--apps-preview") {
         let addr: SocketAddr = env::var("LISTEN_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:8080".into())
             .parse()?;

@@ -4,7 +4,10 @@ import 'lite_controller.dart';
 import 'local_launcher.dart';
 import 'local_profiles.dart';
 
-String shortcutDescription(LocalShortcut shortcut) => shortcut.isConsumer
+String shortcutDescription(LocalShortcut shortcut) =>
+    shortcut.requiresConfiguration
+    ? 'Not configured — choose a keyboard combination'
+    : shortcut.isConsumer
     ? shortcut.consumerUsage!.replaceAll('_', ' ')
     : [
         ...shortcut.modifiers.map((value) => value.replaceFirst('LEFT_', '')),
@@ -225,12 +228,17 @@ class _LiteProfileEditorState extends State<LiteProfileEditor> {
     });
     try {
       await widget.controller.saveProfile(
-        LocalProfile(
-          id: id,
-          name: name.text.trim(),
-          iconId: iconId,
-          shortcuts: List.of(shortcuts),
-        ),
+        widget.profile != null && iconId == widget.profile!.iconId
+            ? widget.profile!.copyWith(
+                name: name.text.trim(),
+                shortcuts: List.of(shortcuts),
+              )
+            : LocalProfile(
+                id: id,
+                name: name.text.trim(),
+                iconId: iconId,
+                shortcuts: List.of(shortcuts),
+              ),
       );
       if (mounted) Navigator.pop(context);
     } catch (_) {

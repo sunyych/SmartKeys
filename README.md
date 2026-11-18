@@ -1,7 +1,7 @@
 # LumiaKey
 
-Current versions are **Full / Desktop 1.7.0+9** and the independent
-**Android Bluetooth Lite 1.2.0+3**. Use [current editions and build entry points](docs/EDITIONS.md).
+Current versions are **Full / Desktop 1.8.0+10** and the independent
+**Android Bluetooth Lite 1.3.0+4**. Use [current editions and build entry points](docs/EDITIONS.md).
 The 1.4 flavor architecture below is historical compatibility documentation.
 
 - **LumiaKey Lite** is Android-only and sends keyboard and mouse input directly
@@ -30,6 +30,13 @@ Lite's icon library stays offline. Error logs are local by default. Full offers
 separate, voluntary error sharing, **off by default**; Lite keeps logs local and
 has no uploader. See [icon library and error diagnostics](docs/FULL_ICON_LIBRARY_AND_DIAGNOSTICS.md)
 and [artwork sources and usage terms](docs/APP_ICON_SOURCES.md).
+
+The [App library](docs/APP_LIBRARY.md) associates each App's icon with its macOS
+and Windows/Linux shortcut variants. Availability is listed separately for each
+system. Desktop installs profiles for its own OS; Lite installs offline profiles
+for the computer OS selected on the phone. Online App bundles include the icon
+and both supported shortcut variants. Actions without a documented default are
+marked for configuration, and importing a library preserves private launch keys.
 
 See [historical 1.4 behavior, builds, and installation](docs/MOBILE_EDITIONS.md).
 Current product boundaries are in [EDITIONS.md](docs/EDITIONS.md). The V1.1/V1.2 sections below record earlier behavior

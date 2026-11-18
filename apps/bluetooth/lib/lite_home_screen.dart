@@ -476,7 +476,8 @@ class _LiteHomeScreenState extends State<LiteHomeScreen> {
             final label = slot != null
                 ? (slot.title.isEmpty ? 'Slot ${index + 1}' : slot.title)
                 : shortcut?.title ?? '';
-            final configured = slot?.configured ?? shortcut != null;
+            final configured =
+                slot?.configured ?? (shortcut?.isConfigured ?? false);
             final available = enabled && configured;
             final configure = launcher && !configured;
             final compact = height < 82;
@@ -499,6 +500,15 @@ class _LiteHomeScreenState extends State<LiteHomeScreen> {
                           unawaited(controller.executeShortcut(shortcut!));
                         }
                       }
+                    : !launcher &&
+                          shortcut != null &&
+                          shortcut.requiresConfiguration
+                    ? () => _open(
+                        LiteProfileEditor(
+                          controller: controller,
+                          profile: controller.selectedProfile,
+                        ),
+                      )
                     : configure
                     ? () => _open(
                         LiteLaunchSlotEditor(

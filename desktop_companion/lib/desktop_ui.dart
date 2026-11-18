@@ -9,6 +9,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'companion_server.dart';
 import 'desktop_controller.dart';
+import 'app_library_page.dart';
 import 'desktop_application_artwork.dart';
 import 'installed_app_picker.dart';
 import 'app_icon_service.dart';
@@ -880,9 +881,24 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
       context,
       button: button,
       applications: widget.controller.applicationsForCurrentPlatform,
+      keyboardOnly: widget.controller.manifest.profiles.any(
+        (p) => p.isLibraryProfile && p.layoutId == layout.id,
+      ),
     );
     if (updated != null) {
-      await widget.controller.updateButton(layout.id, updated);
+      try {
+        await widget.controller.updateButton(layout.id, updated);
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not save. App library profiles accept one keyboard chord, or a disabled unassigned action.',
+              ),
+            ),
+          );
+        }
+      }
     }
   }
 }
@@ -913,6 +929,20 @@ class _AppsPage extends StatelessWidget {
       const SizedBox(height: 8),
       const Text(
         'Manage shortcut-enabled applications here. Choose all installed launch-only applications in Launchpad.',
+      ),
+      const SizedBox(height: 12),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.icon(
+          key: const ValueKey('desktop-open-app-library'),
+          icon: const Icon(Icons.library_books_outlined),
+          label: const Text('App library'),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => DesktopAppLibraryPage(controller: controller),
+            ),
+          ),
+        ),
       ),
       const SizedBox(height: 18),
       ...controller.applicationsForCurrentPlatform.map(
@@ -1538,7 +1568,25 @@ class _ProfilesPage extends StatelessWidget {
                 .map(
                   (profile) => RadioListTile<String>(
                     value: profile.id,
-                    title: Text(profile.name),
+                    title: Row(
+                      children: [
+                        if (desktopLibraryProfileIcon(profile)
+                            case final bytes?) ...[
+                          Image.memory(bytes, width: 24, height: 24),
+                          const SizedBox(width: 8),
+                        ] else if (profile.sourceIconId != null &&
+                            desktopAppIconAssets[profile.sourceIconId!] !=
+                                null) ...[
+                          Image.asset(
+                            'assets/app_icons/${desktopAppIconAssets[profile.sourceIconId!]}',
+                            width: 24,
+                            height: 24,
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(child: Text(profile.name)),
+                      ],
+                    ),
                     subtitle: Text(
                       [
                         'Layout: ${controller.manifest.layoutById(profile.layoutId)?.name ?? profile.layoutId}',
@@ -1600,14 +1648,23 @@ Future<RemoteShortcutButton?> showRemoteButtonEditor(
   BuildContext context, {
   required RemoteShortcutButton button,
   required List<RemoteApplication> applications,
+  bool keyboardOnly = false,
 }) => showDialog<RemoteShortcutButton>(
   context: context,
-  builder: (_) =>
-      _RemoteButtonEditor(button: button, applications: applications),
+  builder: (_) => _RemoteButtonEditor(
+    button: button,
+    applications: applications,
+    keyboardOnly: keyboardOnly,
+  ),
 );
 
 class _RemoteButtonEditor extends StatefulWidget {
-  const _RemoteButtonEditor({required this.button, required this.applications});
+  const _RemoteButtonEditor({
+    required this.button,
+    required this.applications,
+    this.keyboardOnly = false,
+  });
+  final bool keyboardOnly;
 
   final RemoteShortcutButton button;
   final List<RemoteApplication> applications;
@@ -1684,7 +1741,8 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
               items: RemoteTargetType.values
                   .where(
                     (value) =>
-                        !widget.button.id.startsWith('vibe.') ||
+                        (!widget.keyboardOnly &&
+                            !widget.button.id.startsWith('vibe.')) ||
                         value == RemoteTargetType.keyboardShortcut,
                   )
                   .map(
