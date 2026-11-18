@@ -929,12 +929,7 @@ public static class LumiaWindowActivation {
       return;
     }
     if (_isLinux) {
-      await _run('gsettings', [
-        'set',
-        'org.gnome.desktop.interface',
-        'color-scheme',
-        enabled ? 'prefer-dark' : 'prefer-light',
-      ]);
+      await _run('brightnessctl', ['set', enabled ? '1%' : '100%']);
       return;
     }
     throw UnsupportedError(

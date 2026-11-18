@@ -61,53 +61,40 @@ void main() {
     expect(fixture.pointer.inputs, isEmpty);
   });
 
-  final nativePointerUnavailable = !Platform.isWindows && !Platform.isMacOS;
-  test(
-    'pointer endpoint rejects invalid authenticated coordinates',
-    () async {
-      final fixture = await _startServer();
-      addTearDown(fixture.server.dispose);
-      final client = HttpClient();
-      addTearDown(() => client.close(force: true));
-      final response = await _postPointer(fixture.server, client, {
-        'inputs': [
-          {'kind': 'move', 'x': 1000, 'y': 0},
-        ],
-      }, token: fixture.server.token);
-      await response.drain<void>();
-      expect(response.statusCode, HttpStatus.badRequest);
-      expect(fixture.pointer.inputs, isEmpty);
-    },
-    skip: nativePointerUnavailable
-        ? 'Desktop pointer support requires Windows or macOS.'
-        : false,
-  );
+  test('pointer endpoint rejects invalid authenticated coordinates', () async {
+    final fixture = await _startServer();
+    addTearDown(fixture.server.dispose);
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    final response = await _postPointer(fixture.server, client, {
+      'inputs': [
+        {'kind': 'move', 'x': 1000, 'y': 0},
+      ],
+    }, token: fixture.server.token);
+    await response.drain<void>();
+    expect(response.statusCode, HttpStatus.badRequest);
+    expect(fixture.pointer.inputs, isEmpty);
+  });
 
-  test(
-    'pointer endpoint preserves accepted event order',
-    () async {
-      final fixture = await _startServer();
-      addTearDown(fixture.server.dispose);
-      final client = HttpClient();
-      addTearDown(() => client.close(force: true));
-      final response = await _postPointer(fixture.server, client, {
-        'inputs': [
-          const PointerInput.move(7, -2).toJson(),
-          const PointerInput.button(secondary: true).toJson(),
-          const PointerInput.scroll(3).toJson(),
-        ],
-      }, token: fixture.server.token);
-      await response.drain<void>();
-      expect(response.statusCode, HttpStatus.ok);
-      expect(fixture.pointer.inputs.map((input) => input.kind), [
-        PointerInputKind.move,
-        PointerInputKind.button,
-        PointerInputKind.scroll,
-      ]);
-      expect(fixture.pointer.inputs[1].secondary, isTrue);
-    },
-    skip: nativePointerUnavailable
-        ? 'Desktop pointer support requires Windows or macOS.'
-        : false,
-  );
+  test('pointer endpoint preserves accepted event order', () async {
+    final fixture = await _startServer();
+    addTearDown(fixture.server.dispose);
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    final response = await _postPointer(fixture.server, client, {
+      'inputs': [
+        const PointerInput.move(7, -2).toJson(),
+        const PointerInput.button(secondary: true).toJson(),
+        const PointerInput.scroll(3).toJson(),
+      ],
+    }, token: fixture.server.token);
+    await response.drain<void>();
+    expect(response.statusCode, HttpStatus.ok);
+    expect(fixture.pointer.inputs.map((input) => input.kind), [
+      PointerInputKind.move,
+      PointerInputKind.button,
+      PointerInputKind.scroll,
+    ]);
+    expect(fixture.pointer.inputs[1].secondary, isTrue);
+  });
 }

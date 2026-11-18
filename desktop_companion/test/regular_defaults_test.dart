@@ -336,31 +336,37 @@ void main() {
             calls.add(call);
             return null;
           });
-      final actions = DesktopActions(mediaChannel: channel);
-      final manifest = DesktopManifest.regularStarter();
-      for (final action in ['mute', 'volumeDown', 'volumeUp', 'playPause']) {
-        await actions.executeButton(
-          manifest.buttonById('keyboard.$action')!,
-          manifest,
+      for (final platform in [TargetPlatform.windows, TargetPlatform.macOS]) {
+        calls.clear();
+        final actions = DesktopActions(
+          mediaChannel: channel,
+          platformOverride: platform,
         );
+        final manifest = DesktopManifest.regularStarter();
+        for (final action in ['mute', 'volumeDown', 'volumeUp', 'playPause']) {
+          await actions.executeButton(
+            manifest.buttonById('keyboard.$action')!,
+            manifest,
+          );
+        }
+        expect(calls.map((call) => call.method), [
+          'toggleOutputMute',
+          'volumeDown',
+          'volumeUp',
+          'playPause',
+        ]);
+        expect(calls.every((call) => call.arguments == null), isTrue);
+        final mute = manifest.buttonById('keyboard.mute')!;
+        await expectLater(
+          actions.executeButton(mute.copyWith(target: 'volumeUp'), manifest),
+          throwsFormatException,
+        );
+        await expectLater(
+          actions.executeButton(mute, manifest, expectedAppId: 'chatgpt'),
+          throwsFormatException,
+        );
+        expect(calls, hasLength(4));
       }
-      expect(calls.map((call) => call.method), [
-        'toggleOutputMute',
-        'volumeDown',
-        'volumeUp',
-        'playPause',
-      ]);
-      expect(calls.every((call) => call.arguments == null), isTrue);
-      final mute = manifest.buttonById('keyboard.mute')!;
-      await expectLater(
-        actions.executeButton(mute.copyWith(target: 'volumeUp'), manifest),
-        throwsFormatException,
-      );
-      await expectLater(
-        actions.executeButton(mute, manifest, expectedAppId: 'chatgpt'),
-        throwsFormatException,
-      );
-      expect(calls, hasLength(4));
     },
   );
 }

@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends fonts-noto-cjk
-          flutter precache --android --linux
+          flutter precache --linux
           test -f "$SMARTKEYS_SCREENSHOT_FONT"
           test -f "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
       - name: Resolve all analyzed package dependencies

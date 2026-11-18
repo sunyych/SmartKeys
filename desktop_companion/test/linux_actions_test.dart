@@ -9,6 +9,7 @@ import 'package:lumiakeys_companion/desktop_controller.dart';
 class _Runner implements DesktopProcessRunner {
   final calls = <({String exe, List<String> args})>[];
   bool available = true;
+  String foreground = 'cursor';
   @override
   Future<ProcessResult> run(String exe, List<String> args) async {
     calls.add((exe: exe, args: args));
@@ -23,7 +24,7 @@ class _Runner implements DesktopProcessRunner {
     if (exe == 'xdotool' && args.first == 'getactivewindow') {
       return ProcessResult(1, 0, '123', '');
     }
-    if (exe == 'ps') return ProcessResult(1, 0, 'cursor', '');
+    if (exe == 'ps') return ProcessResult(1, 0, foreground, '');
     if (exe == 'pactl' && args.first == 'get-sink-mute') {
       return ProcessResult(1, 0, 'Mute: no', '');
     }
@@ -172,6 +173,23 @@ void main() {
         ),
         throwsUnsupportedError,
       );
+    },
+  );
+  test(
+    'Linux Edge and browser navigation use X11 key symbols after foreground validation',
+    () async {
+      final runner = _Runner()..foreground = 'microsoft-edge-stable';
+      final actions = DesktopActions(
+        runner: runner,
+        platformOverride: TargetPlatform.linux,
+        environment: const {'DISPLAY': ':99'},
+      );
+      await actions.sendShortcut(const ['CTRL', 'R'], expectedAppId: 'edge');
+      expect(runner.calls.first.args, ['getactivewindow', 'getwindowpid']);
+      expect(runner.calls[1].exe, 'ps');
+      expect(runner.calls.last.args, ['key', '--clearmodifiers', 'ctrl+r']);
+      await actions.sendShortcut(const ['BROWSER_BACK']);
+      expect(runner.calls.last.args, ['key', '--clearmodifiers', 'alt+Left']);
     },
   );
   test(

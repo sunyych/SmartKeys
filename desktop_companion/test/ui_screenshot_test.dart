@@ -128,6 +128,7 @@ void main() {
       store: MemoryDesktopConfigStore(),
       discovery: _Discovery(),
       actions: DesktopActions(
+        platformOverride: TargetPlatform.macOS,
         runner: _FailingRunner(),
         macSystemControl: systemControls,
       ),

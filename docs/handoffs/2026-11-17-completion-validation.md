@@ -18,7 +18,7 @@
 | 范围 | 实际结果 |
 | --- | --- |
 | Full Flutter 全量 | 293 通过 |
-| Desktop Flutter 全量 | 96 通过，1 项 Linux 音频条件检查在 Windows 跳过 |
+| Desktop Flutter 全量 | 97 通过，1 项 Linux 音频条件检查在 Windows 跳过 |
 | 共享协议 | 25 通过 |
 | 原有听写模块 | 24 通过，1 项需要原生模型的检查跳过 |
 | 独立 Lite Flutter | 12 通过 |
