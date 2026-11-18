@@ -9,6 +9,8 @@ on:
     paths:
       - "desktop_companion/**"
       - "packages/lumiakeys_protocol/**"
+      - "apps/bluetooth/scripts/prepare_screenshot_font.py"
+      - "apps/bluetooth/scripts/test_prepare_screenshot_font.py"
       - ".github/workflows/linux-validation.yml"
   workflow_dispatch:
 
@@ -27,7 +29,14 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install --no-install-recommends -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev libasound2-dev libpulse-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-good pulseaudio pulseaudio-utils xdotool playerctl brightnessctl xvfb xauth fonts-noto-cjk
+          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install --no-install-recommends -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev libasound2-dev libpulse-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-good pulseaudio pulseaudio-utils xdotool playerctl brightnessctl xvfb xauth
+      - name: Prepare verified screenshot font
+        timeout-minutes: 4
+        run: |
+          screenshot_font="$RUNNER_TEMP/NotoSansCJKsc-Regular.otf"
+          python3 -m unittest discover -s apps/bluetooth/scripts -p test_prepare_screenshot_font.py
+          python3 apps/bluetooth/scripts/prepare_screenshot_font.py --output "$screenshot_font" --github-env "$GITHUB_ENV"
+          test -s "$screenshot_font"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -46,7 +55,6 @@ jobs:
         working-directory: desktop_companion
         env:
           SMARTKEYS_LINUX_AUDIO_TEST: '1'
-          SMARTKEYS_SCREENSHOT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
         run: |
           set -euo pipefail
           material_icon_font="${FLUTTER_ROOT:?}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
