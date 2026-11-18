@@ -67,10 +67,11 @@ jobs:
         run: |
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
           cargo test --locked --manifest-path native/windows_shortcuts/Cargo.toml --target-dir build/rust-desktop-tests
-      - name: Build and package Desktop
+      - name: Analyze, build, test, and package macOS Desktop
         working-directory: desktop_companion
         run: |
           flutter pub get
+          flutter analyze --no-pub
           product_version=$(awk '/^version:/ {print $2; exit}' pubspec.yaml)
           build_name=${product_version%%+*}
           build_number=${product_version##*+}
@@ -78,6 +79,7 @@ jobs:
           export LUMIAKEY_TEST_DESKTOP_NATIVE_LIBRARY="$PWD/build/macos/Build/Products/Release/LumiaKey.app/Contents/Frameworks/liblumiakeys_desktop.dylib"
           test -s "$LUMIAKEY_TEST_DESKTOP_NATIVE_LIBRARY"
           codesign --verify "$LUMIAKEY_TEST_DESKTOP_NATIVE_LIBRARY"
+          flutter test --no-pub
           flutter test --no-pub test/rust_macos_*_test.dart
           mkdir -p dist/dmg
           cp -R "build/macos/Build/Products/Release/LumiaKey.app" dist/dmg/
