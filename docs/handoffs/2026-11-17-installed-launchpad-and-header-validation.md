@@ -36,6 +36,7 @@ and the [design](../superpowers/specs/2026-11-17-installed-launchpad-and-header-
 | Concurrent network regression group | 27 passed |
 | Full / Desktop / protocol analysis | Clean |
 | Generated icon catalog / diagnostics vendor checks | Clean |
+| Release APK runtime guard | 9 passed; all three packaged ABIs checked |
 
 The read-only Windows inventory found **672 launch entries in 8.6 seconds**:
 355 AppIDs, 219 Start Menu shortcuts and 98 App Paths registrations. Entries can
@@ -63,6 +64,15 @@ and packaged icon hashes were checked. Android reports package
 certificate for an in-place update. The Windows portable package matches 102
 current build-input files. All fifty packaged built-in icons match the catalog.
 
+Physical acceptance found that the first local Android build contained stale
+Gradle merged/stripped JNI outputs, despite a new version and new assets. The
+delivery was replaced by a clean NTFS build. Its SHA-256 is
+`a012db473340c77652d3629453b5f7b363ff8de679c0fe4b89ec9dcb32b1aaad`.
+All three packaged AOT libraries contain the current header, branding and icon
+library code. `scripts/verify_full_apk.py` now checks the actual release APK;
+the Android release build entry point runs this guard after building. The
+unsigned iOS kernel also contains the current UI markers.
+
 - [Apple iOS and macOS builds](https://github.com/sunyych/SmartKeys/actions/runs/44237960757)
 - [Linux tests and native release build](https://github.com/sunyych/SmartKeys/actions/runs/44238569722)
 - [Full Android and Windows validation](https://github.com/sunyych/SmartKeys/actions/runs/44239030897)
@@ -82,8 +92,10 @@ is rejected. A real native Chrome PNG and its ETag response were verified.
 The connected Android phone was upgraded with `adb install -r` to Full
 **1.7.0/code9**, preserving its data. Lite **1.1.0/code2** remains installed.
 No permission grants, uninstall, reset, shortcut input or diagnostic sharing
-were performed. Physical Full navigation was stopped at the secure keyguard;
-the actual Settings-to-icon-library route is covered by widget regression tests.
+were performed. After the phone was unlocked, the corrected package was
+reinstalled without data clearing. Physical Settings-to-icon-library navigation,
+return to Home, the top host/clock/media row, the LumiaKey icon/wordmark and the
+twelve-slot Launchpad were verified. The phone was left on Launchpad.
 
 Windows packages remain unsigned; Android uses the existing development signing
 certificate; macOS is not notarized. The iOS artifact is an unsigned app ZIP and
