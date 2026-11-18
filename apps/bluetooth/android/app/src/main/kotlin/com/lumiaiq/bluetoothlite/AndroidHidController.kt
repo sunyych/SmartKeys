@@ -64,6 +64,15 @@ class AndroidHidController(
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "getAppMetadata" -> {
+                try {
+                    @Suppress("DEPRECATION")
+                    val info = activity.packageManager.getPackageInfo(activity.packageName, 0)
+                    result.success(mapOf("appVersion" to info.versionName, "appBuild" to info.longVersionCode))
+                } catch (_: Exception) {
+                    result.error("METADATA_UNAVAILABLE", "App metadata is unavailable.", null)
+                }
+            }
             "getConnectionStatus" -> result.success(status)
             "getConnectionSnapshot" -> result.success(snapshot())
             "requestBluetoothAccess" -> requestBluetoothAccess(result)

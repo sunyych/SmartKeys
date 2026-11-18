@@ -208,6 +208,7 @@ void main() {
     'central catalog only fetches registered IDs and refuses redirects and invalid PNG',
     () async {
       AppIconCache.clear();
+      final claude = await File('assets/app_icons/claude.png').readAsBytes();
       final paths = <String>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
@@ -222,7 +223,11 @@ void main() {
         } else {
           request.response.headers.contentType = ContentType('image', 'png');
           request.response.add(
-            request.uri.path.endsWith('/claude') ? _png(200) : Uint8List(65537),
+            request.uri.path.endsWith('/claude')
+                ? claude
+                : request.uri.path.endsWith('/vscode')
+                ? _png(200)
+                : Uint8List(65537),
           );
         }
         await request.response.close();
@@ -235,10 +240,16 @@ void main() {
       expect(paths, isEmpty);
       expect(await client.downloadByAppId('chrome'), isNull);
       expect(await client.downloadByAppId('edge'), isNull);
-      expect(await client.downloadByAppId('claude'), _png(200));
-      expect(paths, ['/v1/icons/chrome', '/v1/icons/edge', '/v1/icons/claude']);
-      expect(await client.downloadByAppId('claude'), _png(200));
-      expect(paths, hasLength(3));
+      expect(await client.downloadByAppId('vscode'), isNull);
+      expect(await client.downloadByAppId('claude'), claude);
+      expect(paths, [
+        '/v1/icons/chrome',
+        '/v1/icons/edge',
+        '/v1/icons/vscode',
+        '/v1/icons/claude',
+      ]);
+      expect(await client.downloadByAppId('claude'), claude);
+      expect(paths, hasLength(4));
       AppIconCache.clear();
     },
   );

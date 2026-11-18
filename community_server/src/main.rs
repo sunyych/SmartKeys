@@ -21,6 +21,7 @@ use tokio::net::TcpListener;
 mod account_backup;
 mod auth;
 mod contributions;
+mod diagnostics;
 mod icons;
 mod ranking;
 mod web;
@@ -145,6 +146,9 @@ async fn initialize_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../migrations/002_experience.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../migrations/003_diagnostics.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -175,6 +179,11 @@ fn app(state: AppState) -> Router {
         .route("/v1/icons/catalog", get(icons::catalog))
         .route("/v1/icons/:app_id", get(icons::get))
         .route("/healthz", get(health))
+        .route(
+            "/v1/diagnostics/errors",
+            post(diagnostics::post)
+                .layer(axum::extract::DefaultBodyLimit::max(diagnostics::MAX_BODY)),
+        )
         .route(
             "/v1/contributions",
             post(contributions::post).layer(axum::extract::DefaultBodyLimit::max(
@@ -218,6 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let database_url = env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
     let pool = open_pool(&database_url).await?;
+    diagnostics::start_retention(pool.clone());
     let trust_proxy = env::var("TRUST_PROXY").map(|v| v == "1").unwrap_or(false);
     let state = AppState {
         pool,

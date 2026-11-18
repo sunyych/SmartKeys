@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../data/config_repository.dart';
@@ -34,6 +35,7 @@ class AppController extends ChangeNotifier {
     required this.powerBrightnessService,
     required this.shortcutUsage,
     this.platformOverride,
+    this.reportDiagnostic,
     IconCatalogClient? iconCatalogClient,
   }) : _iconCatalogClient = iconCatalogClient ?? IconCatalogClient() {
     hid.activeHost.addListener(_handleActiveHostChanged);
@@ -53,6 +55,23 @@ class AppController extends ChangeNotifier {
   }
 
   final ConfigRepository repository;
+  final void Function(DiagnosticCode)? reportDiagnostic;
+
+  void _report(DiagnosticCode code) {
+    try {
+      reportDiagnostic?.call(code);
+    } catch (_) {}
+  }
+
+  Future<void> _saveConfiguration(AppConfig value) async {
+    try {
+      await repository.save(value);
+    } catch (_) {
+      _report(DiagnosticCode.configurationSaveFailed);
+      rethrow;
+    }
+  }
+
   final ProfileTemplateRepository templates;
   final HidService hid;
   final CompanionService companion;
@@ -635,11 +654,11 @@ class AppController extends ChangeNotifier {
   ) async {
     var base = config;
     var nextConfig = _computerSetupConfig(base, targetId, setup);
-    await repository.save(nextConfig);
+    await _saveConfiguration(nextConfig);
     while (!identical(_config, base)) {
       base = config;
       nextConfig = _computerSetupConfig(base, targetId, setup);
-      await repository.save(nextConfig);
+      await _saveConfiguration(nextConfig);
     }
     _config = nextConfig;
     notifyListeners();
@@ -1153,7 +1172,12 @@ class AppController extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      _config = await repository.load();
+      try {
+        _config = await repository.load();
+      } catch (_) {
+        _report(DiagnosticCode.configurationLoadFailed);
+        rethrow;
+      }
       try {
         await shortcutUsage.load();
       } catch (_) {
@@ -1213,7 +1237,7 @@ class AppController extends ChangeNotifier {
     final safety = prepareForContextChange();
     _config = config.copyWith(activeProfileId: profileId);
     notifyListeners();
-    await Future.wait([safety, repository.save(config)]);
+    await Future.wait([safety, _saveConfiguration(config)]);
   }
 
   Future<void> switchProfileByOffset(int offset) async {
@@ -1275,7 +1299,12 @@ class AppController extends ChangeNotifier {
   Future<void> executeRemoteButton(RemoteShortcutButton button) async {
     if (_computerSwitchPendingId != null) return;
     _recordShortcutUsage('desktop:button:${button.id}', button.name);
-    await companion.executeRemote(RemoteActionRequest.button(button.id));
+    try {
+      await companion.executeRemote(RemoteActionRequest.button(button.id));
+    } catch (_) {
+      _report(DiagnosticCode.shortcutDeliveryFailed);
+      rethrow;
+    }
   }
 
   Future<void> executeVibeCodingButton(
@@ -1305,9 +1334,14 @@ class AppController extends ChangeNotifier {
       'desktop:app:${application.id}',
       'Open ${application.name}',
     );
-    await companion.executeRemote(
-      RemoteActionRequest.launchApplication(application.id),
-    );
+    try {
+      await companion.executeRemote(
+        RemoteActionRequest.launchApplication(application.id),
+      );
+    } catch (_) {
+      _report(DiagnosticCode.applicationActivationFailed);
+      rethrow;
+    }
   }
 
   Future<void> launchVibeCodingApplication(String applicationId) async {
@@ -1615,7 +1649,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     await Future.wait([
       orientationService.apply(mode),
-      repository.save(config),
+      _saveConfiguration(config),
     ]);
   }
 
@@ -1625,7 +1659,7 @@ class AppController extends ChangeNotifier {
       preferences: config.preferences.copyWith(shortcutPlatform: platform),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> setBeginnerMode(bool beginnerMode) async {
@@ -1635,10 +1669,10 @@ class AppController extends ChangeNotifier {
     );
     notifyListeners();
     var saved = config;
-    await repository.save(saved);
+    await _saveConfiguration(saved);
     while (!identical(_config, saved)) {
       saved = config;
-      await repository.save(saved);
+      await _saveConfiguration(saved);
     }
   }
 
@@ -1648,7 +1682,7 @@ class AppController extends ChangeNotifier {
       preferences: config.preferences.copyWith(controlSurfaceLayout: value),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> updateTabletKeysPerPage(int value) async {
@@ -1664,7 +1698,7 @@ class AppController extends ChangeNotifier {
       preferences: config.preferences.copyWith(tabletKeysPerPage: value),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> updateFeedbackPreferences({
@@ -1678,7 +1712,7 @@ class AppController extends ChangeNotifier {
       ),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> updateChargingBrightness({
@@ -1695,7 +1729,10 @@ class AppController extends ChangeNotifier {
       ),
     );
     notifyListeners();
-    await Future.wait([repository.save(config), _applyChargingDisplayState()]);
+    await Future.wait([
+      _saveConfiguration(config),
+      _applyChargingDisplayState(),
+    ]);
   }
 
   Future<void> handleAppResumed() async {
@@ -1916,7 +1953,7 @@ class AppController extends ChangeNotifier {
       profileOrder: [...config.profileOrder, profile.id],
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     return profile;
   }
 
@@ -1935,7 +1972,7 @@ class AppController extends ChangeNotifier {
       profileOrder: [...config.profileOrder, copy.id],
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     return copy;
   }
 
@@ -1980,7 +2017,7 @@ class AppController extends ChangeNotifier {
   Future<void> setDefaultProfile(String profileId) async {
     _config = config.copyWith(defaultProfileId: profileId);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> deleteProfile(String profileId) async {
@@ -2005,7 +2042,7 @@ class AppController extends ChangeNotifier {
       activeProfileId: activeId,
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     await imageStore.cleanupUnreferenced(config);
   }
 
@@ -2015,7 +2052,7 @@ class AppController extends ChangeNotifier {
     order.insert(newIndex, moved);
     _config = config.copyWith(profileOrder: order);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> importProfile(
@@ -2058,7 +2095,7 @@ class AppController extends ChangeNotifier {
       );
     }
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     await imageStore.cleanupUnreferenced(config);
   }
 
@@ -2078,7 +2115,7 @@ class AppController extends ChangeNotifier {
         : [...config.profileOrder, templateId];
     _config = config.copyWith(profiles: profiles, profileOrder: order);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> restoreAllTemplates() async {
@@ -2099,7 +2136,7 @@ class AppController extends ChangeNotifier {
       defaultProfileId: defaultId,
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   /// Applies a reviewed account snapshot without invoking Desktop or HID
@@ -2177,7 +2214,7 @@ class AppController extends ChangeNotifier {
         profileOrder: order,
         preferences: preferences,
       );
-      await repository.save(nextConfig);
+      await _saveConfiguration(nextConfig);
     } catch (_) {
       await imageStore.deleteRestoredImages(imagePaths.values);
       rethrow;
@@ -2220,7 +2257,7 @@ class AppController extends ChangeNotifier {
         .toList();
     _config = config.copyWith(profiles: profiles);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     unawaited(
       imageStore.cleanupUnreferenced(config).catchError((Object _) {
         // Image cleanup is housekeeping and must never block a saved edit.

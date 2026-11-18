@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
 import 'package:image/image.dart' as image_lib;
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
@@ -15,11 +16,13 @@ class PrivateImageStore {
   PrivateImageStore({
     ImagePicker? imagePicker,
     Future<Directory> Function()? documentsDirectory,
+    this.reportDiagnostic,
   }) : _imagePicker = imagePicker ?? ImagePicker(),
        _documentsDirectory =
            documentsDirectory ?? getApplicationDocumentsDirectory;
 
   final ImagePicker _imagePicker;
+  final void Function(DiagnosticCode)? reportDiagnostic;
   final Future<Directory> Function() _documentsDirectory;
 
   static const supportedExtensions = {'png', 'jpg', 'jpeg', 'webp'};
@@ -63,6 +66,21 @@ class PrivateImageStore {
   }
 
   Future<void> cacheDesktopAppIcon(
+    String computerId,
+    String appId,
+    Uint8List bytes,
+  ) async {
+    try {
+      await _cacheDesktopAppIcon(computerId, appId, bytes);
+    } catch (_) {
+      try {
+        reportDiagnostic?.call(DiagnosticCode.storageWriteFailed);
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  Future<void> _cacheDesktopAppIcon(
     String computerId,
     String appId,
     Uint8List bytes,

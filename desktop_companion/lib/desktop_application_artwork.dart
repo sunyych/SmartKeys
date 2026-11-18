@@ -2,26 +2,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'app_icon_service.dart';
+import 'icons/builtin_icon_catalog.g.dart';
 
-/// Sixteen actual application resources; Codex is the old ChatGPT wire alias.
-const desktopAppIconAssets = <String, String>{
-  'codex': 'openai.png',
-  'chatgpt': 'openai.png',
-  'chrome': 'chrome.png',
-  'edge': 'edge.png',
-  'firefox': 'firefox.png',
-  'safari': 'safari.png',
-  'claude': 'claude-app.png',
-  'cursor': 'cursor.png',
-  'teams': 'teams.png',
-  'zoom': 'zoom.png',
-  'vscode': 'vscode.png',
-  'photoshop': 'photoshop.png',
-  'illustrator': 'illustrator.png',
-  'premiere': 'premiere.png',
-  'solidworks': 'solidworks-app.png',
-  'appleMusic': 'appleMusic.png',
-  'finder': 'finder.png',
+/// Generated product artwork never expands the native command allowlist.
+final desktopAppIconAssets = <String, String>{
+  for (final icon in builtinIconCatalog) icon.id: '${icon.id}.png',
 };
 
 class DesktopApplicationArtwork extends StatefulWidget {
@@ -66,7 +51,10 @@ class _DesktopApplicationArtworkState extends State<DesktopApplicationArtwork> {
   }
 
   Widget _fallback() {
-    final file = desktopAppIconAssets[widget.app.id];
+    final file =
+        desktopAppIconAssets[canonicalBuiltinIconId(
+          legacyProtocolIconId(widget.app.id),
+        )];
     final missing = Icon(Icons.apps, size: widget.size);
     return file == null
         ? missing

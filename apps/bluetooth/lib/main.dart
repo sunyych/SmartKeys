@@ -1,15 +1,25 @@
 import 'dart:async';
 import 'local_profiles.dart';
 import 'offline_touchpad.dart';
+import 'local_diagnostics.dart';
+import 'local_settings.dart';
+import 'runtime_error_hooks.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
 export 'local_profiles.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-void main() => runApp(const BluetoothLiteApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  final diagnostics = LiteDiagnostics();
+  LiteRuntimeErrorHooks(diagnostics).install();
+  runApp(BluetoothLiteApp(diagnostics: diagnostics));
+}
 
 class BluetoothLiteApp extends StatelessWidget {
-  const BluetoothLiteApp({super.key, this.profileStore});
+  const BluetoothLiteApp({super.key, this.profileStore, this.diagnostics});
   final LocalProfileStore? profileStore;
+  final LiteDiagnostics? diagnostics;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'LumiaKey Bluetooth Lite',
@@ -22,7 +32,7 @@ class BluetoothLiteApp extends StatelessWidget {
       useMaterial3: true,
       scaffoldBackgroundColor: const Color(0xff101820),
     ),
-    home: LiteHome(profileStore: profileStore),
+    home: LiteHome(profileStore: profileStore, diagnostics: diagnostics),
   );
 }
 
@@ -37,13 +47,15 @@ class LiteHost {
 }
 
 class LiteHome extends StatefulWidget {
-  const LiteHome({super.key, this.profileStore});
+  const LiteHome({super.key, this.profileStore, this.diagnostics});
   final LocalProfileStore? profileStore;
+  final LiteDiagnostics? diagnostics;
   @override
   State<LiteHome> createState() => _LiteHomeState();
 }
 
 class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
+  late final _diagnostics = widget.diagnostics ?? LiteDiagnostics();
   static const channel = MethodChannel('smart_keys/hid');
   int page = 0;
   String status = 'registering';
@@ -57,6 +69,9 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
       widget.profileStore ?? const SharedPreferencesProfileStore();
   bool loading = true;
   bool saving = false;
+  bool _snapshotErrorActive = false;
+  bool _snapshotErrorPending = false;
+  int _nativeCommandsInFlight = 0;
   final Set<String> pendingModifiers = {};
   int _inputEpoch = 0;
   double _scrollRemainder = 0;
@@ -66,6 +81,7 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     channel.setMethodCallHandler(_nativeUpdate);
+    unawaited(_diagnostics.initialize());
     unawaited(_load());
     unawaited(_refresh());
   }
@@ -78,6 +94,18 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
 
   void _apply(Object? value) {
     if (value is! Map || !mounted) return;
+    final hasSnapshotError = value['error'] != null;
+    if (hasSnapshotError && !_snapshotErrorActive) {
+      if (_nativeCommandsInFlight > 0) {
+        _snapshotErrorPending = true;
+      } else {
+        unawaited(
+          _diagnostics.capture(DiagnosticCode.bluetoothConnectionFailed),
+        );
+      }
+    }
+    if (!hasSnapshotError) _snapshotErrorPending = false;
+    _snapshotErrorActive = hasSnapshotError;
     setState(() {
       final rawHost = value['activeHost'];
       final nextAddress = rawHost is Map
@@ -110,6 +138,7 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
       profiles = loaded;
       selectedProfile = 0;
     } catch (_) {
+      unawaited(_diagnostics.capture(DiagnosticCode.configurationLoadFailed));
       if (mounted) {
         error =
             'Could not load saved shortcuts. Existing data has not been replaced.';
@@ -120,24 +149,55 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
   }
 
   Future<void> _refresh() async {
+    _nativeCommandsInFlight++;
     try {
       _apply(await channel.invokeMethod<Object?>('refreshPairedHosts'));
     } on PlatformException catch (e) {
+      _recordNativeFailure(DiagnosticCode.bluetoothConnectionFailed);
       if (mounted) setState(() => error = e.message ?? e.code);
-    } catch (_) {}
+    } catch (_) {
+      _recordNativeFailure(DiagnosticCode.platformUnavailable);
+    } finally {
+      _finishNativeCommand();
+    }
+  }
+
+  void _recordNativeFailure(DiagnosticCode code) {
+    _snapshotErrorActive = true;
+    _snapshotErrorPending = false;
+    unawaited(_diagnostics.capture(code));
+  }
+
+  void _finishNativeCommand() {
+    _nativeCommandsInFlight--;
+    if (_nativeCommandsInFlight == 0 && _snapshotErrorPending) {
+      _snapshotErrorPending = false;
+      unawaited(_diagnostics.capture(DiagnosticCode.bluetoothConnectionFailed));
+    }
   }
 
   Future<void> _command(String method, [Map<String, Object?>? args]) async {
+    _nativeCommandsInFlight++;
     try {
       _apply(await channel.invokeMethod<Object?>(method, args));
     } on PlatformException catch (e) {
+      _recordNativeFailure(
+        method == 'sendStep'
+            ? DiagnosticCode.bluetoothInputFailed
+            : method == 'requestBluetoothAccess'
+            ? DiagnosticCode.bluetoothPermissionDenied
+            : DiagnosticCode.bluetoothConnectionFailed,
+      );
       if (mounted) setState(() => error = e.message ?? e.code);
     } on MissingPluginException {
+      _recordNativeFailure(DiagnosticCode.platformUnavailable);
       if (mounted) {
         setState(
           () => error = 'Bluetooth HID is available on Android 9 or newer.',
         );
       }
+    } finally {
+      _finishNativeCommand();
     }
   }
 
@@ -207,6 +267,7 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
       channel.invokeMethod<void>('releaseAllKeys').catchError((Object _) {}),
     );
     channel.setMethodCallHandler(null);
+    if (widget.diagnostics == null) _diagnostics.dispose();
     super.dispose();
   }
 
@@ -244,6 +305,7 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
       await profileStore.save(updated);
       if (mounted) setState(() => profiles = updated);
     } catch (_) {
+      unawaited(_diagnostics.capture(DiagnosticCode.configurationSaveFailed));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -271,6 +333,17 @@ class _LiteHomeState extends State<LiteHome> with WidgetsBindingObserver {
           ],
         ),
         actions: [
+          IconButton(
+            key: const ValueKey('lite-settings'),
+            tooltip: 'Local settings',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => LiteSettingsScreen(diagnostics: _diagnostics),
+              ),
+            ),
+            icon: const Icon(Icons.settings_outlined),
+          ),
           IconButton(
             tooltip: 'Refresh paired devices',
             onPressed: _refresh,

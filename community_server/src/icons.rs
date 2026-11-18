@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::Path,
-    http::{header, HeaderValue, Response, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Response, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -10,7 +10,16 @@ use serde::Serialize;
 #[derive(Serialize)]
 pub(super) struct Catalog {
     schema_version: u8,
+    version: &'static str,
     icons: &'static [IconRecord],
+    legacy_aliases: &'static [LegacyAlias],
+}
+
+#[derive(Serialize)]
+struct LegacyAlias {
+    app_id: &'static str,
+    canonical_id: &'static str,
+    description: &'static str,
 }
 
 #[derive(Serialize)]
@@ -18,222 +27,28 @@ pub(super) struct IconRecord {
     app_id: &'static str,
     canonical_id: &'static str,
     name: &'static str,
-    download_url: Option<&'static str>,
-    mime_type: Option<&'static str>,
+    aliases: &'static [&'static str],
+    download_url: &'static str,
+    mime_type: &'static str,
     source: &'static str,
+    source_page_url: &'static str,
+    terms_url: &'static str,
     license: &'static str,
     available: bool,
+    bundled: bool,
+    sha256: &'static str,
+    version: &'static str,
+    width: u32,
+    height: u32,
 }
 
-const BRAND_NOTICE: &str =
-    "Brand artwork: verify the owner's terms and trademarks. Project CC0 is not a brand license.";
-const fn entry(
-    app_id: &'static str,
-    canonical_id: &'static str,
-    name: &'static str,
-    download_url: Option<&'static str>,
-    source: &'static str,
-) -> IconRecord {
-    IconRecord {
-        app_id,
-        canonical_id,
-        name,
-        download_url,
-        mime_type: if download_url.is_some() {
-            Some("image/png")
-        } else {
-            None
-        },
-        source,
-        license: BRAND_NOTICE,
-        available: download_url.is_some(),
-    }
-}
+include!("builtin_icon_catalog.g.rs");
 
-// Codex is only the historical combined ChatGPT ID here. It is not counted
-// as another brand and does not assign an unrelated product's artwork.
-const ICONS: &[IconRecord] = &[
-    entry(
-        "codex",
-        "chatgpt",
-        "ChatGPT (legacy codex ID)",
-        Some("/v1/icons/codex"),
-        "https://cdn.simpleicons.org/openai",
-    ),
-    entry(
-        "chatgpt",
-        "chatgpt",
-        "ChatGPT",
-        Some("/v1/icons/chatgpt"),
-        "https://cdn.simpleicons.org/openai",
-    ),
-    entry(
-        "claude",
-        "claude",
-        "Claude",
-        Some("/v1/icons/claude"),
-        "https://cdn.simpleicons.org/claude",
-    ),
-    entry(
-        "cursor",
-        "cursor",
-        "Cursor",
-        Some("/v1/icons/cursor"),
-        "https://cdn.simpleicons.org/cursor",
-    ),
-    entry(
-        "chrome",
-        "chrome",
-        "Google Chrome",
-        Some("/v1/icons/chrome"),
-        "https://cdn.simpleicons.org/googlechrome",
-    ),
-    entry(
-        "edge",
-        "edge",
-        "Microsoft Edge",
-        Some("/v1/icons/edge"),
-        "https://edgecdn-embza6g8cacagcbn.z01.azurefd.net/welcome/static/favicon.png",
-    ),
-    entry(
-        "firefox",
-        "firefox",
-        "Firefox",
-        Some("/v1/icons/firefox"),
-        "https://cdn.simpleicons.org/firefoxbrowser",
-    ),
-    entry(
-        "safari",
-        "safari",
-        "Safari",
-        Some("/v1/icons/safari"),
-        "https://cdn.simpleicons.org/safari",
-    ),
-    entry(
-        "teams",
-        "teams",
-        "Microsoft Teams",
-        Some("/v1/icons/teams"),
-        "https://cdn-dynmedia-1.microsoft.com/is/content/microsoftcorp/Teams-Icon-FY26",
-    ),
-    entry(
-        "zoom",
-        "zoom",
-        "Zoom",
-        Some("/v1/icons/zoom"),
-        "https://cdn.simpleicons.org/zoom",
-    ),
-    entry(
-        "photoshop",
-        "photoshop",
-        "Adobe Photoshop",
-        Some("/v1/icons/photoshop"),
-        "https://cdn.simpleicons.org/adobephotoshop",
-    ),
-    entry(
-        "illustrator",
-        "illustrator",
-        "Adobe Illustrator",
-        Some("/v1/icons/illustrator"),
-        "https://cdn.simpleicons.org/adobeillustrator",
-    ),
-    entry(
-        "vscode",
-        "vscode",
-        "Visual Studio Code",
-        Some("/v1/icons/vscode"),
-        "https://cdn.simpleicons.org/visualstudiocode",
-    ),
-    entry(
-        "solidworks",
-        "solidworks",
-        "SOLIDWORKS",
-        Some("/v1/icons/solidworks"),
-        "https://help.solidworks.com/favicon.png",
-    ),
-    entry(
-        "premiere",
-        "premiere",
-        "Adobe Premiere Pro",
-        Some("/v1/icons/premiere"),
-        "https://cdn.simpleicons.org/adobepremierepro",
-    ),
-    entry(
-        "appleMusic",
-        "appleMusic",
-        "Apple Music",
-        Some("/v1/icons/appleMusic"),
-        "https://cdn.simpleicons.org/applemusic",
-    ),
-    entry(
-        "finder",
-        "finder",
-        "Finder",
-        Some("/v1/icons/finder"),
-        "https://ipcdn-web.apple.com/assets/v2/web/f2ab6839-b5a7-45f8-bcb3-037aa7887965",
-    ),
-];
-
-fn png_asset(canonical_id: &str) -> Option<(&'static [u8], &'static str)> {
-    Some(match canonical_id {
-        "chatgpt" => (
-            include_bytes!("../assets/app_icons/openai.png"),
-            "chatgpt.png",
-        ),
-        "claude" => (
-            include_bytes!("../assets/app_icons/claude-app.png"),
-            "claude.png",
-        ),
-        "cursor" => (
-            include_bytes!("../assets/app_icons/cursor.png"),
-            "cursor.png",
-        ),
-        "chrome" => (
-            include_bytes!("../assets/app_icons/chrome.png"),
-            "chrome.png",
-        ),
-        "edge" => (include_bytes!("../assets/app_icons/edge.png"), "edge.png"),
-        "firefox" => (
-            include_bytes!("../assets/app_icons/firefox.png"),
-            "firefox.png",
-        ),
-        "safari" => (
-            include_bytes!("../assets/app_icons/safari.png"),
-            "safari.png",
-        ),
-        "teams" => (include_bytes!("../assets/app_icons/teams.png"), "teams.png"),
-        "zoom" => (include_bytes!("../assets/app_icons/zoom.png"), "zoom.png"),
-        "photoshop" => (
-            include_bytes!("../assets/app_icons/photoshop.png"),
-            "photoshop.png",
-        ),
-        "illustrator" => (
-            include_bytes!("../assets/app_icons/illustrator.png"),
-            "illustrator.png",
-        ),
-        "vscode" => (
-            include_bytes!("../assets/app_icons/vscode.png"),
-            "vscode.png",
-        ),
-        "solidworks" => (
-            include_bytes!("../assets/app_icons/solidworks-app.png"),
-            "solidworks.png",
-        ),
-        "premiere" => (
-            include_bytes!("../assets/app_icons/premiere.png"),
-            "premiere.png",
-        ),
-        "appleMusic" => (
-            include_bytes!("../assets/app_icons/appleMusic.png"),
-            "appleMusic.png",
-        ),
-        "finder" => (
-            include_bytes!("../assets/app_icons/finder.png"),
-            "finder.png",
-        ),
-        _ => return None,
-    })
-}
+const LEGACY_ALIASES: &[LegacyAlias] = &[LegacyAlias {
+    app_id: "codex",
+    canonical_id: "chatgpt",
+    description: "Historical LumiaKey protocol/configuration ID for ChatGPT artwork; not the Codex product or another catalog entry.",
+}];
 
 fn valid_png(bytes: &[u8]) -> bool {
     if bytes.len() < 24
@@ -245,30 +60,72 @@ fn valid_png(bytes: &[u8]) -> bool {
     }
     let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
     let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
-    (1..=512).contains(&width) && (1..=512).contains(&height)
+    width == 256 && height == 256
 }
 
-pub async fn catalog() -> Json<Catalog> {
-    Json(Catalog {
-        schema_version: 1,
-        icons: ICONS,
+pub async fn catalog() -> impl IntoResponse {
+    (
+        [(header::CACHE_CONTROL, "public, max-age=3600")],
+        Json(Catalog {
+            schema_version: 1,
+            version: CATALOG_VERSION,
+            icons: ICONS,
+            legacy_aliases: LEGACY_ALIASES,
+        }),
+    )
+}
+
+fn lookup(id: &str) -> Option<&'static IconRecord> {
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+    {
+        return None;
+    }
+    // Kept outside normal product aliases/search: Codex has its own identity.
+    let product = if id.eq_ignore_ascii_case("codex") {
+        "chatgpt"
+    } else {
+        id
+    };
+    ICONS.iter().find(|icon| {
+        icon.app_id.eq_ignore_ascii_case(product)
+            || icon
+                .aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(product))
     })
 }
 
-pub async fn get(Path(app_id): Path<String>) -> Response<Body> {
-    let Some(record) = ICONS
-        .iter()
-        .find(|record| record.app_id == app_id && record.available)
-    else {
+pub async fn get(Path(app_id): Path<String>, request_headers: HeaderMap) -> Response<Body> {
+    let Some(record) = lookup(&app_id) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let Some((bytes, filename)) = png_asset(record.canonical_id) else {
+    let Some(bytes) = png_asset(record.canonical_id) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if !valid_png(bytes) {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    let mut response = Response::new(Body::from(bytes));
+    let etag = format!("\"{}\"", record.sha256);
+    let cached = request_headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(',')
+                .any(|tag| tag.trim() == etag || tag.trim() == "*")
+        });
+    let mut response = Response::new(if cached {
+        Body::empty()
+    } else {
+        Body::from(bytes)
+    });
+    if cached {
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+    }
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
     headers.insert(
@@ -280,10 +137,27 @@ pub async fn get(Path(app_id): Path<String>) -> Response<Body> {
         HeaderValue::from_static("public, max-age=86400"),
     );
     headers.insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-            .expect("fixed ASCII asset filename"),
+        header::ETAG,
+        HeaderValue::from_str(&etag).expect("generated SHA256"),
     );
+    headers.insert(
+        header::CONTENT_LOCATION,
+        HeaderValue::from_static(record.download_url),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!(
+            "attachment; filename=\"{}.png\"",
+            record.canonical_id
+        ))
+        .expect("registered ASCII filename"),
+    );
+    if app_id.eq_ignore_ascii_case("codex") {
+        headers.insert(
+            "x-lumiakey-legacy-icon",
+            HeaderValue::from_static("chatgpt; historical-protocol-alias"),
+        );
+    }
     response
 }
 
@@ -291,98 +165,102 @@ pub async fn get(Path(app_id): Path<String>) -> Response<Body> {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
+    use sha2::{Digest, Sha256};
     use std::collections::HashSet;
 
     #[tokio::test]
-    async fn catalog_distinguishes_registered_ids_from_canonical_brands() {
-        let Json(catalog) = catalog().await;
-        assert_eq!(catalog.schema_version, 1);
-        assert_eq!(catalog.icons.len(), 17);
+    async fn catalog_has_fifty_actual_builtins_and_ten_web_only_products() {
+        assert_eq!(ICONS.len(), 60);
+        assert_eq!(ICONS.iter().filter(|icon| icon.bundled).count(), 50);
         assert_eq!(
-            catalog
-                .icons
+            ICONS
                 .iter()
-                .filter(|icon| icon.available)
-                .map(|icon| icon.canonical_id)
+                .map(|icon| icon.sha256)
                 .collect::<HashSet<_>>()
                 .len(),
-            16
+            60
         );
         assert_eq!(
-            catalog
-                .icons
-                .iter()
-                .map(|icon| icon.canonical_id)
-                .collect::<HashSet<_>>()
-                .len(),
-            16
-        );
-        assert_eq!(
-            catalog
-                .icons
+            ICONS
                 .iter()
                 .map(|icon| icon.app_id)
                 .collect::<HashSet<_>>()
                 .len(),
-            17
+            60
         );
-        for record in catalog.icons {
-            if record.available {
-                assert_eq!(
-                    record.download_url,
-                    Some(format!("/v1/icons/{}", record.app_id).as_str())
-                );
-                assert_eq!(record.mime_type, Some("image/png"));
-                assert!(record.source.starts_with("https://"));
-                assert!(png_asset(record.canonical_id).is_some());
-            } else {
-                assert!(record.download_url.is_none());
-                assert!(record.mime_type.is_none());
-            }
-            assert!(record.license.contains("owner"));
+        assert!(!ICONS
+            .iter()
+            .any(|icon| icon.app_id == "codex" || icon.aliases.contains(&"codex")));
+        for icon in ICONS {
+            assert_eq!(icon.app_id, icon.canonical_id);
+            assert!(icon.source_page_url.starts_with("https://"));
+            assert!(icon.terms_url.starts_with("https://"));
+            assert!(!icon.version.is_empty());
+            assert!(icon.available);
         }
+        assert!(!lookup("brave").unwrap().bundled);
     }
 
     #[tokio::test]
-    async fn every_available_asset_is_bounded_png_with_safe_download_headers() {
-        for record in ICONS.iter().filter(|record| record.available) {
-            let response = get(Path(record.app_id.to_owned())).await;
-            assert_eq!(response.status(), StatusCode::OK, "{}", record.app_id);
+    async fn every_actual_png_matches_hash_dimensions_and_safe_download_headers() {
+        for icon in ICONS {
+            let response = get(Path(icon.app_id.to_owned()), HeaderMap::new()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{}", icon.app_id);
             assert_eq!(response.headers()[header::CONTENT_TYPE], "image/png");
             assert_eq!(
                 response.headers()[header::X_CONTENT_TYPE_OPTIONS],
                 "nosniff"
             );
-            assert!(response.headers()[header::CONTENT_DISPOSITION]
-                .to_str()
-                .unwrap()
-                .ends_with(".png\""));
-            let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-            assert!(valid_png(&body), "{}", record.app_id);
+            assert_eq!(
+                response.headers()[header::ETAG],
+                format!("\"{}\"", icon.sha256)
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_DISPOSITION],
+                format!("attachment; filename=\"{}.png\"", icon.app_id)
+            );
+            let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+            assert!(valid_png(&bytes), "{}", icon.app_id);
+            assert_eq!(format!("{:x}", Sha256::digest(&bytes)), icon.sha256);
         }
     }
 
     #[tokio::test]
-    async fn legacy_codex_alias_uses_chatgpt_artwork_without_adding_a_brand() {
-        let codex = to_bytes(get(Path("codex".to_owned())).await.into_body(), 64 * 1024)
+    async fn etag_avoids_resending_unchanged_bytes_but_stale_versions_receive_png() {
+        let icon = lookup("chrome").unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::IF_NONE_MATCH,
+            HeaderValue::from_str(&format!("\"{}\"", icon.sha256)).unwrap(),
+        );
+        let response = get(Path("chrome".into()), headers.clone()).await;
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert!(to_bytes(response.into_body(), 65536)
             .await
-            .unwrap();
-        let chatgpt = to_bytes(get(Path("chatgpt".to_owned())).await.into_body(), 64 * 1024)
-            .await
-            .unwrap();
-        assert_eq!(codex, chatgpt);
+            .unwrap()
+            .is_empty());
+        headers.insert(
+            header::IF_NONE_MATCH,
+            HeaderValue::from_static("\"previous-version\""),
+        );
         assert_eq!(
-            ICONS
-                .iter()
-                .find(|record| record.app_id == "codex")
-                .unwrap()
-                .canonical_id,
-            "chatgpt"
+            get(Path("chrome".into()), headers).await.status(),
+            StatusCode::OK
         );
     }
 
     #[tokio::test]
-    async fn unknown_paths_and_external_urls_are_not_download_proxies() {
+    async fn ordinary_aliases_and_separate_legacy_urls_resolve_canonical_bytes() {
+        assert_eq!(lookup("VS-Code").unwrap().app_id, "vscode");
+        assert_eq!(lookup("APPLE-MUSIC").unwrap().app_id, "appleMusic");
+        let legacy = get(Path("codex".into()), HeaderMap::new()).await;
+        assert!(legacy.headers().contains_key("x-lumiakey-legacy-icon"));
+        let bytes = to_bytes(legacy.into_body(), 65536).await.unwrap();
+        assert_eq!(bytes.as_ref(), png_asset("chatgpt").unwrap());
+    }
+
+    #[tokio::test]
+    async fn unknown_paths_and_external_urls_are_never_download_proxies() {
         for id in [
             "unknown-brand",
             "https://example.com/x",
@@ -391,15 +269,11 @@ mod tests {
             "chrome?url=https://example.com",
         ] {
             assert_eq!(
-                get(Path(id.to_owned())).await.status(),
+                get(Path(id.to_owned()), HeaderMap::new()).await.status(),
                 StatusCode::NOT_FOUND
             );
         }
-    }
-
-    #[test]
-    fn invalid_or_unbounded_images_are_rejected() {
-        assert!(!valid_png(b"<svg>not a PNG</svg>"));
-        assert!(!valid_png(&vec![0; 64 * 1024 + 1]));
+        assert!(!valid_png(b"<svg>not PNG</svg>"));
+        assert!(!valid_png(&vec![0; 65537]));
     }
 }

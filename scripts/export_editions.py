@@ -17,7 +17,7 @@ FULL_DIRECTORIES = {
     "integration_test", "linux", "macos", "windows",
 }
 FULL_FILES = {"pubspec.yaml", "pubspec.lock", "analysis_options.yaml", ".metadata",
-              ".gitignore", "README.md", "LICENSE", "LICENSE.md", "CHANGELOG.md"}
+              ".gitignore", ".gitattributes", "README.md", "LICENSE", "LICENSE.md", "CHANGELOG.md"}
 EXCLUDED_DIRECTORIES = {
     ".git", "build", "dist", "outputs", "output", ".dart_tool", ".gradle",
     ".idea", ".vscode", ".codex", ".agents", ".scratch", "target", "node_modules",

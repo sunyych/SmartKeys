@@ -2,7 +2,7 @@ name: Full Android and Windows build checks
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library]
     paths:
       - 'android/**'
       - 'lib/**'
@@ -12,6 +12,8 @@ on:
       - 'packages/**'
       - 'desktop_companion/**'
       - 'packaging/windows/**'
+      - 'scripts/generate_app_icon_catalog.py'
+      - 'scripts/sync_diagnostics_core.py'
       - '.github/workflows/mobile-editions.yml'
   workflow_dispatch:
 
@@ -44,13 +46,19 @@ jobs:
       - name: Resolve all analyzed package dependencies
         run: |
           flutter pub get
+          (cd packages/diagnostics_core && dart pub get)
           (cd packages/lumiakeys_protocol && dart pub get)
           (cd packages/local_dictation && flutter pub get)
           (cd desktop_companion && flutter pub get)
+      - name: Check generated icon catalog
+        run: |
+          python3 scripts/generate_app_icon_catalog.py --check
+          python3 scripts/sync_diagnostics_core.py --check
       - name: Analyze and test Full mobile
         run: |
           flutter analyze --no-pub
           flutter test --no-pub
+          (cd packages/diagnostics_core && dart test)
           (cd packages/lumiakeys_protocol && dart test)
           (cd packages/local_dictation && flutter test --no-pub)
           (cd desktop_companion && xvfb-run -a flutter test --no-pub)

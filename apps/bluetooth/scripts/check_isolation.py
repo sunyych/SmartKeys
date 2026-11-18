@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -26,10 +27,36 @@ def verify_source(root: Path) -> dict[str, object]:
     pubspec = (root / "pubspec.yaml").read_text(encoding="utf-8")
     production = pubspec.split("\ndependencies:\n", 1)[1].split("\ndev_dependencies:", 1)[0]
     dependencies = set(re.findall(r"^  ([a-zA-Z0-9_]+):", production, re.MULTILINE))
-    if dependencies != {"flutter", "shared_preferences"}:
+    if dependencies != {"flutter", "shared_preferences", "diagnostics_core"}:
         raise ValueError(f"Unexpected production dependencies: {sorted(dependencies)}")
-    if re.search(r"^\s+path:\s*", pubspec, re.MULTILINE):
-        raise ValueError("Lite must not depend on a parent/path package.")
+    paths = re.findall(r"^\s+path:\s*(\S+)\s*$", pubspec, re.MULTILINE)
+    if paths != ["packages/diagnostics_core"]:
+        raise ValueError("Lite may depend only on its contained diagnostics core.")
+    vendor = root / "packages" / "diagnostics_core"
+    if not vendor.resolve().is_relative_to(root.resolve()) or vendor.is_symlink():
+        raise ValueError("Diagnostics core must stay inside standalone Lite.")
+    vendor_spec = (vendor / "pubspec.yaml").read_text(encoding="utf-8")
+    if re.search(r"^(?:dependencies|dev_dependencies):|^\s+path:", vendor_spec, re.MULTILINE):
+        raise ValueError("Vendored diagnostics runtime must have zero dependencies.")
+    for item in vendor.rglob("*"):
+        if item.is_symlink() or not item.resolve().is_relative_to(vendor.resolve()):
+            raise ValueError("Unexpected link in diagnostics vendor.")
+        if item.is_file() and not (item.relative_to(vendor).as_posix() in {"pubspec.yaml", "README.md"} or item.relative_to(vendor).as_posix().startswith("lib/") and item.suffix == ".dart"):
+            raise ValueError("Only production source is allowed in diagnostics vendor.")
+        if item.suffix == ".dart":
+            code = item.read_text(encoding="utf-8")
+            references = re.findall(r"(?:import|export|part)\s+['\"]([^'\"]+)['\"]", code)
+            if any(reference not in {"dart:convert", "dart:math"} for reference in references):
+                raise ValueError("Unexpected diagnostics runtime import.")
+    catalog = root / "lib" / "icons" / "builtin_icon_catalog.g.dart"
+    data = catalog.read_text(encoding="utf-8")
+    assets = re.findall(r'assetPath:\s*"([^"]+)"', data)
+    if len(assets) != 50 or len(set(assets)) != 50:
+        raise ValueError("Lite must bundle fifty unique offline icon resources.")
+    for asset in assets:
+        target = (root / asset).resolve()
+        if not target.is_relative_to((root / "assets/app_icons").resolve()) or not target.is_file() or target.stat().st_size > 65536:
+            raise ValueError("Missing or invalid contained Lite icon asset.")
     lock_path = root / "pubspec.lock"
     if lock_path.exists():
         packages = re.findall(r"^  ([a-zA-Z0-9_]+):$", lock_path.read_text(encoding="utf-8"), re.MULTILINE)
@@ -39,7 +66,7 @@ def verify_source(root: Path) -> dict[str, object]:
     for path in (root / "lib").rglob("*.dart"):
         text = path.read_text(encoding="utf-8")
         for package in re.findall(r"(?:import|export)\s+['\"]package:([^/]+)/", text):
-            if package not in {"flutter", "shared_preferences", "lumiakey_bluetooth_lite"}:
+            if package not in {"flutter", "shared_preferences", "lumiakey_bluetooth_lite", "diagnostics_core"}:
                 raise ValueError(f"Unexpected package import in {path}: {package}")
         if re.search(r"\b(?:HttpClient|WebSocket|RawSocket|ServerSocket|Socket\.connect)\b", text):
             raise ValueError(f"Network API in Lite application code: {path}")
@@ -93,9 +120,15 @@ def verify_apk(root: Path, apk: Path, aapt: Path | None) -> dict[str, object]:
         raise ValueError("APK package does not match independent Lite.")
     with ZipFile(apk) as archive:
         forbidden = [name for name in archive.namelist() if re.search(r"desktop_installers|sherpa|onnx|record_android|google_sign_in|local_dictation", name, re.IGNORECASE)]
+        catalog = (root / "lib/icons/builtin_icon_catalog.g.dart").read_text(encoding="utf-8")
+        assets = re.findall(r'assetPath:\s*"([^"]+)"', catalog)
+        for asset in assets:
+            payload = archive.read('assets/flutter_assets/' + asset)
+            if hashlib.sha256(payload).digest() != hashlib.sha256((root / asset).read_bytes()).digest():
+                raise ValueError("APK offline icon content does not match the registered Lite asset.")
     if forbidden:
         raise ValueError(f"Full-only assets/libraries in Lite APK: {forbidden}")
-    return {"apk": str(apk.resolve()), "permissions": sorted(permissions), "bytes": apk.stat().st_size}
+    return {"apk": str(apk.resolve()), "permissions": sorted(permissions), "bytes": apk.stat().st_size, "bundledIconsVerified": len(assets)}
 
 
 def main() -> None:

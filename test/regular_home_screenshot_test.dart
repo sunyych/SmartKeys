@@ -5,6 +5,9 @@ import 'package:smart_keys/ui/regular_home_screen.dart';
 import 'package:smart_keys/ui/settings_screen.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/icons/app_icon_catalog.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
+import 'package:smart_keys/diagnostics/diagnostics_service.dart';
+import 'package:smart_keys/diagnostics/diagnostics_store.dart';
 
 import 'regular_home_test_support.dart';
 import 'screenshot_support.dart';
@@ -17,6 +20,18 @@ void main() {
     tester,
   ) async {
     final shots = ScreenshotSupport(tester);
+    final diagnostics = DiagnosticsService(
+      metadata: DiagnosticMetadata(
+        appVersion: '1.6.0',
+        appBuild: 8,
+        edition: DiagnosticEdition.full,
+        platform: DiagnosticPlatform.android,
+      ),
+      store: MemoryDiagnosticsStore(),
+      maintenanceInterval: Duration.zero,
+    );
+    await diagnostics.initialize();
+    await diagnostics.setSharing(false);
     final harness = await TestHarness.create(
       companionService: ActivatingRegularCompanion(),
     );
@@ -44,6 +59,7 @@ void main() {
       await shots.unmount();
       shots.resetViewport();
       await harness.dispose();
+      diagnostics.dispose();
     });
     await shots.setViewport(const Size(844, 390));
     await tester.pumpWidget(
@@ -153,7 +169,13 @@ void main() {
     await tester.pumpWidget(
       regularTestApp(
         harness,
-        child: screenshotBoundary(key, const SettingsScreen()),
+        child: screenshotBoundary(
+          key,
+          DiagnosticsScope(
+            diagnostics: diagnostics,
+            child: const SettingsScreen(),
+          ),
+        ),
       ),
     );
     await tester.pumpAndSettle();

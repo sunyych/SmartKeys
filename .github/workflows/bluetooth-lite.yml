@@ -2,7 +2,7 @@ name: Bluetooth Lite Android build
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library]
     paths:
       - 'apps/bluetooth/**'
       - '.github/workflows/bluetooth-lite.yml'
@@ -34,6 +34,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /apps/bluetooth/
+            /packages/diagnostics_core/
+            /scripts/sync_diagnostics_core.py
       - id: version
         shell: bash
         env:
@@ -47,7 +49,7 @@ jobs:
             git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
             version="${tag#bluetooth-v}"
           else
-            version="${INPUT_VERSION:-1.0.0}"
+            version="${INPUT_VERSION:-1.1.0}"
             [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be MAJOR.MINOR.PATCH'; exit 1; }
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
@@ -67,6 +69,7 @@ jobs:
         run: |
           test ! -e pubspec.yaml
           test ! -d lib
+          python3 scripts/sync_diagnostics_core.py --check
           ./apps/bluetooth/scripts/check-isolation.sh
       - name: Analyze, test, and capture every Lite screen
         working-directory: apps/bluetooth
@@ -98,6 +101,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /apps/bluetooth/
+            /packages/diagnostics_core/
+            /scripts/sync_diagnostics_core.py
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.2'

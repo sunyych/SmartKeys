@@ -14,13 +14,14 @@
       <a class="brand" href="/" aria-label="返回社区首页"><span class="brand-mark" aria-hidden="true">⌘</span><span>LUMIAKEY <i>COMMUNITY</i></span></a>
       <p class="eyebrow">APP ICON LIBRARY</p>
       <h1>应用图标库</h1>
-      <p class="intro">查找常用应用图标，按 App ID 预览和下载。电脑端优先读取已安装应用的原生图标；这里提供离线品牌图标和网站图标降级资源。</p>
+      <p class="intro">50 个常用应用图标随 App 离线提供，更多真实图标可在这里下载。按名称、App ID 或别名查找，保留完整标志和原始比例。</p>
     </header>
     <section class="search-panel" aria-label="搜索图标">
-      <label for="search">搜索名称或 App ID</label>
+      <label for="search">搜索名称、App ID 或别名</label>
       <input id="search" type="search" placeholder="例如 vscode、chrome" autocomplete="off" spellcheck="false">
       <p id="status" role="status" aria-live="polite">正在加载图标目录…</p>
       <button id="retry" class="download retry" type="button" hidden>重新加载目录</button>
+      <p id="legacy-notice" class="legacy-notice" hidden></p>
     </section>
     <section id="grid" class="grid" aria-label="图标目录"></section>
     <p id="empty" class="empty" hidden>没有找到匹配的图标。检查 App ID 后重试。</p>

@@ -2,38 +2,33 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
-
 import 'app_icon_validation.dart';
+import 'builtin_icon_catalog.g.dart';
+import 'icon_library.dart';
 
 /// Canonical IDs accepted by the bundled catalog and same-origin download API.
 abstract final class AppIconCatalog {
-  static const ids = remoteApplicationIconAppIds;
+  static final ids = Set<String>.unmodifiable(
+    builtinIconCatalog.map((entry) => entry.id),
+  );
 
-  static const assets = <String, String>{
-    'codex': 'assets/app_icons/openai.png',
-    'chatgpt': 'assets/app_icons/openai.png',
-    'claude': 'assets/app_icons/claude-app.png',
-    'cursor': 'assets/app_icons/cursor.png',
-    'chrome': 'assets/app_icons/chrome.png',
-    'vscode': 'assets/app_icons/vscode.png',
-    'photoshop': 'assets/app_icons/photoshop.png',
-    'illustrator': 'assets/app_icons/illustrator.png',
-    'premiere': 'assets/app_icons/premiere.png',
-    'solidworks': 'assets/app_icons/solidworks-app.png',
-    'edge': 'assets/app_icons/edge.png',
-    'firefox': 'assets/app_icons/firefox.png',
-    'safari': 'assets/app_icons/safari.png',
-    'teams': 'assets/app_icons/teams.png',
-    'zoom': 'assets/app_icons/zoom.png',
-    'appleMusic': 'assets/app_icons/appleMusic.png',
-    'finder': 'assets/app_icons/finder.png',
-  };
+  static final assets = Map<String, String>.unmodifiable({
+    for (final entry in builtinIconCatalog) entry.id: entry.assetPath,
+    'codex': builtinIconById(legacyProtocolIconId('codex'))!.assetPath,
+  });
 
   static final Map<String, Future<bool>> _bundledAvailability = {};
+  static bool matchesBundled(String id, Uint8List bytes) {
+    final item = builtinIconById(id);
+    return item != null &&
+        AppIconValidation.isValidPng(bytes) &&
+        sha256.convert(bytes).toString() == item.sha256;
+  }
+
   static Future<bool> hasBundledAsset(String appId) =>
       _bundledAvailability.putIfAbsent(appId, () async {
         final asset = assets[appId];
@@ -56,8 +51,7 @@ abstract final class AppIconCache {
   }
 
   static void put(String appId, Uint8List bytes) {
-    if (!AppIconCatalog.ids.contains(appId) ||
-        !AppIconValidation.isValidPng(bytes)) {
+    if (!AppIconCatalog.matchesBundled(appId, bytes)) {
       return;
     }
     _items[appId] = Uint8List.fromList(bytes);
@@ -147,7 +141,9 @@ class IconCatalogClient {
       }
 
       final bytes = await readImage().timeout(timeout);
-      if (bytes == null || !AppIconValidation.isValidPng(bytes)) return null;
+      if (bytes == null || !AppIconCatalog.matchesBundled(appId, bytes)) {
+        return null;
+      }
       AppIconCache.put(appId, bytes);
       return bytes;
     } on TimeoutException {
@@ -220,6 +216,23 @@ class AppArtwork extends StatelessWidget {
         frameBuilder: (context, child, frame, synchronous) =>
             synchronous || frame != null ? child : _fallback(context),
         errorBuilder: (_, _, _) => _fallback(context),
+      );
+    }
+    final library = IconLibraryScope.maybeOf(context);
+    if (library != null && library.byId(appId) != null) {
+      return FutureBuilder<Uint8List?>(
+        key: ValueKey((library, appId, library.byId(appId)?.sha256)),
+        future: library.loadCached(appId),
+        builder: (_, snapshot) => snapshot.data == null
+            ? _fallback(context)
+            : Image.memory(
+                snapshot.data!,
+                width: size,
+                height: size,
+                fit: BoxFit.contain,
+                semanticLabel: semanticLabel ?? '$appId app icon',
+                errorBuilder: (_, _, _) => _fallback(context),
+              ),
       );
     }
     return _fallback(context);

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
+import '../diagnostics/diagnostics_service.dart';
 
 import '../services/companion_service.dart';
 
@@ -259,6 +261,19 @@ class _ConnectionScannerState extends State<DesktopConnectionScannerScreen>
   bool _handled = false;
   bool _appInForeground = true;
   String? _cameraError;
+  bool _reportedCameraError = false;
+
+  void _reportCameraFailure() {
+    if (_reportedCameraError) return;
+    _reportedCameraError = true;
+    scheduleMicrotask(() {
+      if (mounted) {
+        DiagnosticsScope.maybeOf(
+          context,
+        )?.record(DiagnosticCode.platformUnavailable);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -283,6 +298,7 @@ class _ConnectionScannerState extends State<DesktopConnectionScannerScreen>
       await _controller.start();
       if (mounted && !_appInForeground) await _stopScanner();
     } catch (error) {
+      _reportCameraFailure();
       if (mounted) setState(() => _cameraError = error.toString());
     }
   }
@@ -350,8 +366,10 @@ class _ConnectionScannerState extends State<DesktopConnectionScannerScreen>
                     MobileScanner(
                       controller: _controller,
                       onDetect: _onDetect,
-                      errorBuilder: (context, error) =>
-                          const ConnectionScannerUnavailable(),
+                      errorBuilder: (context, error) {
+                        _reportCameraFailure();
+                        return const ConnectionScannerUnavailable();
+                      },
                     ),
         ),
         const Padding(

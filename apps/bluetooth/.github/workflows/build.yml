@@ -1,6 +1,7 @@
 name: Standalone Bluetooth Lite verification
 on:
   push:
+    branches: [main, feature/app-icon-library]
   pull_request:
   workflow_dispatch:
 permissions:

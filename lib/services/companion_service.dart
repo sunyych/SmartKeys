@@ -4,8 +4,20 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import '../icons/app_icon_validation.dart';
+
+class _CompanionAuthenticationFailure implements Exception {}
+
+DiagnosticCode _connectionDiagnostic(Object error) =>
+    error is _CompanionAuthenticationFailure
+    ? DiagnosticCode.connectionAuthenticationFailed
+    : error is TimeoutException
+    ? DiagnosticCode.connectionTimeout
+    : error is FormatException
+    ? DiagnosticCode.connectionProtocolInvalid
+    : DiagnosticCode.connectionUnavailable;
 
 void _validateDictationPayload(String sessionId, int sequence, String text) {
   if (sessionId.isEmpty ||
@@ -157,10 +169,18 @@ class LanCompanionService
     this.expiryPollInterval = const Duration(seconds: 3),
     this.dictationTimeout = const Duration(seconds: 8),
     this.enableDiscovery = true,
+    this.reportDiagnostic,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   final int discoveryPort;
+  final void Function(DiagnosticCode)? reportDiagnostic;
+  void _report(DiagnosticCode code) {
+    try {
+      reportDiagnostic?.call(code);
+    } catch (_) {}
+  }
+
   final Duration hostExpiry;
   final Duration expiryPollInterval;
   final Duration dictationTimeout;
@@ -260,7 +280,10 @@ class LanCompanionService
         }
       });
     } catch (error) {
-      if (!_disposed) _setError('Companion discovery unavailable: $error');
+      if (!_disposed) {
+        _setError('Companion discovery unavailable: $error');
+        _report(DiagnosticCode.connectionUnavailable);
+      }
     }
   }
 
@@ -365,6 +388,7 @@ class LanCompanionService
       _host.value = null;
       _manifest.value = null;
       _setError('Desktop connection failed: $error');
+      _report(_connectionDiagnostic(error));
     }
   }
 
@@ -641,6 +665,9 @@ class LanCompanionService
         const Duration(seconds: 4),
         256 * 1024,
       );
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw _CompanionAuthenticationFailure();
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           'Desktop rejected the connection (${response.statusCode}).',
@@ -878,6 +905,9 @@ class LanCompanionService
           !_sameDesktopSession(_host.value, host)) {
         return;
       }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw _CompanionAuthenticationFailure();
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           body.isEmpty ? 'Desktop rejected layout sync' : body,
@@ -933,6 +963,7 @@ class LanCompanionService
           _selectionEpoch == epoch &&
           _sameDesktopSession(_host.value, host)) {
         _setError('Desktop sync failed: $error');
+        _report(_connectionDiagnostic(error));
       }
     } finally {
       client?.close(force: true);
@@ -1055,6 +1086,7 @@ class LanCompanionService
           _sameDesktopSession(_host.value, queuedHost) &&
           _sameDesktopSession(_pointerQueueHost, queuedHost)) {
         _pointerError.value = 'Desktop mouse input failed: $error';
+        _report(DiagnosticCode.pointerDeliveryFailed);
       }
     } finally {
       _pointerFlushing = false;
@@ -1193,6 +1225,9 @@ class LanCompanionService
           );
         }
         return;
+      }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw _CompanionAuthenticationFailure();
       }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(

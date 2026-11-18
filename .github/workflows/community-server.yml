@@ -4,10 +4,16 @@ on:
   push:
     paths:
       - "community_server/**"
+      - "packages/app_icon_catalog/**"
+      - "scripts/generate_app_icon_catalog.py"
+      - "scripts/test_generate_app_icon_catalog.py"
       - ".github/workflows/community-server.yml"
   pull_request:
     paths:
       - "community_server/**"
+      - "packages/app_icon_catalog/**"
+      - "scripts/generate_app_icon_catalog.py"
+      - "scripts/test_generate_app_icon_catalog.py"
       - ".github/workflows/community-server.yml"
 
 jobs:
@@ -31,6 +37,13 @@ jobs:
       TEST_DATABASE_URL: postgres://smartkeys_test:ci_test_password@127.0.0.1:5432/smartkeys_test
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify canonical artwork and all generated application/server mirrors
+        run: |
+          python scripts/generate_app_icon_catalog.py --check
+          python -m unittest scripts/test_generate_app_icon_catalog.py
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy

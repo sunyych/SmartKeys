@@ -17,6 +17,7 @@ class ExportEditionsTests(unittest.TestCase):
         self.source = self.base / "source"
         for name, content in {
             "pubspec.yaml": "name: full\n", "lib/main.dart": "void main() {}\n",
+            ".gitattributes": "*.svg -text\n",
             "apps/bluetooth/pubspec.yaml": "name: lite\n",
             "apps/bluetooth/lib/main.dart": "void main() {}\n",
             "apps/bluetooth/.gitignore": "build/\n",
@@ -42,6 +43,7 @@ class ExportEditionsTests(unittest.TestCase):
         result = exporter.export_editions(self.source, target)
         self.assertGreater(result["full"], 0)
         self.assertTrue((target / "lumia-key-full/lib/main.dart").is_file())
+        self.assertEqual((target / "lumia-key-full/.gitattributes").read_text(), "*.svg -text\n")
         self.assertTrue((target / "lumia-key-bluetooth-lite/pubspec.yaml").is_file())
         self.assertFalse((target / "lumia-key-full/apps").exists())
         self.assertFalse((target / ".source-export-incomplete").exists())
