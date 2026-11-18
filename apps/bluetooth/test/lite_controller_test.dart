@@ -124,6 +124,69 @@ void main() {
   );
 
   test(
+    'a healthy Bluetooth snapshot clears only a prior connection failure',
+    () async {
+      final controller = await ready();
+      await emitSnapshot({
+        ...connectedA,
+        'error': 'private connection failure',
+      });
+      expect(controller.error, contains('Bluetooth could not complete'));
+      await emitSnapshot({...connectedA, 'error': null});
+      expect(controller.connected, true);
+      expect(controller.error, isNull);
+    },
+  );
+
+  test(
+    'successful Bluetooth refresh preserves configuration load and save failures',
+    () async {
+      final unread = Profiles()..failLoad = true;
+      final loadFailed = await ready(profiles: unread);
+      expect(loadFailed.error, contains('Could not load saved shortcuts'));
+      await emitSnapshot({...connectedA, 'error': 'connection failure'});
+      await emitSnapshot({...connectedA, 'error': null});
+      expect(loadFailed.error, contains('Could not load saved shortcuts'));
+      loadFailed.dispose();
+      final store = Profiles();
+      final saveFailed = await ready(profiles: store);
+      store.failSave = true;
+      await expectLater(
+        saveFailed.saveProfile(saveFailed.profiles.first),
+        throwsStateError,
+      );
+      await saveFailed.refreshPairedHosts();
+      expect(saveFailed.error, contains('Could not save these settings'));
+    },
+  );
+
+  test(
+    'input failures survive healthy connection snapshots until successful input or dismissal',
+    () async {
+      final controller = await ready();
+      var failInput = true;
+      reply = (call) {
+        if (call.method == 'sendStep' && failInput) {
+          throw PlatformException(code: 'input-failed');
+        }
+        return call.method == 'refreshPairedHosts' || call.method == 'sendStep'
+            ? connectedA
+            : null;
+      };
+      expect(await controller.executeShortcut(chord), false);
+      await controller.refreshPairedHosts();
+      expect(controller.error, contains('could not send this input'));
+      failInput = false;
+      expect(await controller.executeShortcut(chord), true);
+      expect(controller.error, isNull);
+      failInput = true;
+      expect(await controller.executeShortcut(chord), false);
+      controller.clearError();
+      expect(controller.error, isNull);
+    },
+  );
+
+  test(
     'a durable launch sends its exact frozen combination and links a local profile',
     () async {
       final controller = await ready();

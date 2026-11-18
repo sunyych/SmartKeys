@@ -17,10 +17,14 @@ Future<void> main() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  await _enterFullscreen();
   final diagnostics = LiteDiagnostics();
   LiteRuntimeErrorHooks(diagnostics).install();
   runApp(BluetoothLiteApp(diagnostics: diagnostics));
 }
+
+Future<void> _enterFullscreen() =>
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
 class BluetoothLiteApp extends StatefulWidget {
   const BluetoothLiteApp({
@@ -52,14 +56,18 @@ class _BluetoothLiteAppState extends State<BluetoothLiteApp>
           diagnostics: widget.diagnostics,
         );
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_enterFullscreen());
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null) controller.handleLifecycle(lifecycle);
     unawaited(controller.initialize());
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) =>
-      controller.handleLifecycle(state);
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_enterFullscreen());
+    controller.handleLifecycle(state);
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);

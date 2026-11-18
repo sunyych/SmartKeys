@@ -55,7 +55,9 @@ class LiteController extends ChangeNotifier {
   List<LiteHost> _pairedHosts = [];
   LiteHost? _activeHost;
   String _status = 'registering';
-  String? _error, _selectedProfileId;
+  String? _selectedProfileId;
+  String? _connectionError, _inputError;
+  String? _configurationLoadError, _configurationSaveError;
   bool _loading = true, _profilesLoaded = false, _launcherLoaded = false;
   bool _landscape = false, _controlsVisible = false, _disposed = false;
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
@@ -80,7 +82,11 @@ class LiteController extends ChangeNotifier {
   }
 
   String get status => _status;
-  String? get error => _error;
+  String? get error =>
+      _configurationLoadError ??
+      _configurationSaveError ??
+      _inputError ??
+      _connectionError;
   LiteHost? get activeHost => _activeHost;
   List<LiteHost> get pairedHosts => List.unmodifiable(_pairedHosts);
   bool get connected =>
@@ -113,7 +119,10 @@ class LiteController extends ChangeNotifier {
   }
 
   void clearError() {
-    _error = null;
+    _connectionError = null;
+    _inputError = null;
+    _configurationLoadError = null;
+    _configurationSaveError = null;
     _notify();
   }
 
@@ -134,6 +143,7 @@ class LiteController extends ChangeNotifier {
     channel.setMethodCallHandler(_nativeUpdate);
     unawaited(diagnostics.initialize());
     await Future.wait([_loadProfiles(), _loadLauncher(), refreshPairedHosts()]);
+    if (_profilesLoaded && _launcherLoaded) _configurationLoadError = null;
     _loading = false;
     _notify();
   }
@@ -148,7 +158,7 @@ class LiteController extends ChangeNotifier {
       _profilesLoaded = true;
     } catch (_) {
       unawaited(diagnostics.capture(DiagnosticCode.configurationLoadFailed));
-      _error =
+      _configurationLoadError =
           'Could not load saved shortcuts. Existing data has not been replaced.';
     }
   }
@@ -162,7 +172,7 @@ class LiteController extends ChangeNotifier {
       _launcherLoaded = true;
     } catch (_) {
       unawaited(diagnostics.capture(DiagnosticCode.configurationLoadFailed));
-      _error =
+      _configurationLoadError =
           'Could not load saved launch shortcuts. Existing data has not been replaced.';
     }
   }
@@ -221,8 +231,10 @@ class LiteController extends ChangeNotifier {
               .toList()
         : [];
     if (hasError) {
-      _error =
+      _connectionError =
           'Bluetooth could not complete this operation. Check the connection and try again.';
+    } else {
+      _connectionError = null;
     }
     if (changed) unawaited(releaseInput());
     _notify();
@@ -278,7 +290,12 @@ class LiteController extends ChangeNotifier {
         _applySnapshot(result);
       }
       if (input != null && !_validStamp(input)) return false;
-      return result is! Map || result['error'] == null;
+      final success = result is! Map || result['error'] == null;
+      if (success && input != null && _inputError != null) {
+        _inputError = null;
+        _notify();
+      }
+      return success;
     } catch (failure) {
       if (_disposed ||
           input != null && !_validStamp(input) ||
@@ -295,9 +312,13 @@ class LiteController extends ChangeNotifier {
             : DiagnosticCode.bluetoothConnectionFailed,
       );
       if (!_disposed) {
-        _error = method == 'sendStep'
-            ? 'Bluetooth could not send this input. Check the connection and try again.'
-            : 'Bluetooth could not complete this operation. Check Android Bluetooth settings.';
+        if (method == 'sendStep') {
+          _inputError =
+              'Bluetooth could not send this input. Check the connection and try again.';
+        } else {
+          _connectionError =
+              'Bluetooth could not complete this operation. Check Android Bluetooth settings.';
+        }
         _notify();
       }
       return false;
@@ -480,9 +501,10 @@ class LiteController extends ChangeNotifier {
       if (_disposed) throw StateError('The control surface is closed.');
       try {
         await change();
+        _configurationSaveError = null;
       } catch (_) {
         unawaited(diagnostics.capture(DiagnosticCode.configurationSaveFailed));
-        _error =
+        _configurationSaveError =
             'Could not save these settings on the phone. Previous settings are unchanged.';
         rethrow;
       } finally {

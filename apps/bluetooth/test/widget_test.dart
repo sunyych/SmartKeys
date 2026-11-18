@@ -5,9 +5,17 @@ import 'package:lumiakey_bluetooth_lite/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('smart_keys/hid');
+  final uiCalls = <MethodCall>[];
   setUp(() {
+    uiCalls.clear();
     SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          uiCalls.add(call);
+          return null;
+        });
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           channel,
@@ -20,10 +28,12 @@ void main() {
               : null,
         );
   });
-  tearDown(
-    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, null),
-  );
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
+  });
   testWidgets(
     'Lite opens its own landscape surface without companion account KVM or voice',
     (tester) async {
@@ -43,6 +53,34 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
+    },
+  );
+  testWidgets(
+    'immersive fullscreen is entered initially and restored on resume without input',
+    (tester) async {
+      await tester.pumpWidget(const BluetoothLiteApp());
+      await tester.pumpAndSettle();
+      expect(
+        uiCalls
+            .where(
+              (call) => call.method == 'SystemChrome.setEnabledSystemUIMode',
+            )
+            .map((call) => call.arguments),
+        ['SystemUiMode.immersiveSticky'],
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(
+        uiCalls
+            .where(
+              (call) => call.method == 'SystemChrome.setEnabledSystemUIMode',
+            )
+            .map((call) => call.arguments),
+        ['SystemUiMode.immersiveSticky', 'SystemUiMode.immersiveSticky'],
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 }
