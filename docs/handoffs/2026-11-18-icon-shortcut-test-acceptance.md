@@ -22,7 +22,7 @@ The new tests exposed a real race: a shortcut pressed on host A could be release
 | Suite | Result |
 | --- | --- |
 | Full | 365 passed; analysis clean |
-| Desktop | 159 passed; 1 Linux-only test skipped on Windows; analysis clean |
+| Desktop, after final current-main runtime integration | 281 passed; 21 conditional tests skipped on Windows (15 require explicitly supplied native libraries; 6 are host-platform cases); analysis clean |
 | Bluetooth Lite | 84 passed; analysis clean |
 | Shared protocol | 37 passed |
 | Shared diagnostics | 8 passed |
@@ -31,6 +31,7 @@ The new tests exposed a real race: a shortcut pressed on host A could be release
 | Python icon/App generators, export and APK guards | 31 passed |
 | Rust server and load generator | 35 + 1 passed; 3 PostgreSQL tests require hosted CI |
 | Rust formatting and Clippy | Passed, warnings denied |
+| Current-main cross-platform Rust runtime | 22 tests passed (7 unit, 7 inventory, 6 pointer, 2 X11-session); formatting and Clippy passed; fake input only locally |
 | Canonical catalog and diagnostics mirrors | Current |
 | Real Chromium App/icon pages and download guards | Passed |
 
@@ -41,7 +42,7 @@ LCOV counts unique instrumented source lines with positive execution hits. These
 | Project | Covered / instrumented lines | Coverage |
 | --- | ---: | ---: |
 | Full | 10266 / 12510 | 82.06% |
-| Desktop | 3379 / 4592 | 73.58% |
+| Desktop | 3775 / 4876 | 77.42% |
 | Lite | 1775 / 1933 | 91.83% |
 
 Selected boundaries: Full PNG validation and received-profile icon validation 100%; icon download/cache 98.89%; Regular Home 94.04%; Desktop App bundle decoder 100%; Lite strict App library model 100%. Remaining UI, OS/native adapters and error branches mean the whole product is not 100% line-covered.
@@ -50,8 +51,23 @@ Raw local LCOV files are `coverage/lcov.info`, `desktop_companion/coverage/lcov.
 
 ## Build and physical acceptance
 
-Source `8da575b` passed community-server CI (including PostgreSQL, Docker and all browser tests), Lite APK and Linux release builds. Previous Apple jobs never acquired hosted runners; GitHub annotations explicitly reported macOS arm64 capacity constraints. The workflow retains `macos-latest` by default and now offers `macos-15-intel` for optional manual validation using the official standard hosted Intel runner label. This final input-guard revision must receive fresh build results before main integration; integration receipts are recorded separately.
+Final product source is integration `99c02c0`, preserving main's completed Rust runtime work through `92f8663`. Integration `4b8547b` additionally preserves main's CI-only `91de4dd`, enabling complete native Windows/macOS suites. Integration `466c8f8` preserves CI-only `994af72`, using Intel macOS for native acceptance while retaining manual runner selection. Product files are identical across these integrations. The sidebar/library transaction regressions were rerun on the final product tree; local evidence is `build/icon-shortcut-audit/post-main-92f8663/validation-summary.json`.
 
-Automated tests use mock native input or loopback HTTP. The second Mac's persistent mouse failure is still a physical acceptance item: check the running App's Accessibility permissions and follow `2026-11-18-host-switch-pointer-and-sidebar.md`. The reproduced stale shortcut race and touchpad lifecycle fixes do not prove that distinct permission/native-input issue resolved. No claims are made that all 501 third-party chords were exercised on installed Mac/Windows/Linux Apps. No public platform deployment was performed.
+| Hosted validation | Evidence |
+| --- | --- |
+| Full Android | [4b CI](https://github.com/sunyych/SmartKeys/actions/runs/44356236648): complete analysis/tests, APK build and Android unit tests passed |
+| Windows complete Desktop suite with bundled DLL | [4b CI](https://github.com/sunyych/SmartKeys/actions/runs/44356236648): 288 passed / 14 platform skips; bundled DLL focused suite 87 passed / 0 skipped; Rust 22 passed; analysis and installer build passed |
+| Linux complete Desktop suite and bundled `.so` | [99 CI](https://github.com/sunyych/SmartKeys/actions/runs/44355336374): 278 passed / 24 platform skips; real `.so` suite 17 passed; Rust 22 passed; analysis and release build passed |
+| macOS complete suite with packaged dylib, and iOS | [4b Intel Apple CI](https://github.com/sunyych/SmartKeys/actions/runs/44356455910): complete Flutter suite 278 passed / 24 platform skips, real dylib suite 14 passed / 0 skipped, Rust 22 passed; analysis, dylib codesign verification, DMG build/upload and unsigned iOS build passed |
+| Public platform | [Community CI](https://github.com/sunyych/SmartKeys/actions/runs/44346843366): PostgreSQL, Docker, generators and browser suites passed; these product inputs are unchanged |
+| Bluetooth Lite | [Lite CI](https://github.com/sunyych/SmartKeys/actions/runs/44346843453): suite, coverage and APK build passed; Lite product inputs are unchanged |
 
-Another user task is updating Android launcher artwork. Those working files are preserved and excluded from this change; canonical App library artwork was not modified.
+Previous Apple jobs did not acquire hosted runners; GitHub annotations reported macOS arm64 capacity constraints. The final macOS native job defaults to `macos-26-intel`; manual validation can also select `macos-15-intel` or `macos-latest`. Linux dependency downloads repeatedly exceeded eight minutes, so CI uses a pinned SHA-verified 16.4 MB screenshot font and a 15-minute installation budget inside the existing 30-minute job. No test was removed to address either infrastructure issue.
+
+Most local tests use mock native input or loopback HTTP; hosted native-library suites load the actual packaged DLL/`.so`/dylib. The second Mac's persistent mouse failure is still a physical acceptance item: check the running App's Accessibility permissions and follow `2026-11-18-host-switch-pointer-and-sidebar.md`. The reproduced stale shortcut race and touchpad lifecycle fixes do not prove that distinct permission/native-input issue resolved. No claims are made that all 501 third-party chords were exercised on installed Mac/Windows/Linux Apps. No public platform deployment was performed.
+
+Another user task committed Android launcher artwork separately as `808cac7`. That commit was preserved in the branch; all 21 changed PNGs passed signature, square-dimension and chunk-CRC checks. These resources were not changed by this test audit, and canonical App library artwork was not modified.
+
+## Main integration receipt
+
+The reviewed product tree was validated before merging. Main's parallel runtime work and CI updates through `a6238ad` are retained. The final Ubuntu dependency setup combines main's bounded official-mirror downloader ([independently successful CI](https://github.com/sunyych/SmartKeys/actions/runs/44359444749)) with the already verified pinned screenshot font, retaining all native tests. Only CI configuration and acceptance documentation follow the tested product tree. Feature and main are pushed without force, with final remote heads verified after integration. Subsequent automatic main CI uses the same product inputs; unsigned iOS archives and unnotarized macOS CI packages do not imply physical-device installation or mouse acceptance.
