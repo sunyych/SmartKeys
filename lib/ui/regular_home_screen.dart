@@ -267,16 +267,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
   }
 
   Future<void> _showConnection(AppController controller) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        builder: (_) => SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(12),
-            child: DesktopConnectionPanel(companion: controller.companion),
-          ),
-        ),
-      );
+      showDesktopConnectionSheet(context, controller.companion);
 
   void _showLauncherSetup(AppController controller) {
     showModalBottomSheet<void>(

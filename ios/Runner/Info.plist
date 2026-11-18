@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>LumiaKey connects directly to your LumiaKey Desktop on the same local network.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>LumiaKey uses the camera only when you choose to scan a LumiaKey Desktop pairing code.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>LumiaKey uses the microphone for local dictation. Audio is never saved or sent.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -545,12 +546,12 @@ class _TabletPairingCardState extends State<_TabletPairingCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Connect an iPhone or iPad',
+            'Connect an iPhone, iPad, or Android device',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 6),
           const Text(
-            'Join the same Wi-Fi, then paste this private connection code into LumiaKey on your iPhone or iPad.',
+            'Join the same Wi-Fi, then scan this code in LumiaKey or paste the private connection code manually.',
           ),
           const SizedBox(height: 12),
           if (_addresses.isEmpty)
@@ -578,6 +579,21 @@ class _TabletPairingCardState extends State<_TabletPairingCard> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
+          if (_addresses.contains(_selectedAddress) &&
+              widget.server.running &&
+              widget.server.actionPort != null) ...[
+            const SizedBox(height: 12),
+            DesktopPairingQr(
+              code: desktopPairingCode(
+                _selectedAddress!,
+                widget.server.actionPort!,
+                widget.server.token,
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 12),
+            const Text('Start LumiaKey Desktop to generate a pairing code.'),
+          ],
           const SizedBox(height: 12),
           FilledButton.icon(
             onPressed:
@@ -588,8 +604,11 @@ class _TabletPairingCardState extends State<_TabletPairingCard> {
                 : () async {
                     final address = _selectedAddress;
                     if (address == null) return;
-                    final code =
-                        '$address:${widget.server.actionPort} ${widget.server.token}';
+                    final code = desktopPairingCode(
+                      address,
+                      widget.server.actionPort!,
+                      widget.server.token,
+                    );
                     await Clipboard.setData(ClipboardData(text: code));
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -601,7 +620,51 @@ class _TabletPairingCardState extends State<_TabletPairingCard> {
                     );
                   },
             icon: const Icon(Icons.copy),
-            label: const Text('Copy iPhone / iPad connection code'),
+            label: const Text('Copy connection code'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+String desktopPairingCode(String address, int port, String token) =>
+    '$address:$port $token';
+
+class DesktopPairingQr extends StatelessWidget {
+  const DesktopPairingQr({super.key, required this.code});
+
+  final String code;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Scan with LumiaKey on your phone'),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final qrSize = constraints.maxWidth.isFinite
+                  ? (constraints.maxWidth - 32).clamp(0.0, 220.0)
+                  : 220.0;
+              return DecoratedBox(
+                decoration: const BoxDecoration(color: Colors.white),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: QrImageView(
+                    data: code,
+                    size: qrSize,
+                    padding: const EdgeInsets.all(16),
+                    backgroundColor: Colors.white,
+                    errorCorrectionLevel: QrErrorCorrectLevel.M,
+                    semanticsLabel: 'Private LumiaKey Desktop pairing QR code',
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
