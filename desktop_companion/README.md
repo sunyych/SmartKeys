@@ -33,32 +33,42 @@ flutter build macos --debug
 flutter build linux --release
 ```
 
-Run the Windows build and tray acceptance on Windows. Linux builds need
-`clang`, `cmake`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, and `liblzma-dev`.
-Shared protocol models
-are in `../packages/lumiakeys_protocol/`.
+Desktop builds need Rust and Cargo for the runner's architecture. Windows
+uses the MSVC target and macOS uses the Darwin targets listed by Xcode.
+Linux builds need `clang`, `cmake`, `ninja-build`, `pkg-config`,
+`libgtk-3-dev`, `liblzma-dev`, `libxcb1-dev`, and `libxcb-xtest0-dev`.
+The Linux Rust backend uses the XCB and XCB XTEST runtime libraries.
+Shared protocol models are in `../packages/lumiakeys_protocol/`.
 
-Windows builds also need Rust and Cargo with the matching MSVC target
-(`x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`). The default Windows
-backend uses the existing Dart and Windows runner paths. To try the Rust
-backend, quit LumiaKey Desktop from the tray and launch the bundled
-executable from PowerShell:
+## Rust desktop backend
+
+Quit LumiaKey Desktop and launch the bundled executable with
+`LUMIAKEY_DESKTOP_BACKEND=rust` to enable Rust process and foreground reads
+and pointer batches. Windows also uses Rust for shortcuts and supported
+registry reads. The older Windows Desktop and shortcut-only settings remain
+valid.
 
 ```powershell
-$env:LUMIAKEY_WINDOWS_DESKTOP_BACKEND = 'rust'
+$env:LUMIAKEY_DESKTOP_BACKEND = 'rust'
 & '.\lumiakeys_companion.exe'
 ```
 
-This enables Rust for shortcuts, pointer batches, running and foreground
-process queries, and App Paths and uninstall registry reads. The older
-`LUMIAKEY_WINDOWS_SHORTCUT_BACKEND=rust` setting still enables shortcuts alone.
-Registered artwork uses the existing Windows Shell icon handler. The scanner
-continues to get AppsFolder and Start Menu entries through the existing Shell
-query. Read-only operations can use their compatibility paths when a native
-query fails or no registered icon is available. Input requests use the selected
-backend once, with availability determined at startup for pointer capability.
+```sh
+# macOS
+LUMIAKEY_DESKTOP_BACKEND=rust "/Applications/LumiaKey.app/Contents/MacOS/LumiaKey"
 
-To switch back, quit LumiaKey Desktop, clear the backend settings with
-`Remove-Item Env:LUMIAKEY_WINDOWS_DESKTOP_BACKEND, Env:LUMIAKEY_WINDOWS_SHORTCUT_BACKEND -ErrorAction SilentlyContinue`,
-and launch again. Use an interactive Windows desktop to verify real input and
-end-to-end latency.
+# Linux, from the extracted bundle
+LUMIAKEY_DESKTOP_BACKEND=rust ./lumiakeys_companion
+```
+
+On macOS, pointer control requires Accessibility and Core Graphics posting
+permission. The system accepts submitted events through Core Graphics, which
+does not confirm their delivery. On Linux, pointer control requires an X11
+display with XTEST and is unavailable in Wayland sessions. Read-only queries
+can fall back to the existing adapters if the native query fails. App
+inventories and artwork continue to use the operating system's installed-app
+and icon facilities.
+
+To return to the default backend, quit LumiaKey Desktop, clear the backend
+environment variables you set, and relaunch. Verify real input and latency
+from an interactive desktop session.
