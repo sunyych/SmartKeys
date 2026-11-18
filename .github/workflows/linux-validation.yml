@@ -26,8 +26,41 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install --no-install-recommends -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libxcb1-dev libxcb-xtest0-dev libayatana-appindicator3-dev libasound2-dev libpulse-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-good pulseaudio pulseaudio-utils xdotool playerctl brightnessctl xvfb xauth fonts-noto-cjk
+          set -euo pipefail
+          sources="$(mktemp --suffix=.sources "$RUNNER_TEMP/lumiakeys-ubuntu.XXXXXX")"
+          trap 'rm -f "$sources"' EXIT
+          cat > "$sources" <<'EOF'
+          Types: deb
+          URIs: https://archive.ubuntu.com/ubuntu/
+          Suites: noble noble-updates noble-backports
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb
+          URIs: https://security.ubuntu.com/ubuntu/
+          Suites: noble-security
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          chmod 0644 "$sources"
+
+          apt=(sudo --preserve-env=DEBIAN_FRONTEND apt-get
+            -o "Dir::Etc::sourcelist=$sources" -o Dir::Etc::sourceparts=-
+            -o Acquire::Retries=0 -o Acquire::Languages=none
+            -o Acquire::http::Timeout=12 -o Acquire::https::Timeout=12)
+          packages=(clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+            libxcb1-dev libxcb-xtest0-dev libayatana-appindicator3-dev libasound2-dev
+            libpulse-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+            gstreamer1.0-tools gstreamer1.0-plugins-good pulseaudio pulseaudio-utils
+            xdotool playerctl brightnessctl xvfb xauth fonts-noto-cjk)
+          install_args=(--no-install-recommends -y "${packages[@]}")
+
+          # Try the runner's cached Ubuntu indexes before refreshing them.
+          if ! timeout --kill-after=5s 45s "${apt[@]}" install --download-only "${install_args[@]}"; then
+            timeout --kill-after=5s 120s "${apt[@]}" update --error-on=any
+            timeout --kill-after=5s 150s "${apt[@]}" install --download-only "${install_args[@]}"
+          fi
+          timeout --kill-after=10s 120s "${apt[@]}" install --no-download "${install_args[@]}"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
