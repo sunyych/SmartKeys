@@ -552,7 +552,12 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 5, 10, 0),
-                        child: _header(controller, title: title, ready: ready),
+                        child: _header(
+                          controller,
+                          title: title,
+                          ready: ready,
+                          acceptsRenderedInput: acceptsRenderedInput,
+                        ),
                       ),
                       Expanded(
                         child: Row(
@@ -724,6 +729,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                 child: _DesktopTouchpad(
                                   controller: controller,
                                   enabled: ready,
+                                  acceptsRenderedInput: acceptsRenderedInput,
                                 ),
                               ),
                             ),
@@ -760,6 +766,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     AppController controller, {
     required String title,
     required bool ready,
+    required bool Function() acceptsRenderedInput,
   }) {
     final theme = Theme.of(context), manifest = controller.desktopManifest;
     return SizedBox(
@@ -817,10 +824,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                           ready &&
                               _pendingApplication == null &&
                               manifest?.buttonById(control.$1)?.enabled == true
-                          ? () => _execute(
-                              controller,
-                              manifest!.buttonById(control.$1)!,
-                            )
+                          ? () {
+                              if (acceptsRenderedInput()) {
+                                _execute(
+                                  controller,
+                                  manifest!.buttonById(control.$1)!,
+                                );
+                              }
+                            }
                           : null,
                       icon: Icon(control.$3, size: 21),
                     ),
@@ -1155,12 +1166,18 @@ class _ApplicationIconState extends State<_ApplicationIcon> {
 }
 
 class _DesktopTouchpad extends StatelessWidget {
-  const _DesktopTouchpad({required this.controller, required this.enabled});
+  const _DesktopTouchpad({
+    required this.controller,
+    required this.enabled,
+    required this.acceptsRenderedInput,
+  });
   final AppController controller;
   final bool enabled;
+  final bool Function() acceptsRenderedInput;
 
   bool get _canSend =>
       enabled &&
+      acceptsRenderedInput() &&
       controller.isDesktopSynced &&
       controller.computerSwitchPendingId == null &&
       controller.selectedDesktopSupportsMouse;

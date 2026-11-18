@@ -19,13 +19,21 @@ on:
       - 'scripts/sync_diagnostics_core.py'
       - '.github/workflows/ios-validation.yml'
   workflow_dispatch:
+    inputs:
+      apple_runner:
+        description: Apple runner (Intel is an optional capacity fallback)
+        type: choice
+        default: macos-latest
+        options:
+          - macos-latest
+          - macos-15-intel
 
 permissions:
   contents: read
 
 jobs:
   ios-debug:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.apple_runner || 'macos-latest' }}
     steps:
       - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
@@ -55,7 +63,7 @@ jobs:
 
   macos-desktop:
     name: macOS Desktop release package
-    runs-on: macos-latest
+    runs-on: ${{ inputs.apple_runner || 'macos-latest' }}
     steps:
       - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2

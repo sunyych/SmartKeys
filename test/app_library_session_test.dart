@@ -79,6 +79,65 @@ Future<TestHarness> _mount(
 }
 
 void main() {
+  for (final transition in ['host', 'epoch']) {
+    testWidgets(
+      'touchpad old move cannot cross $transition before repaint; fresh gestures work',
+      (tester) async {
+        final harness = await _mount(tester);
+        final pad = find.byKey(const ValueKey('mouse-touchpad'));
+        final oldFinger = await tester.startGesture(tester.getCenter(pad));
+        if (transition == 'epoch') {
+          await harness.controller.prepareForContextChange();
+        } else {
+          final manifest = harness.companion.syncedManifest.value!;
+          harness.companion.status.value = CompanionSyncStatus.syncing;
+          harness.companion.host.value = null;
+          harness.companion.syncedManifest.value = null;
+          harness.companion.host.value = const CompanionHost(
+            name: 'Other PC',
+            computerId: 'other-pc',
+            platform: 'windows',
+            address: '192.168.1.21',
+            port: 45833,
+            token: 'other-session',
+            capabilities: {'manifest', 'mouse-control-v1'},
+          );
+          harness.companion.syncedManifest.value = manifest.copyWith(
+            computerId: 'other-pc',
+          );
+          harness.companion.status.value = CompanionSyncStatus.ready;
+        }
+        await oldFinger.moveBy(const Offset(24, 8));
+        await oldFinger.up();
+        expect(harness.companion.pointerInputs, isEmpty);
+        await tester.pumpAndSettle();
+        final fresh = await tester.startGesture(tester.getCenter(pad));
+        await fresh.moveBy(const Offset(24, 8));
+        await fresh.up();
+        await tester.pumpAndSettle();
+        await tester.tap(pad);
+        await tester.pumpAndSettle();
+        final scroll = await tester.startGesture(
+          tester.getCenter(find.byKey(const ValueKey('mouse-scroll-strip'))),
+        );
+        await scroll.moveBy(const Offset(0, 24));
+        await scroll.up();
+        await tester.pumpAndSettle();
+        expect(
+          harness.companion.pointerInputs.map((input) => input.kind),
+          containsAll([
+            PointerInputKind.move,
+            PointerInputKind.button,
+            PointerInputKind.scroll,
+          ]),
+        );
+        expect(harness.hid.pressedActions, isEmpty);
+        expect(harness.hid.steppedActions, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets(
     'received libraries follow the selected host OS without implicit input',
     (tester) async {
@@ -187,7 +246,15 @@ void main() {
     },
   );
 
-  for (final surface in ['library', 'general', 'app', 'launcher', 'app-nav']) {
+  for (final surface in [
+    'library',
+    'general',
+    'app',
+    'launcher',
+    'app-nav',
+    'header-mute',
+    'header-playPause',
+  ]) {
     for (final transition in ['host', 'epoch']) {
       // The three keyboard surfaces share one grid; the two application launch
       // entrances must independently retain their rendered host authority.
@@ -217,6 +284,8 @@ void main() {
                 'app' => 'regular-button-chrome.newTab',
                 'launcher' => 'regular-launch-chrome',
                 'app-nav' => 'regular-nav-chrome',
+                'header-mute' => 'regular-system-keyboard.mute',
+                'header-playPause' => 'regular-system-keyboard.playPause',
                 _ => 'regular-button-$_buttonId',
               }),
             );
