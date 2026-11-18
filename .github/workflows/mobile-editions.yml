@@ -37,7 +37,7 @@ jobs:
       - name: Prepare SDK and screenshot fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk xvfb xauth
           flutter precache --linux
           test -f "$SMARTKEYS_SCREENSHOT_FONT"
           test -f "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
@@ -53,7 +53,7 @@ jobs:
           flutter test --no-pub
           (cd packages/lumiakeys_protocol && dart test)
           (cd packages/local_dictation && flutter test --no-pub)
-          (cd desktop_companion && flutter test --no-pub)
+          (cd desktop_companion && xvfb-run -a flutter test --no-pub)
       - name: Build Full Android
         run: flutter build apk --debug --flavor regular --target lib/main.dart --dart-define=LUMIAKEY_EDITION=regular
       - name: Run Android unit tests
