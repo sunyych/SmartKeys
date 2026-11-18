@@ -48,3 +48,66 @@ Full mobile diagnostics use an independent explicit consent and the compile-time
 Migration 003 creates only bounded fixed metadata/code/count fields. Transactions share a diagnostics-specific advisory lock for conflict checking, idempotent maximum counts and global capacity enforcement. Storage retains at most 100000 events globally and 30 days, with hourly background cleanup and cleanup on each batch. It stores no IP, user/device identifiers, credentials or event content. Existing transient in-memory rate limiting applies.
 
 The diagnostics tests include strict field/body validation, fixed failure responses and loopback HTTP. `cargo test --locked diagnostics::tests -- --include-ignored` additionally requires the disposable `TEST_DATABASE_URL`; it checks repeat-count updates, conflicting IDs, concurrent capacity and retention in its own temporary schema. No real user diagnostics should be submitted for testing.
+
+
+## Registered App and shortcut libraries
+
+`GET /apps` is the unified App catalog: an App card combines its registered icon,
+explicit computer operating systems, keyboard-library previews, shortcut sources,
+brand terms and a JSON bundle download. `/icons` and every `/v1/icons/` route
+remain compatible. A `windowsLinux` keyboard family does not imply that an App
+supports Linux; each library lists its actual `supportedOS`. Native, web and
+terminal contexts are explicitly identified. Unassigned actions have no keys and
+require configuration; the server does not infer Ctrl/Command replacements.
+
+- `GET /v1/apps/catalog` returns the strict public schema 1 registry with at most
+  256 Apps, 512 KiB, a catalog version and conditional ETag responses.
+- `GET /v1/apps/{canonicalAppId}/bundle` returns the current reviewed bundle with
+  `Cache-Control: no-cache`. Its exact envelope is `schemaVersion: 1`, `app`
+  (one registry record), and `icon` (`id`, `sha256`, `pngBase64`). The bundle is at
+  most 128 KiB; the exact registered PNG is at most 64 KiB, 256 by 256 pixels.
+- The bundle ETag is the SHA-256 of the entire JSON byte stream.
+  `Content-Location` identifies `/v1/apps/{canonicalAppId}/bundles/{sha256}.json`.
+  That immutable route serves those exact bytes with a one-year immutable cache
+  policy and supports ETag 304. A removed or superseded publication hash returns
+  404 rather than different bytes. Retaining older publications indefinitely is
+  outside this static registry's contract.
+- Unknown IDs/hashes return 404; POST, PUT and DELETE are not publication routes
+  and return 405 on registered GET paths. App IDs are canonical only: the old
+  `codex` artwork alias remains available under `/v1/icons/codex`, and never
+  becomes a ChatGPT/Codex shortcut-library identity.
+
+Publication is Git-reviewed static data: maintain `packages/app_library/catalog.json`
+and the canonical artwork registry, run both generators/checks, review their diff,
+then build the server. Generated `assets/app_library/catalog.json` and PNGs stay
+inside the Docker context. No SQL migration, submission endpoint, administrator
+website or automatic public deployment is introduced. Existing private account
+backups, ranking contributions and independent diagnostics consent are unchanged.
+Private backup action validation is deliberately not reused for public bundles.
+
+Every public action is one bounded keyboard chord (unique CTRL/ALT/SHIFT/META
+modifiers followed by one allowed key) or an explicit unassigned action. Shell,
+paths, launch parameters, macros, private installed IDs, voice, KVM and unknown
+JSON fields are rejected. App/library/action IDs, source URLs, OS-family pairs,
+duplicate identities, references, icon hashes/bytes and package sizes are checked
+before a publication can be served. Source/terms URLs are display links only;
+the server does not fetch user-supplied resources or execute library contents.
+
+A download is configuration data, not execution or a permission grant. The web
+page verifies the same-origin bundle identity, whole-body hash, registered PNG,
+OS/action schema and byte limits before offering its download. Clients still
+preview and atomically install a compatible library; the Desktop alone checks
+whether an application is installed locally. Lite retains only its offline data.
+
+For a local database-free preview, set `LISTEN_ADDR=127.0.0.1:18742` and run
+`cargo run --locked -- --apps-preview`, then open `/apps`. The legacy
+`--icons-preview` flag also exposes `/apps`. These preview modes are for local
+acceptance, not a configured public deployment. No production hostname is
+provided by this feature.
+
+Run `cargo test --locked app_library::tests` for strict payload, all-publication
+hash/PNG, immutable HTTP and method checks. `tests/browser_apps.cjs` uses
+`APP_BASE_URL` (or `ICON_BASE_URL`) and the existing Playwright runner to check real
+JSON downloads, OS filtering, previews, unassigned actions, unsafe bundles,
+503 recovery and 390-pixel layout. The existing icon browser acceptance remains
+in CI alongside it.

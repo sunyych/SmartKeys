@@ -44,6 +44,13 @@ class FullApkGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(guard.VerificationError, 'missing required Full UI markers'):
             guard.verify_full_apk(self.apk)
 
+    def test_previous_header_release_without_unified_library_is_rejected(self):
+        previous = synthetic_aot('arm64-v8a').replace(
+            b'app-library-catalog', b'App icon library')
+        self.make_apk(overrides={'arm64-v8a': previous})
+        with self.assertRaisesRegex(guard.VerificationError, 'app-library-catalog'):
+            guard.verify_full_apk(self.apk)
+
     def test_one_stale_abi_is_rejected_even_when_other_abis_are_current(self):
         self.make_apk(overrides={'arm64-v8a': synthetic_aot('arm64-v8a', current=False)})
         with self.assertRaisesRegex(guard.VerificationError, 'arm64-v8a.*missing required'):

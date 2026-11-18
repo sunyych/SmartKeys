@@ -1,12 +1,15 @@
 # LumiaKey editions
 
-Current versions are **Full / Desktop 1.7.0+9** and independent
-**Bluetooth Lite 1.2.0+3**. The shared-package Android
+Current versions are **Full / Desktop 1.8.0+10** and independent
+**Bluetooth Lite 1.3.0+4**. The shared-package Android
 `lite` flavor and `lib/main_lite.dart` remain historical 1.4 compatibility
 source and are not the independent Lite product. See
 [the 1.4 validation record](MOBILE_EDITIONS_VALIDATION.md) for those older builds.
 
 Full has mobile and Desktop companion projects; Bluetooth Lite builds independently.
+The [App library](APP_LIBRARY.md) binds canonical artwork and OS-specific shortcut
+profiles. Full is configured on Desktop; Lite installs bundled profiles locally
+for an explicitly selected computer OS. Existing profiles and launch keys survive.
 
 Lite 1.2 uses the same landscape rail, header, twelve-key grid and right touchpad
 as Full. Its header shows the Bluetooth host, clock and media controls. Launchpad
@@ -42,7 +45,8 @@ mobile surface. The handoff's older eight-slot/portrait design does not replace
 that choice. Lite retains its standalone keyboard, mouse, media and local
 shortcut screens. Its General, ChatGPT and Chrome profiles are edited on the
 phone; opening a profile never launches an app on the computer. Default key
-combinations use Ctrl; edit their modifiers for a computer that uses Command.
+combinations use Ctrl. The App library provides explicit macOS defaults for new
+profiles; existing custom shortcuts are not automatically converted.
 
 The independent Lite package coexists with Full and with the older
 `com.lumiaiq.smartkey.lite` installation. It does not remove, replace or read the

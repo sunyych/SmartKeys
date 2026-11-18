@@ -239,7 +239,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('open-app-icon-library')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('app-icon-library')), findsOneWidget);
-      expect(find.text('50 icons'), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-library-catalog')), findsOneWidget);
       await tester.enterText(
         find.byKey(const ValueKey('icon-library-search')),
         'chrome',

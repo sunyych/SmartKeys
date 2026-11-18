@@ -1,0 +1,84 @@
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const base = new URL(process.env.APP_BASE_URL || process.env.ICON_BASE_URL || 'http://127.0.0.1:18742');
+const root = path.resolve(process.env.SMARTKEYS_SCREENSHOT_DIR || 'build/ui_screenshots');
+const reportPath = path.resolve(process.env.APP_REVIEW_REPORT || path.join(path.dirname(root),'web-app-browser-report.json'));
+const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+
+(async () => {
+  await fs.mkdir(path.join(root,'web'),{recursive:true});
+  const catalogResponse = await fetch(new URL('/v1/apps/catalog',base)); assert.equal(catalogResponse.status,200);
+  const catalog = await catalogResponse.json(); assert.equal(catalog.schemaVersion,1); assert.equal(catalog.apps.length,60);
+  assert.equal(catalog.apps.filter(app => app.bundled).length,50);
+  for (const id of ['safari','finder']) assert.deepEqual(catalog.apps.find(app => app.id === id).supportedOS,['macos']);
+  assert.deepEqual(catalog.apps.find(app => app.id === 'notepadplusplus').supportedOS,['windows']);
+  assert.ok(!catalog.apps.some(app => app.id === 'codex' || app.aliases.includes('codex')));
+  const bundles = new Map();
+  for (const app of catalog.apps) {
+    const response = await fetch(new URL(`/v1/apps/${app.id}/bundle`,base)); assert.equal(response.status,200,app.id);
+    const bytes = Buffer.from(await response.arrayBuffer()); assert.ok(bytes.length <= 128*1024);
+    const bundle = JSON.parse(bytes); assert.equal(bundle.schemaVersion,1); assert.deepEqual(bundle.app,app); assert.equal(bundle.icon.id,app.iconId);
+    const png = Buffer.from(bundle.icon.pngBase64,'base64'); assert.equal(hash(png),bundle.icon.sha256); assert.equal(png.readUInt32BE(16),256); assert.equal(png.readUInt32BE(20),256);
+    assert.deepEqual(png,Buffer.from(await (await fetch(new URL(`/v1/icons/${app.iconId}`,base))).arrayBuffer()));
+    const etag = response.headers.get('etag'); assert.equal(etag,`"${hash(bytes)}"`);
+    const immutable = response.headers.get('content-location'); assert.equal(immutable,`/v1/apps/${app.id}/bundles/${hash(bytes)}.json`);
+    const pinned = await fetch(new URL(immutable,base)); assert.ok(pinned.headers.get('cache-control').includes('immutable')); assert.deepEqual(Buffer.from(await pinned.arrayBuffer()),bytes);
+    assert.equal((await fetch(new URL(immutable,base),{headers:{'If-None-Match':etag}})).status,304);
+    bundles.set(app.id,bytes);
+  }
+  for (const endpoint of ['/v1/apps/catalog','/v1/apps/chrome/bundle']) assert.equal((await fetch(new URL(endpoint,base),{method:'POST',headers:{'Content-Type':'application/json'},body:'{"command":"never execute"}'})).status,405);
+  for (const endpoint of ['/v1/apps/unknown/bundle','/v1/apps/codex/bundle','/v1/apps/chrome/bundles/unknown.json']) assert.equal((await fetch(new URL(endpoint,base))).status,404);
+  const launch = {headless:true}; if (process.env.BROWSER_EXECUTABLE_PATH) launch.executablePath = process.env.BROWSER_EXECUTABLE_PATH;
+  const browser = await chromium.launch(launch), screenshots = [], pageErrors = [];
+  try {
+    const context = await browser.newContext({viewport:{width:1200,height:900},deviceScaleFactor:1});
+    const page = await context.newPage(); page.on('pageerror',error => pageErrors.push(error.message));
+    const ready = () => page.waitForFunction(() => document.querySelectorAll('.app-card').length === 60);
+    const screenshot = async (id,title,notes) => {
+      await page.locator('.app-icon').evaluateAll(async images => { for (const image of images) image.loading='eager'; await Promise.all(images.map(image => image.decode())); });
+      const png = await page.screenshot({fullPage:true}); const meta = {id,title,platform:'Web browser',orientation:page.viewportSize().width > page.viewportSize().height ? 'landscape' : 'portrait',width:png.readUInt32BE(16),height:png.readUInt32BE(20),fileName:`web/${id}.png`,notes:notes+' Real local headless Chromium render; no application was installed or launched.'};
+      await fs.writeFile(path.join(root,meta.fileName),png); await fs.writeFile(path.join(root,'web',id+'.json'),JSON.stringify(meta,null,2)+'\n'); screenshots.push(meta.fileName);
+    };
+    await page.goto(new URL('/apps',base).href); await ready();
+    await screenshot('web-app-library-catalog','App-bound icon and shortcut catalogs','Sixty reviewed Apps, explicit computer OS availability, bundled/online badges and linked provenance.');
+    await page.locator('#search').fill('google-chrome'); assert.equal(await page.locator('.app-card').count(),1);
+    await page.locator('.library').first().locator('summary').click();
+    assert.ok((await page.locator('.library').first().innerText()).includes('Command + T'));
+    assert.ok((await page.locator('.library').first().innerText()).includes('Command + Option + ←'));
+    assert.ok((await page.locator('.library').first().innerText()).includes('Command + ['));
+    assert.equal(await page.locator('.library').first().locator('summary').innerText(),'macOS · 桌面应用 · 12 项');
+    assert.ok(!(await page.locator('.library').first().innerText()).includes('LEFT_BRACKET'));
+    const [download] = await Promise.all([page.waitForEvent('download'),page.locator('.app-card .download').click()]);
+    assert.equal(download.suggestedFilename(),'chrome.lumia-app.json'); assert.deepEqual(await fs.readFile(await download.path()),bundles.get('chrome'));
+    await screenshot('web-app-library-download','App, keyboard preview and verified bundle download','Alias search and real byte-identical JSON download include the registered PNG and both supported keyboard families.');
+    await page.locator('#search').fill('safari'); await page.locator('#os').selectOption('linux'); assert.equal(await page.locator('.app-card').count(),0); assert.ok(await page.locator('#empty').isVisible());
+    await screenshot('web-app-library-unsupported-os','Unsupported OS has no library','Safari is excluded from Linux rather than inferred from a shared keyboard family.');
+    await page.locator('#os').selectOption('macos'); assert.equal(await page.locator('[data-app-id="safari"]').count(),1);
+    await page.locator('.library summary').click(); await screenshot('web-app-library-macos','macOS-only App shortcut library','Safari exposes its macOS library, official shortcut sources and icon terms.');
+    await page.locator('#search').fill('brave'); await page.locator('.library summary').click();
+    assert.ok((await page.locator('.library').innerText()).includes('未分配'));
+    await screenshot('web-app-library-unassigned','Explicit unassigned actions','Undocumented bindings stay empty and require configuration; no Ctrl/Command substitution invents defaults.');
+    await page.route('**/v1/apps/brave/bundle',route => route.fulfill({status:503,contentType:'application/json',body:'{"error":"unavailable"}'}));
+    await page.locator('.download').click(); await page.getByText('服务暂时不可用，请重试。',{exact:true}).waitFor();
+    await screenshot('web-app-library-download-failure','Download failure is recoverable','Injected local HTTP503 produces visible retry feedback.');
+    await page.unroute('**/v1/apps/brave/bundle'); const [recovered] = await Promise.all([page.waitForEvent('download'),page.locator('.download').click()]); assert.deepEqual(await fs.readFile(await recovered.path()),bundles.get('brave'));
+    await page.route('**/v1/apps/brave/bundle',route => { const value=JSON.parse(bundles.get('brave')); value.app.libraries[0].actions[0].command='forbidden'; return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(value)}); });
+    let unsafeDownloads=0; const unsafe = () => unsafeDownloads++; page.on('download',unsafe);
+    await page.locator('.download').click(); await page.getByText('下载包与目录不一致，请重新加载。',{exact:true}).waitFor(); assert.equal(unsafeDownloads,0); page.off('download',unsafe); await page.unroute('**/v1/apps/brave/bundle');
+    await page.goto(new URL('/apps?app_id=codex',base).href); await page.locator('#empty').waitFor({state:'visible'}); assert.equal(await page.locator('.app-card').count(),0);
+    await page.goto(new URL('/apps',base).href); await ready(); await page.setViewportSize({width:390,height:844}); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await screenshot('web-app-library-mobile','App library at 390 pixels','Responsive App cards and keyboard-accessible native inputs have no horizontal overflow.');
+    await page.route('**/v1/apps/catalog',route => route.fulfill({status:503,contentType:'application/json',body:'{"error":"unavailable"}'})); await page.reload(); await page.locator('#retry').waitFor({state:'visible'}); assert.equal(await page.locator('.app-card').count(),0);
+    await screenshot('web-app-library-catalog-failure','Catalog failure and retry','Injected local catalog503 shows a recoverable error.');
+    await page.unroute('**/v1/apps/catalog'); await page.locator('#retry').click(); await ready();
+    await page.goto(new URL('/dashboard',base).href);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.getByRole('link',{name:'App 与快捷键库',exact:true}).click(); await ready();
+    assert.deepEqual(pageErrors,[]);
+    const report = {passed:true,apps:60,bundlesVerified:60,checks:['all registered icon bytes and bundle hashes','immutable paths and ETag304','405 read-only routes','Safari/Finder macOS-only','Windows family does not infer Linux','alias search','platform-friendly modifier and punctuation labels','actual JSON download','unassigned action preview','download503 recovery','unsafe command bundle rejected','separate codex identity','390px no overflow','dashboard navigation at 390px','catalog503 recovery','no JavaScript errors'],screenshots};
+    await fs.mkdir(path.dirname(reportPath),{recursive:true}); await fs.writeFile(reportPath,JSON.stringify(report,null,2)+'\n'); console.log(JSON.stringify(report));
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode=1; });

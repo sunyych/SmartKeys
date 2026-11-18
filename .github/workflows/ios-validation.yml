@@ -2,7 +2,7 @@ name: Apple build checks
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library]
     paths:
       - 'ios/**'
       - 'desktop_companion/**'
@@ -13,7 +13,9 @@ on:
       - 'packages/lumiakeys_protocol/**'
       - 'packages/diagnostics_core/**'
       - 'packages/app_icon_catalog/**'
+      - 'packages/app_library/**'
       - 'scripts/generate_app_icon_catalog.py'
+      - 'scripts/generate_app_library.py'
       - 'scripts/sync_diagnostics_core.py'
       - '.github/workflows/ios-validation.yml'
   workflow_dispatch:
@@ -35,6 +37,7 @@ jobs:
       - name: Check generated catalogs and shared diagnostics
         run: |
           python3 scripts/generate_app_icon_catalog.py --check
+          python3 scripts/generate_app_library.py --check
           python3 scripts/sync_diagnostics_core.py --check
       - name: Build unsigned iOS app
         run: flutter build ios --debug --no-codesign --target lib/main.dart --dart-define=LUMIAKEY_EDITION=regular

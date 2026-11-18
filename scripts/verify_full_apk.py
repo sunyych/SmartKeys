@@ -16,7 +16,7 @@ import sys
 import zipfile
 
 ABI_HEADERS = {'armeabi-v7a': (1, 40), 'arm64-v8a': (2, 183), 'x86_64': (2, 62)}
-REQUIRED_MARKERS = (b'regular-header-controls', b'regular-brand-icon', b'App icon library')
+REQUIRED_MARKERS = (b'regular-header-controls', b'regular-brand-icon', b'app-library-catalog')
 MAX_APK_BYTES = 512 * 1024 * 1024
 MAX_LIBRARY_BYTES = 64 * 1024 * 1024
 MAX_ENTRIES = 4096

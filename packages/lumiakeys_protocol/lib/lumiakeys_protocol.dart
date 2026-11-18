@@ -1,5 +1,7 @@
 library;
 
+import 'dart:convert';
+
 part 'src/compact_layouts.dart';
 
 const int launcherSlotCount = 12;
@@ -493,29 +495,136 @@ class RemoteProfile {
     required this.layoutId,
     this.platform,
     this.applicationId,
+    this.sourceAppId,
+    this.sourceLibraryId,
+    this.sourceLibraryVersion,
+    this.sourceIconId,
+    this.sourceActionHashes = const {},
+    this.sourceIconPngBase64,
+    this.sourceIconSha256,
   });
+  final String id, name, layoutId;
+  final String? platform, applicationId;
+  // Source metadata is descriptive; it never grants execution authority.
+  final String? sourceAppId,
+      sourceLibraryId,
+      sourceLibraryVersion,
+      sourceIconId;
+  final Map<String, String> sourceActionHashes;
+  final String? sourceIconPngBase64, sourceIconSha256;
+  bool get isLibraryProfile => sourceAppId != null;
 
-  final String id;
-  final String name;
-  final String layoutId;
-  final String? platform;
-  final String? applicationId;
+  void validateSource() {
+    final source = [
+      sourceAppId,
+      sourceLibraryId,
+      sourceLibraryVersion,
+      sourceIconId,
+    ];
+    if (source.every((value) => value == null)) {
+      if (sourceActionHashes.isNotEmpty ||
+          sourceIconPngBase64 != null ||
+          sourceIconSha256 != null) {
+        throw const FormatException('Orphan library metadata');
+      }
+      return;
+    }
+    if (source.any(
+          (value) => value == null || value.isEmpty || value.length > 128,
+        ) ||
+        !RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(sourceAppId!) ||
+        !RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(sourceIconId!) ||
+        !RegExp(r'^[A-Za-z0-9_.-]{1,128}$').hasMatch(sourceLibraryId!) ||
+        !const {'macos', 'windows', 'linux'}.contains(platform) ||
+        sourceActionHashes.length > 12 ||
+        sourceActionHashes.entries.any(
+          (entry) =>
+              !RegExp(r'^[A-Za-z0-9_.-]{1,128}$').hasMatch(entry.key) ||
+              !RegExp(r'^[a-f0-9]{64}$').hasMatch(entry.value),
+        )) {
+      throw const FormatException('Invalid library source metadata');
+    }
+    if ((sourceIconPngBase64 == null) != (sourceIconSha256 == null)) {
+      throw const FormatException('Incomplete library artwork');
+    }
+    if (sourceIconPngBase64 != null) {
+      if (sourceIconPngBase64!.length > 87384 ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(sourceIconSha256!)) {
+        throw const FormatException('Invalid library artwork');
+      }
+      final bytes = base64Decode(sourceIconPngBase64!);
+      if (bytes.length > 65536 ||
+          bytes.length < 24 ||
+          bytes[0] != 137 ||
+          bytes[1] != 80 ||
+          bytes[2] != 78 ||
+          bytes[3] != 71) {
+        throw const FormatException('Invalid library artwork');
+      }
+    }
+  }
 
-  Map<String, Object?> toJson() => {
+  Map<String, Object?> toJson({bool includeIcon = true}) => {
     'id': id,
     'name': name,
     'layoutId': layoutId,
     'platform': platform,
     'applicationId': applicationId,
+    if (sourceAppId != null) ...{
+      'sourceAppId': sourceAppId,
+      'sourceLibraryId': sourceLibraryId,
+      'sourceLibraryVersion': sourceLibraryVersion,
+      'sourceIconId': sourceIconId,
+      'sourceActionHashes': sourceActionHashes,
+      if (includeIcon && sourceIconPngBase64 != null)
+        'sourceIconPngBase64': sourceIconPngBase64,
+      if (includeIcon && sourceIconSha256 != null)
+        'sourceIconSha256': sourceIconSha256,
+    },
   };
 
-  factory RemoteProfile.fromJson(Map<String, Object?> json) => RemoteProfile(
-    id: _requiredString(json, 'id'),
-    name: _requiredString(json, 'name'),
-    layoutId: _requiredString(json, 'layoutId'),
-    platform: _nullableString(json['platform']),
-    applicationId: _nullableString(json['applicationId']),
-  );
+  factory RemoteProfile.fromJson(Map<String, Object?> json) {
+    for (final key in const [
+      'sourceAppId',
+      'sourceLibraryId',
+      'sourceLibraryVersion',
+      'sourceIconId',
+      'sourceIconPngBase64',
+      'sourceIconSha256',
+    ]) {
+      if (json[key] != null && json[key] is! String) {
+        throw const FormatException('Invalid library metadata type');
+      }
+    }
+    final rawHashes = json['sourceActionHashes'];
+    if (rawHashes != null &&
+        (rawHashes is! Map ||
+            rawHashes.entries.any(
+              (e) => e.key is! String || e.value is! String,
+            ))) {
+      throw const FormatException('Invalid library action hashes');
+    }
+    final value = RemoteProfile(
+      id: _requiredString(json, 'id'),
+      name: _requiredString(json, 'name'),
+      layoutId: _requiredString(json, 'layoutId'),
+      platform: _nullableString(json['platform']),
+      applicationId: _nullableString(json['applicationId']),
+      sourceAppId: _nullableString(json['sourceAppId']),
+      sourceLibraryId: _nullableString(json['sourceLibraryId']),
+      sourceLibraryVersion: _nullableString(json['sourceLibraryVersion']),
+      sourceIconId: _nullableString(json['sourceIconId']),
+      sourceIconPngBase64: _nullableString(json['sourceIconPngBase64']),
+      sourceIconSha256: _nullableString(json['sourceIconSha256']),
+      sourceActionHashes: rawHashes == null
+          ? const {}
+          : Map<String, String>.unmodifiable(
+              Map<String, String>.from(rawHashes as Map),
+            ),
+    );
+    value.validateSource();
+    return value;
+  }
 }
 
 class RemoteSettings {
@@ -700,7 +809,9 @@ class DesktopManifest {
       'applications': syncedApplications
           .map((app) => app.toJson(includeIcon: includeIcons, forSync: forSync))
           .toList(growable: false),
-      'profiles': profiles.map((profile) => profile.toJson()).toList(),
+      'profiles': profiles
+          .map((profile) => profile.toJson(includeIcon: includeIcons))
+          .toList(),
       'applicationActivationSequence': applicationActivationSequence,
       'activatedApplicationId': syncedActivationApplicationId,
       'launcherApplicationIds': !forSync
@@ -752,6 +863,21 @@ class DesktopManifest {
   void validate() {
     if (layouts.isEmpty || profiles.isEmpty) {
       throw const FormatException('Manifest must contain layouts and profiles');
+    }
+    for (final profile in profiles) {
+      profile.validateSource();
+    }
+    if (profiles.fold<int>(
+              0,
+              (total, p) => total + (p.sourceIconPngBase64?.length ?? 0),
+            ) >
+            700000 ||
+        profiles.where((p) => p.isLibraryProfile).length > 128) {
+      throw const FormatException('App library storage limit reached');
+    }
+    if (profiles.map((profile) => profile.id).toSet().length !=
+        profiles.length) {
+      throw const FormatException('Profile ids must be unique');
     }
     final layoutIds = layouts.map((layout) => layout.id).toSet();
     final appIds = applications.map((app) => app.id).toSet();

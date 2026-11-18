@@ -2,7 +2,7 @@ name: Full Android and Windows build checks
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library]
     paths:
       - 'android/**'
       - 'lib/**'
@@ -13,6 +13,7 @@ on:
       - 'desktop_companion/**'
       - 'packaging/windows/**'
       - 'scripts/generate_app_icon_catalog.py'
+      - 'scripts/generate_app_library.py'
       - 'scripts/sync_diagnostics_core.py'
       - '.github/workflows/mobile-editions.yml'
   workflow_dispatch:
@@ -53,6 +54,7 @@ jobs:
       - name: Check generated icon catalog
         run: |
           python3 scripts/generate_app_icon_catalog.py --check
+          python3 scripts/generate_app_library.py --check
           python3 scripts/sync_diagnostics_core.py --check
       - name: Analyze and test Full mobile
         run: |

@@ -4,6 +4,7 @@ import 'lite_controller.dart';
 import 'lite_editors.dart';
 import 'local_profiles.dart';
 import 'icons/builtin_icon_catalog.g.dart';
+import 'lite_app_library_screen.dart';
 
 class LiteSettingsScreen extends StatelessWidget {
   const LiteSettingsScreen({super.key, this.controller, this.diagnostics})
@@ -80,12 +81,18 @@ class LiteSettingsScreen extends StatelessWidget {
       ListTile(
         key: const ValueKey('lite-icon-library-entry'),
         leading: const Icon(Icons.apps),
-        title: const Text('App icon library'),
-        subtitle: const Text('50 bundled icons · available offline'),
+        title: Text(controller == null ? 'App icon library' : 'App library'),
+        subtitle: Text(
+          controller == null
+              ? '50 bundled icons · available offline'
+              : '50 offline Apps · icons + OS shortcut libraries',
+        ),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute<void>(
-            builder: (_) => const LiteIconLibraryScreen(),
+            builder: (_) => controller == null
+                ? const LiteIconLibraryScreen()
+                : LiteAppLibraryScreen(controller: controller!),
           ),
         ),
       ),

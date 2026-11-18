@@ -2,7 +2,7 @@ name: Bluetooth Lite Android build
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/lite-bluetooth-full-interface]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/lite-bluetooth-full-interface, codex/unified-app-library]
     paths:
       - 'apps/bluetooth/**'
       - '.github/workflows/bluetooth-lite.yml'

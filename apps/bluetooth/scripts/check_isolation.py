@@ -20,7 +20,10 @@ ALLOWED_PERMISSIONS = {
     APP_ID + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
 }
 FORBIDDEN_PACKAGES = re.compile(r"^(?:http|google_sign_in.*|record(?:_.*)?|sherpa_onnx.*|local_dictation|lumiakeys_protocol|firebase.*|cloud_.*|flutter_sound.*)$")
-LITE_SURFACE_MARKERS = (b"lite-header-controls", b"lite-brand-icon", b"lite-twelve-key-grid")
+LITE_SURFACE_MARKERS = (
+    b"lite-header-controls", b"lite-brand-icon", b"lite-twelve-key-grid",
+    b"lite-app-library-catalog",
+)
 ANDROID_ORIENTATION = "{http://schemas.android.com/apk/res/android}screenOrientation"
 ANDROID_NAME = "{http://schemas.android.com/apk/res/android}name"
 

@@ -10,6 +10,13 @@ community_server/src/builtin_icon_catalog.g.rs text eol=lf
 community_server/assets/app_icons/catalog.json text eol=lf
 community_server/assets/app_icons/registered_sources.json text eol=lf
 packages/app_icon_catalog/catalog.json text eol=lf
+# App registry and self-contained client/server library mirrors.
+packages/app_library/catalog.json text eol=lf
+packages/app_library/model.dart.template text eol=lf
+lib/app_library/app_library.dart text eol=lf
+desktop_companion/lib/app_library/app_library.dart text eol=lf
+apps/bluetooth/lib/app_library/app_library.dart text eol=lf
+community_server/assets/app_library/catalog.json text eol=lf
 # Keep the canonical pure runtime and its standalone vendor byte-reproducible.
 packages/diagnostics_core/lib/** text eol=lf
 packages/diagnostics_core/README.md text eol=lf
