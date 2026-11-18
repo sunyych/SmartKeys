@@ -11,10 +11,12 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        hidController = AndroidHidController(
-            activity = this,
-            messenger = flutterEngine.dartExecutor.binaryMessenger,
-        )
+        if (BuildConfig.IS_LITE) {
+            hidController = AndroidHidController(
+                activity = this,
+                messenger = flutterEngine.dartExecutor.binaryMessenger,
+            )
+        }
         powerController = AndroidPowerController(
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger,

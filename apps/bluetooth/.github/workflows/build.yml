@@ -1,0 +1,39 @@
+name: Standalone Bluetooth Lite verification
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          cache: true
+      - name: Verify standalone source and build
+        env:
+          SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/build/ui_screenshots
+        run: |
+          python3 scripts/check_isolation.py
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build apk --debug
+          ./android/gradlew -p android :app:testDebugUnitTest
+          python3 scripts/check_isolation.py --apk build/app/outputs/flutter-apk/app-debug.apk
+          dart run scripts/generate_screenshot_index.dart --root build/ui_screenshots
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-debug-and-screenshots
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            build/ui_screenshots/
+          if-no-files-found: error

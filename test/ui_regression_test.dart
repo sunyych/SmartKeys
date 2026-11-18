@@ -176,7 +176,12 @@ void main() {
         ComputerSetup(applicationIds: const ['cursor']),
       );
 
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('workspace-app-cursor')));
       await tester.pumpAndSettle();

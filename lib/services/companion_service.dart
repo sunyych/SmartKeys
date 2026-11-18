@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import '../icons/app_icon_validation.dart';
 
 void _validateDictationPayload(String sessionId, int sequence, String text) {
   if (sessionId.isEmpty ||
@@ -559,6 +560,8 @@ class LanCompanionService
     final host = _host.value;
     if (host == null ||
         !host.capabilities.contains('app-icons-v1') ||
+        _manifest.value?.settings.syncIcons != true ||
+        _manifest.value?.applicationById(appId) == null ||
         !_sameDesktopSession(_host.value, host)) {
       return null;
     }
@@ -575,17 +578,17 @@ class LanCompanionService
       );
       if (response.statusCode != HttpStatus.ok ||
           response.headers.contentType?.mimeType.toLowerCase() != 'image/png') {
-        await response.drain<void>();
         return null;
       }
       final bytes = await _readBoundedBytes(
         response,
         const Duration(seconds: 4),
         64 * 1024,
-      );
+      ).timeout(const Duration(seconds: 4));
       if (_disposed ||
           !_sameDesktopSession(_host.value, host) ||
-          !_isPng(bytes)) {
+          _manifest.value?.settings.syncIcons != true ||
+          !AppIconValidation.isValidPng(bytes)) {
         return null;
       }
       return bytes;
@@ -616,17 +619,6 @@ class LanCompanionService
     }
     return bytes.takeBytes();
   }
-
-  static bool _isPng(Uint8List bytes) =>
-      bytes.length >= 8 &&
-      bytes[0] == 0x89 &&
-      bytes[1] == 0x50 &&
-      bytes[2] == 0x4e &&
-      bytes[3] == 0x47 &&
-      bytes[4] == 0x0d &&
-      bytes[5] == 0x0a &&
-      bytes[6] == 0x1a &&
-      bytes[7] == 0x0a;
 
   Future<Map<String, dynamic>> _getJson(
     String address,

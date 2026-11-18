@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../app.dart';
+import '../app_edition.dart';
 import '../models/config.dart';
 import 'icon_picker_screen.dart';
 import 'widgets/button_face.dart';
@@ -22,6 +25,18 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
   late final TextEditingController modifiersController;
   bool initialized = false;
   bool saving = false;
+
+  bool _isLocalDarkAction(HidAction action) {
+    if (action.type != ActionType.companion || action.value == null) {
+      return false;
+    }
+    try {
+      final decoded = jsonDecode(action.value!);
+      return decoded is Map && decoded['kind'] == 'dark';
+    } on FormatException {
+      return false;
+    }
+  }
 
   ButtonConfig _buttonAt(List<ButtonConfig> buttons) =>
       widget.position >= 0 && widget.position < buttons.length
@@ -79,7 +94,13 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
   Future<void> _save() async {
     setState(() => saving = true);
     try {
-      await SmartKeysScope.of(context).updateButton(_currentDraft());
+      final button = _currentDraft();
+      if (SmartKeysScope.editionOf(context) == AppEdition.lite &&
+          button.action.type == ActionType.companion &&
+          !_isLocalDarkAction(button.action)) {
+        throw const FormatException('Choose a Bluetooth shortcut action.');
+      }
+      await SmartKeysScope.of(context).updateButton(button);
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
@@ -93,6 +114,8 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = SmartKeysScope.of(context);
+    final isLite = SmartKeysScope.editionOf(context) == AppEdition.lite;
+    final localDark = _isLocalDarkAction(draft.action);
     return Scaffold(
       appBar: AppBar(
         title: Text('Button ${widget.position + 1}'),
@@ -328,10 +351,26 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
                   initialValue: draft.action.type,
                   decoration: const InputDecoration(labelText: 'Action type'),
                   items: ActionType.values
+                      .where(
+                        (type) =>
+                            !isLite ||
+                            type != ActionType.companion ||
+                            draft.action.type == ActionType.companion,
+                      )
                       .map(
                         (type) => DropdownMenuItem(
                           value: type,
-                          child: Text(type.name),
+                          enabled:
+                              !isLite ||
+                              type != ActionType.companion ||
+                              localDark,
+                          child: Text(
+                            isLite && type == ActionType.companion
+                                ? localDark
+                                      ? 'Display dimming'
+                                      : 'Unavailable action'
+                                : type.name,
+                          ),
                         ),
                       )
                       .toList(),
@@ -341,7 +380,15 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
                     );
                   }),
                 ),
-                if (draft.action.type != ActionType.none) ...[
+                if (isLite && localDark)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: Text(
+                      'Dims this device and sends the existing brightness keys over Bluetooth. Tap again to restore.',
+                    ),
+                  ),
+                if (draft.action.type != ActionType.none &&
+                    !(isLite && draft.action.type == ActionType.companion)) ...[
                   const SizedBox(height: 12),
                   TextField(
                     controller: actionController,
@@ -357,7 +404,7 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
                     ),
                   ),
                 ],
-                if (draft.action.type == ActionType.companion) ...[
+                if (!isLite && draft.action.type == ActionType.companion) ...[
                   const SizedBox(height: 12),
                   Align(
                     alignment: Alignment.centerLeft,

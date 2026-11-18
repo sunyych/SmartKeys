@@ -1,20 +1,34 @@
 # LumiaKey
 
-LumiaKey provides adaptive keyboard controls and on-device speech recognition.
-Android 9 (API 28) and later can connect directly to a computer over Bluetooth
-or use LumiaKey Desktop. iPhone and iPad require a paired LumiaKey Desktop on
-the same local network. The Desktop app runs on Windows and macOS and provides
-managed application shortcuts and multilingual dictation output.
+The current integration keeps LumiaKey Full and a genuinely independent
+Android Bluetooth Lite project. Use [current editions and build entry points](docs/EDITIONS.md).
+The 1.4 flavor architecture below is historical compatibility documentation.
 
-Illustrated functional guides for the mobile/tablet app and LumiaKey Desktop:
+- **LumiaKey Lite** is Android-only and sends keyboard and mouse input directly
+  over Bluetooth. General, ChatGPT, and Chrome are local profiles, edited on
+  the phone. Lite does not discover Desktop, launch applications, or follow
+  the computer's foreground application.
+- **LumiaKey (Regular)** runs on Android, iPhone, and iPad and requires
+  LumiaKey Desktop on the same local network. Its landscape control surface
+  has left navigation, a twelve-key Launchpad/shortcut grid, and a persistent
+  right touchpad. Applications and executable shortcuts are managed on the
+  computer. Regular does not fall back to Bluetooth.
+
+Both Android editions require Android 9 (API 28) or later and can be installed
+together. LumiaKey Desktop runs on Windows and macOS. See
+[historical 1.4 behavior, builds, and installation](docs/MOBILE_EDITIONS.md).
+Current product boundaries are in [EDITIONS.md](docs/EDITIONS.md). The V1.1/V1.2 sections below record earlier behavior
+and do not override those edition boundaries.
+
+Earlier illustrated functional guides for the mobile/tablet app and LumiaKey Desktop:
 [中文说明书（PDF 阅读版）](docs/manuals/LumiaKey_Functional_Guide_ZH.pdf) ·
 [English guide (PDF reader edition)](docs/manuals/LumiaKey_Functional_Guide_EN.pdf).
 [Screenshot provenance and rebuilding](docs/manuals/README.md) describe the
 widget-rendered screenshots and the device-validation boundary.
 
-## Tablet controls and iPad
+## Historical 1.4 Lite tablet controls and earlier profile layouts
 
-Automatic layout uses the current window size: LumiaKey shows the shortcut
+Lite automatic layout uses the current window size: it shows the shortcut
 board when the shortest side is at least 600 logical pixels and keeps the
 phone controls in narrower windows. Settings can force Phone controls or the
 Shortcut board. Page size accepts any whole number from 24 through 60; 24, 40,
@@ -34,7 +48,7 @@ Profiles that contain the original 15 shortcuts remain unchanged; extra
 positions are added only when edited, and banks make later positions
 accessible. Phone controls show up to 15 shortcuts at a time.
 
-iPhone and iPad connect to LumiaKey Desktop on the same Wi-Fi network. In Desktop's
+Regular on Android, iPhone, and iPad connects to LumiaKey Desktop on the same Wi-Fi network. In Desktop's
 connection panel, copy the connection code. On iOS, paste it in the pairing
 screen, then choose **Connect**. Allow Local Network access when iOS asks. The
 code includes a temporary

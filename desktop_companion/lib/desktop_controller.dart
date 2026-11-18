@@ -8,6 +8,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'desktop_actions.dart';
+import 'app_icon_service.dart';
 
 abstract interface class DesktopConfigStore {
   Future<DesktopManifest?> load();
@@ -66,16 +67,20 @@ class SharedPreferencesLauncherKeyStore implements LauncherKeyStore {
   @override
   Future<List<String?>> load() async {
     final values = await preferences.getStringList(storageKey);
-    if (values == null || values.length != 8) {
-      return List<String?>.filled(8, null);
+    if (values == null ||
+        (values.length != 8 && values.length != launcherSlotCount)) {
+      return List<String?>.filled(launcherSlotCount, null);
     }
-    return values.map((value) => value.isEmpty ? null : value).toList();
+    return [
+      ...values.map((value) => value.isEmpty ? null : value),
+      ...List<String?>.filled(launcherSlotCount - values.length, null),
+    ];
   }
 
   @override
   Future<void> save(List<String?> appIds) async {
-    if (appIds.length != 8) {
-      throw const FormatException('Launcher needs eight keys');
+    if (appIds.length != launcherSlotCount) {
+      throw const FormatException('Launcher needs twelve keys');
     }
     await preferences.setStringList(
       storageKey,
@@ -85,7 +90,7 @@ class SharedPreferencesLauncherKeyStore implements LauncherKeyStore {
 }
 
 class MemoryLauncherKeyStore implements LauncherKeyStore {
-  List<String?> value = List<String?>.filled(8, null);
+  List<String?> value = List<String?>.filled(launcherSlotCount, null);
 
   @override
   Future<List<String?>> load() async => List<String?>.from(value);
@@ -460,16 +465,17 @@ class DesktopController extends ChangeNotifier {
   bool _managedActionRunning = false;
   int _applicationRefreshGeneration = 0;
 
-  DesktopManifest _manifest = DesktopManifest.starter();
+  DesktopManifest _manifest = DesktopManifest.regularStarter();
   bool _loading = true;
   String? _error;
   String? _connectedPhone;
   int _selectedSection = 0;
   bool _initialized = false;
+  bool _configurationReady = false;
   bool _refreshingApplications = false;
   Timer? _applicationMonitor;
   Future<void> _launcherSaveQueue = Future<void>.value();
-  List<String?> _launcherAppIds = List<String?>.filled(8, null);
+  Future<void> _manifestSaveQueue = Future<void>.value();
 
   RemoteShortcutPlatform get _shortcutPlatform => Platform.isMacOS
       ? RemoteShortcutPlatform.apple
@@ -481,10 +487,7 @@ class DesktopController extends ChangeNotifier {
     final layouts = _manifest.layouts
         .map((layout) => projectChatGptLayout(layout, _shortcutPlatform))
         .toList(growable: false);
-    return _manifest.copyWith(
-      layouts: layouts,
-      launcherApplicationIds: _launcherAppIds,
-    );
+    return _manifest.copyWith(layouts: layouts);
   }
 
   /// Unprojected settings used by portable shortcut export.
@@ -497,7 +500,8 @@ class DesktopController extends ChangeNotifier {
   String? get error => _error;
   String? get connectedPhone => _connectedPhone;
   int get selectedSection => _selectedSection;
-  List<String?> get launcherAppIds => List.unmodifiable(_launcherAppIds);
+  List<String?> get launcherAppIds =>
+      List.unmodifiable(_manifest.launcherApplicationIds);
   RemoteApplication? get foregroundApplication =>
       _manifest.applications.cast<RemoteApplication?>().firstWhere(
         (application) => application?.foreground == true,
@@ -508,15 +512,19 @@ class DesktopController extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
     try {
-      final loaded = await store.load() ?? DesktopManifest.starter();
-      _manifest = _upgradeManifest(loaded);
+      final loaded = await store.load() ?? DesktopManifest.regularStarter();
+      _manifest = _applyRegularDefaults(_upgradeManifest(loaded), loaded);
       if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(_manifest.computerId ?? '')) {
         _manifest = _manifest.copyWith(computerId: _newComputerId());
       }
       _manifest = _applyPlatformDefaults(_manifest, loaded);
       try {
-        final storedLauncherIds = await launcherKeyStore.load();
-        _launcherAppIds = storedLauncherIds.length == 8
+        final storedLauncherIds = loaded.hasLauncherConfiguration
+            ? loaded.launcherApplicationIds
+            : await launcherKeyStore.load();
+        final normalized =
+            (storedLauncherIds.length == 8 ||
+                storedLauncherIds.length == launcherSlotCount)
             ? storedLauncherIds
                   .map((id) {
                     final currentId = id == 'codex' ? 'chatgpt' : id;
@@ -528,9 +536,22 @@ class DesktopController extends ChangeNotifier {
                         : null;
                   })
                   .toList(growable: false)
-            : List<String?>.filled(8, null);
-      } catch (_) {
-        _launcherAppIds = List<String?>.filled(8, null);
+            : <String?>[];
+        _manifest = _manifest.copyWith(
+          launcherApplicationIds: [
+            ...normalized,
+            ...List<String?>.filled(
+              launcherSlotCount - normalized.length,
+              null,
+            ),
+          ],
+        );
+      } catch (error) {
+        // A transient read failure is not an explicit empty configuration.
+        // Leave durable preferences untouched so the next launch can recover.
+        throw StateError(
+          'Could not load the previous launcher configuration: $error',
+        );
       }
       final apps = await discovery.refresh(_manifest.applications);
       _manifest = _withApplications(apps);
@@ -538,13 +559,14 @@ class DesktopController extends ChangeNotifier {
         _manifest = _manifest.copyWith(revision: loaded.revision + 1);
       }
       await store.save(_manifest);
+      _configurationReady = true;
     } catch (error) {
       _error = '$error';
-      _manifest = DesktopManifest.starter();
+      _manifest = DesktopManifest.regularStarter();
     } finally {
       _loading = false;
       notifyListeners();
-      if (discovery is PlatformApplicationDiscovery) {
+      if (_configurationReady && discovery is PlatformApplicationDiscovery) {
         _applicationMonitor = Timer.periodic(
           const Duration(seconds: 3),
           (_) => unawaited(_refreshRuntimeApplications()),
@@ -560,45 +582,35 @@ class DesktopController extends ChangeNotifier {
   }
 
   Future<void> assignLauncherApp(int index, String? appId) async {
-    if (index < 0 || index >= 8) {
-      throw RangeError.index(index, _launcherAppIds, 'index');
+    if (index < 0 || index >= launcherSlotCount) {
+      throw RangeError.index(index, launcherAppIds, 'index');
     }
     if (appId != null &&
         !_manifest.applications.any((app) => app.id == appId)) {
       throw const FormatException('Unknown launcher application');
     }
     final operation = _launcherSaveQueue.then((_) async {
-      final previous = List<String?>.from(_launcherAppIds);
-      final next = List<String?>.from(previous)..[index] = appId;
-      await launcherKeyStore.save(next);
-      _launcherAppIds = next;
-      try {
-        await _commit(_manifest);
-      } catch (error) {
-        _launcherAppIds = previous;
-        try {
-          await launcherKeyStore.save(previous);
-        } catch (rollbackError) {
-          throw StateError(
-            'Launcher slot save failed and could not be rolled back: $rollbackError',
-          );
-        }
-        rethrow;
-      }
+      await _commit((current) {
+        final next = List<String?>.from(current.launcherApplicationIds)
+          ..[index] = appId;
+        return current.copyWith(launcherApplicationIds: next);
+      });
     });
     _launcherSaveQueue = operation.catchError((_) {});
     await operation;
   }
 
   Future<void> launchLauncherApp(int index) async {
-    if (index < 0 || index >= 8) throw RangeError.index(index, _launcherAppIds);
-    final appId = _launcherAppIds[index];
+    if (index < 0 || index >= launcherSlotCount) {
+      throw RangeError.index(index, launcherAppIds);
+    }
+    final appId = launcherAppIds[index];
     if (appId == null) throw StateError('Choose an app for this key first.');
     final app = _manifest.applicationById(appId);
     if (app == null) {
       throw const FormatException('This app is no longer configured.');
     }
-    await actions.launchApplication(app.executable);
+    await executeRemote(RemoteActionRequest.launchApplication(app.id));
   }
 
   void recordConnectedPhone(String address) {
@@ -607,46 +619,66 @@ class DesktopController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateSettings(RemoteSettings settings) =>
-      _commit(_manifest.copyWith(settings: settings));
+  Future<void> updateSettings(RemoteSettings settings) {
+    final before = _manifest.settings;
+    return _commit(
+      (current) => current.copyWith(
+        settings: current.settings.copyWith(
+          enableAppsSync: settings.enableAppsSync != before.enableAppsSync
+              ? settings.enableAppsSync
+              : null,
+          autoLaunchApps: settings.autoLaunchApps != before.autoLaunchApps
+              ? settings.autoLaunchApps
+              : null,
+          syncIcons: settings.syncIcons != before.syncIcons
+              ? settings.syncIcons
+              : null,
+        ),
+      ),
+    );
+  }
 
   Future<void> updateButton(
     String layoutId,
     RemoteShortcutButton updated,
   ) async {
-    final layouts = _manifest.layouts
-        .map((layout) {
-          if (layout.id != layoutId) return layout;
-          final buttons = layout.buttons
-              .map((button) {
-                if (button.id != updated.id) return button;
-                final projected =
-                    projectChatGptLayout(
-                      layout,
-                      _shortcutPlatform,
-                    ).buttons.firstWhere(
-                      (candidate) => candidate.id == button.id,
-                      orElse: () => button,
-                    );
-                final preservesPortableBinding =
-                    layoutId == 'chatgpt' &&
-                    _sameKeys(projected.shortcut, updated.shortcut);
-                return preservesPortableBinding
-                    ? updated.copyWith(shortcut: button.shortcut)
-                    : updated;
-              })
-              .toList(growable: false);
-          return layout.copyWith(buttons: buttons);
-        })
-        .toList(growable: false);
-    await _commit(_manifest.copyWith(layouts: layouts));
+    await _commit((current) {
+      final layouts = current.layouts
+          .map((layout) {
+            if (layout.id != layoutId) return layout;
+            final buttons = layout.buttons
+                .map((button) {
+                  if (button.id != updated.id) return button;
+                  final projected =
+                      projectChatGptLayout(
+                        layout,
+                        _shortcutPlatform,
+                      ).buttons.firstWhere(
+                        (candidate) => candidate.id == button.id,
+                        orElse: () => button,
+                      );
+                  final preservesPortableBinding =
+                      layoutId == 'chatgpt' &&
+                      _sameKeys(projected.shortcut, updated.shortcut);
+                  return preservesPortableBinding
+                      ? updated.copyWith(shortcut: button.shortcut)
+                      : updated;
+                })
+                .toList(growable: false);
+            return layout.copyWith(buttons: buttons);
+          })
+          .toList(growable: false);
+      return current.copyWith(layouts: layouts);
+    });
   }
 
   Future<void> updateApplication(RemoteApplication updated) async {
-    final apps = _manifest.applications
-        .map((app) => app.id == updated.id ? updated : app)
-        .toList(growable: false);
-    await _commit(_manifest.copyWith(applications: apps));
+    await _commit((current) {
+      final apps = current.applications
+          .map((app) => app.id == updated.id ? updated : app)
+          .toList(growable: false);
+      return current.copyWith(applications: apps);
+    });
   }
 
   Future<void> importShortcutLayouts(
@@ -655,61 +687,71 @@ class DesktopController extends ChangeNotifier {
     if (imported.isEmpty) {
       throw const FormatException('No shortcut layouts to import');
     }
-    final existingById = {
-      for (final layout in _manifest.layouts) layout.id: layout,
-    };
-    for (final layout in imported) {
-      final existing = existingById[layout.id];
-      if (existing == null || existing.kind != layout.kind) {
-        throw const FormatException(
-          'Imported JSON contains an unknown shortcut layout',
-        );
-      }
-      for (final button in layout.buttons) {
-        if (button.targetType == RemoteTargetType.launchApplication &&
-            _manifest.applicationById(button.target ?? '') == null) {
+    await _commit((current) {
+      final existingById = {
+        for (final layout in current.layouts) layout.id: layout,
+      };
+      for (final layout in imported) {
+        final existing = existingById[layout.id];
+        if (existing == null || existing.kind != layout.kind) {
           throw const FormatException(
-            'Imported shortcut references an unknown application',
+            'Imported JSON contains an unknown shortcut layout',
+          );
+        }
+        for (final button in layout.buttons) {
+          if (button.targetType == RemoteTargetType.launchApplication &&
+              current.applicationById(button.target ?? '') == null) {
+            throw const FormatException(
+              'Imported shortcut references an unknown application',
+            );
+          }
+        }
+      }
+      final importedById = {for (final layout in imported) layout.id: layout};
+      final importedChatGpt = importedById['chatgpt'];
+      if (importedChatGpt != null) {
+        final currentChatGpt = current.layoutById('chatgpt');
+        if (currentChatGpt != null) {
+          final projectedIds = projectChatGptLayout(
+            currentChatGpt,
+            _shortcutPlatform,
+          ).buttons.map((button) => button.id).toSet();
+          final importedIds = importedChatGpt.buttons
+              .map((button) => button.id)
+              .toSet();
+          importedById['chatgpt'] = importedChatGpt.copyWith(
+            buttons: [
+              ...importedChatGpt.buttons,
+              for (final button in currentChatGpt.buttons)
+                if (!projectedIds.contains(button.id) &&
+                    !importedIds.contains(button.id))
+                  button,
+            ],
           );
         }
       }
-    }
-    final importedById = {for (final layout in imported) layout.id: layout};
-    final importedChatGpt = importedById['chatgpt'];
-    if (importedChatGpt != null) {
-      final currentChatGpt = _manifest.layoutById('chatgpt');
-      if (currentChatGpt != null) {
-        final projectedIds = projectChatGptLayout(
-          currentChatGpt,
-          _shortcutPlatform,
-        ).buttons.map((button) => button.id).toSet();
-        final importedIds = importedChatGpt.buttons
-            .map((button) => button.id)
-            .toSet();
-        importedById['chatgpt'] = importedChatGpt.copyWith(
-          buttons: [
-            ...importedChatGpt.buttons,
-            for (final button in currentChatGpt.buttons)
-              if (!projectedIds.contains(button.id) &&
-                  !importedIds.contains(button.id))
-                button,
-          ],
-        );
-      }
-    }
-    final candidate = _manifest.copyWith(
-      layouts: _manifest.layouts
-          .map((layout) => importedById[layout.id] ?? layout)
-          .toList(growable: false),
-    );
-    candidate.validate();
-    await _commit(candidate);
+      final candidate = current.copyWith(
+        layouts: current.layouts
+            .map((layout) => importedById[layout.id] ?? layout)
+            .toList(growable: false),
+      );
+      candidate.validate();
+      return candidate;
+    });
   }
 
   Future<void> refreshApplications() async {
+    if (!_configurationReady) return;
+    final generation = _applicationRefreshGeneration;
     try {
       final apps = await discovery.refresh(_manifest.applications);
-      await _commit(_withApplications(apps));
+      await _commit(
+        (current) =>
+            generation == _applicationRefreshGeneration &&
+                !_managedActionRunning
+            ? _withApplications(apps, base: current)
+            : current,
+      );
       _error = null;
     } catch (error) {
       _error = 'App discovery failed: $error';
@@ -718,7 +760,11 @@ class DesktopController extends ChangeNotifier {
   }
 
   Future<void> _refreshRuntimeApplications() async {
-    if (_refreshingApplications || _managedActionRunning) return;
+    if (!_configurationReady ||
+        _refreshingApplications ||
+        _managedActionRunning) {
+      return;
+    }
     _refreshingApplications = true;
     final generation = _applicationRefreshGeneration;
     try {
@@ -726,7 +772,13 @@ class DesktopController extends ChangeNotifier {
       if (generation == _applicationRefreshGeneration &&
           !_managedActionRunning &&
           !_sameApplications(apps, _manifest.applications)) {
-        await _commit(_withApplications(apps));
+        await _commit(
+          (current) =>
+              generation == _applicationRefreshGeneration &&
+                  !_managedActionRunning
+              ? _withApplications(apps, base: current)
+              : current,
+        );
       }
     } catch (error) {
       _error = 'App monitor failed: $error';
@@ -758,22 +810,29 @@ class DesktopController extends ChangeNotifier {
     return true;
   }
 
-  DesktopManifest _withApplications(List<RemoteApplication> apps) {
-    final previousForeground = foregroundApplication?.id;
+  DesktopManifest _withApplications(
+    List<RemoteApplication> apps, {
+    DesktopManifest? base,
+  }) {
+    final current = base ?? _manifest;
+    final previousForeground = current.applications
+        .cast<RemoteApplication?>()
+        .firstWhere((app) => app?.foreground == true, orElse: () => null)
+        ?.id;
     final nextForeground = apps.cast<RemoteApplication?>().firstWhere(
       (application) => application?.foreground == true,
       orElse: () => null,
     );
     final activationChanged =
         nextForeground != null && nextForeground.id != previousForeground;
-    return _manifest.copyWith(
+    return current.copyWith(
       applications: apps,
       applicationActivationSequence: activationChanged
-          ? _manifest.applicationActivationSequence + 1
-          : _manifest.applicationActivationSequence,
+          ? current.applicationActivationSequence + 1
+          : current.applicationActivationSequence,
       activatedApplicationId: activationChanged
           ? nextForeground.id
-          : _manifest.activatedApplicationId,
+          : current.activatedApplicationId,
     );
   }
 
@@ -939,6 +998,174 @@ class DesktopController extends ChangeNotifier {
     );
   }
 
+  /// Adopt compact defaults only for unedited boards. Preserve saved custom
+  /// bindings, order and overflow, which the mobile UI exposes in pages.
+  static DesktopManifest _applyRegularDefaults(
+    DesktopManifest upgraded,
+    DesktopManifest original,
+  ) {
+    final catalog = DesktopManifest.starter();
+    final regular = DesktopManifest.regularStarter();
+    bool same(RemoteShortcutLayout? left, RemoteShortcutLayout? right) =>
+        left != null &&
+        right != null &&
+        jsonEncode(left.toJson()) == jsonEncode(right.toJson());
+    return upgraded.copyWith(
+      layouts: upgraded.layouts
+          .map((layout) {
+            final saved = original.layoutById(layout.id);
+            if (saved == null ||
+                _regularDefaultCandidates(
+                  catalog.layoutById(layout.id),
+                ).any((candidate) => same(saved, candidate)) ||
+                _regularDefaultCandidates(
+                  regular.layoutById(layout.id),
+                ).any((candidate) => same(saved, candidate))) {
+              return compactDesktopLayout(layout);
+            }
+            // The first Chrome release shipped exactly these two defaults.
+            // Only that exact untouched board adopts the current defaults.
+            final oldChrome = catalog.layoutById('app.chrome')!;
+            final hasLegacyReleaseMarker =
+                original.applications.any((app) => app.id == 'codex') ||
+                original.profiles.any(
+                  (profile) => const {
+                    'windows',
+                    'mac',
+                    'photoshop',
+                    'vscode',
+                    'premiere',
+                  }.contains(profile.id),
+                );
+            if (hasLegacyReleaseMarker &&
+                saved.id == oldChrome.id &&
+                same(
+                  saved,
+                  oldChrome.copyWith(
+                    buttons: oldChrome.buttons.take(2).toList(),
+                  ),
+                )) {
+              return compactDesktopLayout(layout);
+            }
+            if (saved.id == 'chatgpt') {
+              return _migrateCustomChatGpt(saved, layout, original, catalog);
+            }
+            return saved;
+          })
+          .toList(growable: false),
+    );
+  }
+
+  /// Exact, previously shipped platform defaults only: a single edited name,
+  /// binding or order keeps the board outside this migration allowlist.
+  static List<RemoteShortcutLayout> _regularDefaultCandidates(
+    RemoteShortcutLayout? layout,
+  ) {
+    if (layout == null) return const [];
+    final mac = layout.copyWith(
+      buttons: layout.buttons.map((button) {
+        final keys = switch (button.id) {
+          'edge.back' ||
+          'firefox.back' ||
+          'safari.back' => const ['PRIMARY', '['],
+          'edge.forward' ||
+          'firefox.forward' ||
+          'safari.forward' => const ['PRIMARY', ']'],
+          'zoom.mute' => const ['PRIMARY', 'SHIFT', 'A'],
+          'zoom.video' => const ['PRIMARY', 'SHIFT', 'V'],
+          'zoom.hand' => const ['ALT', 'Y'],
+          'zoom.chat' => const ['PRIMARY', 'SHIFT', 'H'],
+          _ => button.shortcut,
+        };
+        return button.copyWith(shortcut: keys);
+      }).toList(),
+    );
+    RemoteShortcutLayout native(
+      RemoteShortcutLayout source,
+      RemoteShortcutPlatform platform,
+    ) => source.copyWith(
+      buttons: source.buttons
+          .map(
+            (button) => button.copyWith(
+              shortcut: resolvePrimaryShortcut(button.shortcut, platform),
+            ),
+          )
+          .toList(),
+    );
+    return [
+      layout,
+      mac,
+      native(layout, RemoteShortcutPlatform.apple),
+      native(mac, RemoteShortcutPlatform.apple),
+      native(layout, RemoteShortcutPlatform.windows),
+    ];
+  }
+
+  static RemoteShortcutLayout _migrateCustomChatGpt(
+    RemoteShortcutLayout saved,
+    RemoteShortcutLayout upgraded,
+    DesktopManifest original,
+    DesktopManifest catalog,
+  ) {
+    final upgradedById = {
+      for (final button in upgraded.buttons) button.id: button,
+    };
+    final defaultsById = {
+      for (final button in catalog.layoutById('chatgpt')!.buttons)
+        button.id: button,
+    };
+    final buttons = <RemoteShortcutButton>[];
+    final seen = <String>{};
+    for (final button in saved.buttons) {
+      final id = button.id == 'chatgpt.codex.sidebar'
+          ? 'chatgpt.sidebar'
+          : button.id;
+      if (!seen.add(id)) {
+        continue;
+      }
+      final unchangedSidebar =
+          id == 'chatgpt.sidebar' &&
+          jsonEncode(button.toJson()) == jsonEncode(defaultsById[id]?.toJson());
+      buttons.add(
+        id != button.id || unchangedSidebar
+            ? upgradedById[id] ?? _copyButtonWithId(button, id)
+            : button,
+      );
+    }
+    // Consolidation may have to retain edits from the old separate Codex
+    // boards. Append only actual user edits, never re-add removed defaults.
+    for (final sourceId in const ['codex', 'vibe.codex']) {
+      final source = original.layoutById(sourceId);
+      final defaults = {
+        for (final button in catalog.layoutById(sourceId)!.buttons)
+          button.id: button,
+      };
+      for (final button in source?.buttons ?? const <RemoteShortcutButton>[]) {
+        if (jsonEncode(button.toJson()) ==
+            jsonEncode(defaults[button.id]?.toJson())) {
+          continue;
+        }
+        final id = sourceId == 'codex'
+            ? _canonicalLegacyCodexButtonId(button.id)
+            : _canonicalLegacyVibeCodexButtonId(button.id);
+        if (id == button.id) {
+          // A custom globally unique ID remains on its original saved board.
+          continue;
+        }
+        final index = buttons.indexWhere((current) => current.id == id);
+        final migrated = _copyButtonWithId(button, id);
+        if (index == -1) {
+          seen.add(id);
+          buttons.add(migrated);
+        } else if (jsonEncode(buttons[index].toJson()) ==
+            jsonEncode(defaultsById[id]?.toJson())) {
+          buttons[index] = migrated;
+        }
+      }
+    }
+    return saved.copyWith(buttons: buttons);
+  }
+
   static DesktopManifest _applyPlatformDefaults(
     DesktopManifest manifest,
     DesktopManifest original,
@@ -1014,7 +1241,7 @@ class DesktopController extends ChangeNotifier {
     if (!_manifest.profiles.any((profile) => profile.id == profileId)) {
       throw const FormatException('Unknown shortcut profile');
     }
-    await _commit(_manifest.copyWith(currentProfileId: profileId));
+    await _commit((current) => current.copyWith(currentProfileId: profileId));
   }
 
   Future<void> executeRemote(RemoteActionRequest request) async {
@@ -1151,19 +1378,22 @@ class DesktopController extends ChangeNotifier {
   }
 
   Future<void> _publishActivatedApplication(String appId) async {
-    final updatedApps = _manifest.applications
-        .map(
-          (app) => app.copyWith(
-            running: app.running || app.id == appId,
-            foreground: app.id == appId,
-          ),
-        )
-        .toList(growable: false);
-    final next = _withApplications(
-      updatedApps,
-    ).copyWith(activatedApplicationId: appId);
-    if (jsonEncode(next.toJson()) == jsonEncode(_manifest.toJson())) return;
-    await _commit(next);
+    await _commit((current) {
+      final updatedApps = current.applications
+          .map(
+            (app) => app.copyWith(
+              running: app.running || app.id == appId,
+              foreground: app.id == appId,
+            ),
+          )
+          .toList(growable: false);
+      return current.copyWith(
+        applications: updatedApps,
+        activatedApplicationId: appId,
+        applicationActivationSequence:
+            current.applicationActivationSequence + 1,
+      );
+    });
   }
 
   static const _managedApps = {
@@ -1232,17 +1462,61 @@ class DesktopController extends ChangeNotifier {
       return null;
     }
     final app = _manifest.applicationById(appId);
-    if (app == null) return null;
-    return actions.getApplicationIcon(app);
+    if (app == null || !app.detected) return null;
+    try {
+      final bytes = await actions
+          .getApplicationIcon(app)
+          .timeout(const Duration(seconds: 4));
+      if (!_manifest.settings.enableAppsSync ||
+          !_manifest.settings.syncIcons ||
+          _manifest.applicationById(appId)?.detected != true) {
+        return null;
+      }
+      return bytes != null && validApplicationIconPng(bytes) ? bytes : null;
+    } catch (_) {
+      return null;
+    }
   }
 
-  Future<void> _commit(DesktopManifest next) async {
-    final revised = next.copyWith(revision: _manifest.revision + 1);
-    revised.validate();
-    await store.save(revised);
-    _manifest = revised;
-    _error = null;
-    notifyListeners();
+  Future<void> _commit(
+    DesktopManifest Function(DesktopManifest current) update,
+  ) async {
+    if (!_configurationReady) {
+      throw StateError(
+        'Desktop configuration could not be loaded. Restart Desktop to retry before editing saved settings.',
+      );
+    }
+    final operation = _manifestSaveQueue.then((_) async {
+      final revised = update(
+        _manifest,
+      ).copyWith(revision: _manifest.revision + 1);
+      revised.validate();
+      try {
+        // Slots and revision are one atomic durable record. The old separate
+        // key store is migration input only and can never resurrect clears.
+        await store.save(revised);
+        _manifest = revised;
+        _error = null;
+      } catch (error) {
+        // A storage implementation can report failure after committing its
+        // atomic record. Reconcile the actual durable result before reporting.
+        try {
+          final durable = await store.load();
+          if (durable != null) {
+            durable.validate();
+            _manifest = durable;
+          }
+        } catch (_) {
+          /* Keep the last confirmed in-memory snapshot. */
+        }
+        _error = 'Could not save Desktop settings: $error';
+        notifyListeners();
+        rethrow;
+      }
+      notifyListeners();
+    });
+    _manifestSaveQueue = operation.catchError((_) {});
+    await operation;
   }
 
   @override

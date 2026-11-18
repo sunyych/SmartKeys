@@ -5,12 +5,12 @@ import 'package:lumiakeys_companion/desktop_controller.dart';
 class _Discovery implements ApplicationDiscovery {
   @override
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async =>
-      apps;
+      apps.map((app) => app.copyWith(detected: true)).toList();
 }
 
 void main() {
   test(
-    'launcher slots remain exactly eight, ordered, local, and race-safe',
+    'launcher slots remain exactly twelve, ordered, local, and race-safe',
     () async {
       final config = MemoryDesktopConfigStore();
       final launcher = MemoryLauncherKeyStore();
@@ -23,17 +23,26 @@ void main() {
       final appIds = controller.manifest.applications
           .map((app) => app.id)
           .toList();
-      expect(appIds.length, greaterThanOrEqualTo(8));
+      expect(appIds.length, greaterThanOrEqualTo(launcherSlotCount));
       await Future.wait([
-        for (var index = 0; index < 8; index++)
+        for (var index = 0; index < launcherSlotCount; index++)
           controller.assignLauncherApp(index, appIds[index]),
       ]);
-      expect(controller.launcherAppIds, appIds.take(8).toList());
-      expect(launcher.value, appIds.take(8).toList());
+      expect(
+        controller.launcherAppIds,
+        appIds.take(launcherSlotCount).toList(),
+      );
+      expect(
+        config.value!.launcherApplicationIds,
+        appIds.take(launcherSlotCount).toList(),
+      );
       final published = DesktopManifest.fromJson(
         controller.manifest.toJson(forSync: true),
       );
-      expect(published.launcherApplicationIds, appIds.take(8).toList());
+      expect(
+        published.launcherApplicationIds,
+        appIds.take(launcherSlotCount).toList(),
+      );
 
       final reloaded = DesktopController(
         store: config,
@@ -41,10 +50,10 @@ void main() {
         discovery: _Discovery(),
       );
       await reloaded.initialize();
-      expect(reloaded.launcherAppIds, appIds.take(8).toList());
+      expect(reloaded.launcherAppIds, appIds.take(launcherSlotCount).toList());
       expect(reloaded.manifest.revision, controller.manifest.revision);
       await expectLater(
-        reloaded.assignLauncherApp(8, appIds.first),
+        reloaded.assignLauncherApp(launcherSlotCount, appIds.first),
         throwsRangeError,
       );
       await expectLater(

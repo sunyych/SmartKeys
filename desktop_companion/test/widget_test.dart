@@ -539,13 +539,13 @@ void main() {
       expect(controller.manifest.activatedApplicationId, 'vscode');
       expect(
         controller.manifest.layoutById('app.chrome')!.buttons,
-        hasLength(15),
+        hasLength(12),
       );
       expect(
         controller.manifest.buttonById('chrome.passwordManager'),
         isNotNull,
       );
-      expect(controller.manifest.buttonById('chrome.mute'), isNotNull);
+      expect(controller.manifest.buttonById('chrome.mute'), isNull);
       expect(
         controller.manifest
             .layoutById('codex')!

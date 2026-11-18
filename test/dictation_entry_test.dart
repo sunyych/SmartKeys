@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/ui/home_screen.dart';
 import 'package:smart_keys/models/computer_setup.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
@@ -66,7 +67,12 @@ void main() {
       target!,
       ComputerSetup(applicationIds: const ['chatgpt', 'cursor']),
     );
-    await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+    await tester.pumpWidget(
+      SmartKeysApp(
+        controller: harness.controller,
+        homeOverride: const HomeScreen(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('local-quick-output')));

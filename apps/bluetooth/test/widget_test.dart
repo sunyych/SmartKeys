@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
-  testWidgets('Lite app opens without companion setup or account screens', (tester) async {
+  testWidgets('Lite app opens without companion setup or account screens', (
+    tester,
+  ) async {
     await tester.pumpWidget(const BluetoothLiteApp());
     await tester.pumpAndSettle();
     expect(find.text('BLUETOOTH LITE'), findsOneWidget);

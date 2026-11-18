@@ -35,12 +35,12 @@ class MainFlutterWindow: NSWindow {
         }
         self?.setDark(enabled)
         result(nil)
-      case "playPause":
+      case "playPause", "volumeUp", "volumeDown":
         guard CGPreflightPostEventAccess() else {
           result(FlutterError(code: "accessibility_permission_missing", message: "Allow LumiaKey in System Settings → Privacy & Security → Accessibility, then retry.", details: nil))
           return
         }
-        guard self?.postAuxiliaryKey(16) == true else {
+        guard self?.postAuxiliaryKey(call.method == "volumeUp" ? 0 : (call.method == "volumeDown" ? 1 : 16)) == true else {
           result(FlutterError(code: "media_control_failed", message: "macOS did not create the media key event.", details: nil))
           return
         }
@@ -85,13 +85,17 @@ class MainFlutterWindow: NSWindow {
         "appleMusic": "com.apple.Music", "finder": "com.apple.finder"
       ]
       guard let bundleId = bundleIds[appId] else { result(nil); return }
+      guard executable.utf8.count <= 1024,
+            executable.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
+        result(nil); return
+      }
       let workspace = NSWorkspace.shared
       let appURL = URL(fileURLWithPath: executable)
       let installedURL = (appURL.pathExtension.lowercased() == "app" && FileManager.default.fileExists(atPath: appURL.path))
         ? appURL
         : workspace.urlForApplication(withBundleIdentifier: bundleId)
       guard let installedURL else { result(nil); return }
-      let image = workspace.icon(forFile: installedURL.path)
+      guard let image = workspace.icon(forFile: installedURL.path).copy() as? NSImage else { result(nil); return }
       image.size = NSSize(width: 128, height: 128)
       var rect = NSRect(origin: .zero, size: image.size)
       guard let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil),

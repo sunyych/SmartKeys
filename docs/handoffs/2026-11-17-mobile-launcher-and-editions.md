@@ -1,5 +1,7 @@
 # LumiaKey coding agent handoff
 
+> 本文件保留原始 WIP 交接背景。后续用户确认以完整版 **12 键、固定横屏** 为准；新的实现与实际验证记录见 [完成记录](2026-11-17-completion-validation.md)。
+
 ## 接手目标
 
 继续现有 LumiaKey 项目，完成“电脑配置、手机展示的 Launcher Pad”、App 图标服务，以及完整版 / Android 蓝牙精简版拆分。当前是开发中的 WIP，不是完成版。先读取工作区 diff 与下述日志，再继续实现和验证。

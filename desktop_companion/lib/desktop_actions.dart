@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -65,7 +64,11 @@ class SystemDesktopProcessRunner implements DesktopProcessRunner {
 
   @override
   Future<ProcessResult> run(String executable, List<String> arguments) =>
-      Process.run(executable, arguments);
+      runBoundedDesktopProcess(
+        executable,
+        arguments,
+        const Duration(seconds: 12),
+      );
 
   @override
   Future<Process> start(String executable, List<String> arguments) =>
@@ -75,28 +78,53 @@ class SystemDesktopProcessRunner implements DesktopProcessRunner {
 class DesktopActions {
   DesktopActions({
     DesktopProcessRunner? runner,
+    this.platformOverride,
+    Map<String, String>? environment,
     MacSystemControl? macSystemControl,
     DesktopPointerInput? pointerInput,
     VibeSystemTools? vibeSystemTools,
     NativeAppIconService? appIconService,
-  }) : runner = runner ?? const SystemDesktopProcessRunner(),
+    this.mediaChannel = const MethodChannel('lumiakeys/system_control'),
+  }) : _hasPointerOverride = pointerInput != null,
+       environment = environment ?? Platform.environment,
+       runner = runner ?? const SystemDesktopProcessRunner(),
        macSystemControl =
            macSystemControl ?? const MethodChannelMacSystemControl(),
        pointerInput = pointerInput ?? const MethodChannelDesktopPointerInput(),
        vibeSystemTools = vibeSystemTools ?? VibeSystemTools(),
        appIconService = appIconService ?? NativeAppIconService();
 
+  final TargetPlatform? platformOverride;
+  final Map<String, String> environment;
+  final bool _hasPointerOverride;
+  bool get _isWindows =>
+      platformOverride == TargetPlatform.windows ||
+      (platformOverride == null && Platform.isWindows);
+  bool get _isMacOS =>
+      platformOverride == TargetPlatform.macOS ||
+      (platformOverride == null && Platform.isMacOS);
+  bool get _isLinux =>
+      platformOverride == TargetPlatform.linux ||
+      (platformOverride == null && Platform.isLinux);
+  String get platformName => _isWindows
+      ? 'windows'
+      : _isMacOS
+      ? 'macos'
+      : 'linux';
+  bool get supportsNativeDictation => _isWindows || _isMacOS;
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;
   final DesktopPointerInput pointerInput;
   final VibeSystemTools vibeSystemTools;
   final NativeAppIconService appIconService;
+  final MethodChannel mediaChannel;
   int? _windowsBrightnessBeforeDark;
 
   Future<Uint8List?> getApplicationIcon(RemoteApplication app) =>
       appIconService.getNativeIcon(app);
 
-  Future<void> applyPointerInputs(List<PointerInput> inputs) => Platform.isLinux
+  Future<void> applyPointerInputs(List<PointerInput> inputs) =>
+      _isLinux && !_hasPointerOverride
       ? _applyLinuxPointerInputs(inputs)
       : pointerInput.apply(inputs);
   Future<bool> Function()? confirmVoiceInputFirstUse;
@@ -181,6 +209,18 @@ class DesktopActions {
           'Macro and Script are reserved for a future release',
         );
       case RemoteTargetType.system:
+        if (button.id.startsWith('keyboard.')) {
+          const allowed = {'mute', 'volumeDown', 'volumeUp', 'playPause'};
+          final action = button.target;
+          if (expectedAppId != null ||
+              action == null ||
+              !allowed.contains(action) ||
+              button.id != 'keyboard.$action') {
+            throw const FormatException('invalid fixed General media action');
+          }
+          await _executeGeneralMedia(action);
+          return;
+        }
         final appId = expectedAppId;
         final actionId = button.target;
         final isVibeAction =
@@ -192,6 +232,13 @@ class DesktopActions {
         if (!isVibeAction && !isChatGptCodexAction) {
           throw const FormatException('invalid fixed Vibe action');
         }
+        if (_isLinux) {
+          await _executeLinuxVibe(
+            isChatGptCodexAction ? 'codex' : appId!,
+            _requiredText(actionId),
+          );
+          return;
+        }
         await vibeSystemTools.execute(
           isChatGptCodexAction ? 'codex' : appId!,
           _requiredText(actionId),
@@ -199,8 +246,82 @@ class DesktopActions {
     }
   }
 
+  Future<void> _executeGeneralMedia(String action) async {
+    if (!_isLinux) {
+      await mediaChannel.invokeMethod<Object?>(
+        action == 'mute' ? 'toggleOutputMute' : action,
+      );
+      return;
+    }
+    switch (action) {
+      case 'mute':
+        await toggleOutputMute();
+      case 'playPause':
+        await playPause();
+      case 'volumeUp':
+        await _run('pactl', const ['set-sink-volume', '@DEFAULT_SINK@', '+5%']);
+      case 'volumeDown':
+        await _run('pactl', const ['set-sink-volume', '@DEFAULT_SINK@', '-5%']);
+      default:
+        throw const FormatException('Unsupported media action');
+    }
+  }
+
+  Future<bool> probePointerSupport() async {
+    if (_hasPointerOverride) return true;
+    if (_isWindows || _isMacOS) return true;
+    try {
+      _requireLinuxX11();
+      final result = await runner
+          .run('xdotool', const ['getmouselocation', '--shell'])
+          .timeout(const Duration(seconds: 3));
+      return result.exitCode == 0 &&
+          RegExp(
+            r'^X=-?\d+$',
+            multiLine: true,
+          ).hasMatch(result.stdout.toString()) &&
+          RegExp(
+            r'^Y=-?\d+$',
+            multiLine: true,
+          ).hasMatch(result.stdout.toString());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _executeLinuxVibe(String appId, String actionId) async {
+    _requireLinuxX11();
+    if (!await _foregroundMatches(appId)) {
+      throw StateError('Switch to the matching app before using this action.');
+    }
+    final text = switch (actionId) {
+      'comma' => ',',
+      'period' => '.',
+      'exclamation' => '!',
+      'quote' => '""',
+      'screenshot' => throw UnsupportedError(
+        'Region screenshot actions are not configured on this Linux desktop.',
+      ),
+      _ => throw const FormatException('Unsupported fixed Vibe action'),
+    };
+    await _run('xdotool', [
+      'type',
+      '--clearmodifiers',
+      '--delay',
+      '0',
+      '--',
+      text,
+    ]);
+    if (actionId == 'quote') {
+      if (!await _foregroundMatches(appId)) {
+        throw StateError('The target app changed during input.');
+      }
+      await _run('xdotool', const ['key', '--clearmodifiers', 'Left']);
+    }
+  }
+
   Future<void> playPause() async {
-    if (Platform.isLinux) {
+    if (_isLinux) {
       final result = await runner.run('playerctl', const ['play-pause']);
       if (result.exitCode != 0) {
         throw ProcessException(
@@ -216,7 +337,7 @@ class DesktopActions {
   }
 
   Future<bool> getOutputMuted() async {
-    if (Platform.isLinux) {
+    if (_isLinux) {
       final result = await runner.run('pactl', const [
         'get-sink-mute',
         '@DEFAULT_SINK@',
@@ -236,7 +357,7 @@ class DesktopActions {
         'PulseAudio/PipeWire returned an unrecognized mute state.',
       );
     }
-    if (Platform.isMacOS || Platform.isWindows) {
+    if (_isMacOS || _isWindows) {
       return macSystemControl.getOutputMuted();
     }
     throw UnsupportedError(
@@ -245,7 +366,7 @@ class DesktopActions {
   }
 
   Future<bool> toggleOutputMute() async {
-    if (Platform.isLinux) {
+    if (_isLinux) {
       final result = await runner.run('pactl', const [
         'set-sink-mute',
         '@DEFAULT_SINK@',
@@ -261,7 +382,7 @@ class DesktopActions {
       }
       return getOutputMuted();
     }
-    if (Platform.isMacOS || Platform.isWindows) {
+    if (_isMacOS || _isWindows) {
       return macSystemControl.toggleOutputMute();
     }
     throw UnsupportedError('System mute is not supported on this platform.');
@@ -269,8 +390,17 @@ class DesktopActions {
 
   Future<void> _applyLinuxPointerInputs(List<PointerInput> inputs) async {
     _requireLinuxX11();
-    if (inputs.isEmpty || inputs.length > 32)
+    if (inputs.isEmpty || inputs.length > 32) {
       throw const FormatException('Invalid pointer batch');
+    }
+    for (final input in inputs) {
+      if (input.x.abs() > 127 ||
+          input.y.abs() > 127 ||
+          input.kind == PointerInputKind.scroll && input.y == 0 ||
+          input.kind == PointerInputKind.button && input.secondary == null) {
+        throw const FormatException('Invalid pointer input');
+      }
+    }
     for (final input in inputs) {
       switch (input.kind) {
         case PointerInputKind.move:
@@ -284,22 +414,27 @@ class DesktopActions {
         case PointerInputKind.button:
           await _run('xdotool', ['click', input.secondary == true ? '3' : '1']);
         case PointerInputKind.scroll:
-          final button = input.y < 0 ? '4' : '5';
-          for (var i = 0; i < input.y.abs(); i++) {
-            await _run('xdotool', ['click', button]);
-          }
+          final button = input.y > 0 ? '4' : '5';
+          await _run('xdotool', [
+            'click',
+            '--repeat',
+            '${input.y.abs()}',
+            '--delay',
+            '0',
+            button,
+          ]);
       }
     }
   }
 
   void _requireLinuxX11() {
-    if (!Platform.isLinux) return;
-    if ((Platform.environment['WAYLAND_DISPLAY'] ?? '').isNotEmpty) {
+    if (!_isLinux) return;
+    if ((environment['WAYLAND_DISPLAY'] ?? '').isNotEmpty) {
       throw UnsupportedError(
         'Desktop input automation is not available in this Wayland session. Switch to an X11 session to use shortcuts and pointer control.',
       );
     }
-    if ((Platform.environment['DISPLAY'] ?? '').isEmpty) {
+    if ((environment['DISPLAY'] ?? '').isEmpty) {
       throw UnsupportedError(
         'Desktop input automation needs an active X11 display.',
       );
@@ -307,7 +442,7 @@ class DesktopActions {
   }
 
   Future<void> _deleteToLineStart(String appId) async {
-    final selection = Platform.isMacOS
+    final selection = _isMacOS
         ? const ['COMMAND', 'SHIFT', 'LEFT']
         : const ['SHIFT', 'HOME'];
     await sendShortcut(selection, expectedAppId: appId);
@@ -336,11 +471,11 @@ class DesktopActions {
 
   Future<void> launchApplication(String target) async {
     final validated = _requiredText(target);
-    if (Platform.isMacOS) {
+    if (_isMacOS) {
       await _run('/usr/bin/open', ['-a', validated]);
       return;
     }
-    if (Platform.isWindows) {
+    if (_isWindows) {
       final executable = _windowsExecutableAlias(validated);
       await _run('powershell.exe', [
         '-NoProfile',
@@ -382,7 +517,7 @@ class DesktopActions {
         app.id == 'chatgpt' ||
         (app.id == 'codex' && app.executable.toLowerCase().contains('chatgpt'));
     final targetName = chatGpt ? 'ChatGPT' : executable;
-    if (Platform.isMacOS) {
+    if (_isMacOS) {
       final open = await runner.run('/usr/bin/open', ['-a', targetName]);
       if (open.exitCode != 0) {
         final bundle =
@@ -406,7 +541,7 @@ class DesktopActions {
       }
       return;
     }
-    if (Platform.isWindows) {
+    if (_isWindows) {
       if (app.id == 'safari') {
         throw const FormatException('Safari is only available on Mac');
       }
@@ -752,9 +887,9 @@ public static class LumiaWindowActivation {
         uri.host.isEmpty) {
       throw const FormatException('Only http and https URLs are supported');
     }
-    if (Platform.isMacOS) {
+    if (_isMacOS) {
       await _run('/usr/bin/open', [uri.toString()]);
-    } else if (Platform.isWindows) {
+    } else if (_isWindows) {
       await _run('rundll32.exe', [
         'url.dll,FileProtocolHandler',
         uri.toString(),
@@ -775,32 +910,25 @@ public static class LumiaWindowActivation {
   }
 
   Future<void> setComputerDark(bool enabled) async {
-    if (Platform.isWindows) {
+    if (_isWindows) {
       if (enabled) {
         _windowsBrightnessBeforeDark = await _readWindowsBrightness();
       }
       final target = enabled ? 0 : (_windowsBrightnessBeforeDark ?? 70);
-      await _run(
-        'powershell.exe',
-        const [
-              '-NoProfile',
-              '-NonInteractive',
-              '-Command',
-              r'Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods '
-                  r'| ForEach-Object { Invoke-CimMethod -InputObject $_ '
-                  r'-MethodName WmiSetBrightness '
-                  r'-Arguments @{Timeout=1;Brightness=$args[0]} | Out-Null }',
-            ] +
-            ['$target'],
-      );
+      await _run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        windowsBrightnessCommand(target),
+      ]);
       if (!enabled) _windowsBrightnessBeforeDark = null;
       return;
     }
-    if (Platform.isMacOS) {
+    if (_isMacOS) {
       await macSystemControl.setDark(enabled);
       return;
     }
-    if (Platform.isLinux) {
+    if (_isLinux) {
       await _run('gsettings', [
         'set',
         'org.gnome.desktop.interface',
@@ -812,6 +940,16 @@ public static class LumiaWindowActivation {
     throw UnsupportedError(
       'Appearance control is not supported on this platform.',
     );
+  }
+
+  static String windowsBrightnessCommand(int brightness) {
+    if (brightness < 0 || brightness > 100) {
+      throw const FormatException('Invalid display brightness.');
+    }
+    return r'& { param([byte]$brightness) Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods '
+        r'| ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName WmiSetBrightness '
+        r'-Arguments @{Timeout=1;Brightness=$brightness} | Out-Null } } '
+        '$brightness';
   }
 
   Future<int?> _readWindowsBrightness() async {
@@ -830,25 +968,25 @@ public static class LumiaWindowActivation {
     List<String> rawKeys, {
     String? expectedAppId,
   }) async {
-    final platform = Platform.isMacOS
+    final platform = _isMacOS
         ? RemoteShortcutPlatform.apple
-        : Platform.isWindows
+        : _isWindows
         ? RemoteShortcutPlatform.windows
         : RemoteShortcutPlatform.other;
     var keys = resolvePrimaryShortcut(rawKeys, platform);
     keys = switch (keys) {
       ['BROWSER_BACK'] =>
-        Platform.isMacOS ? const ['COMMAND', '['] : const ['ALT', 'LEFT'],
+        _isMacOS ? const ['COMMAND', '['] : const ['ALT', 'LEFT'],
       ['BROWSER_FORWARD'] =>
-        Platform.isMacOS ? const ['COMMAND', ']'] : const ['ALT', 'RIGHT'],
+        _isMacOS ? const ['COMMAND', ']'] : const ['ALT', 'RIGHT'],
       _ => keys,
     };
     if (keys.isEmpty || keys.any((key) => !allowedKeys.contains(key))) {
       throw const FormatException('unsupported shortcut');
     }
-    if (Platform.isWindows) {
+    if (_isWindows) {
       await _sendWindowsShortcut(keys, expectedAppId: expectedAppId);
-    } else if (Platform.isMacOS) {
+    } else if (_isMacOS) {
       await _sendMacShortcut(keys, expectedAppId: expectedAppId);
     } else {
       _requireLinuxX11();
@@ -857,9 +995,43 @@ public static class LumiaWindowActivation {
           'Switch to the matching Vibe app before using this shortcut',
         );
       }
-      await _run('xdotool', ['key', keys.join('+')]);
+      await _run('xdotool', [
+        'key',
+        '--clearmodifiers',
+        keys.map(_linuxKey).join('+'),
+      ]);
     }
   }
+
+  static String _linuxKey(String key) => switch (key) {
+    'CTRL' || 'CONTROL' => 'ctrl',
+    'ALT' || 'OPTION' => 'alt',
+    'SHIFT' => 'shift',
+    'META' || 'COMMAND' || 'WIN' => 'super',
+    'ENTER' || 'RETURN' => 'Return',
+    'ESC' || 'ESCAPE' => 'Escape',
+    'BACKSPACE' => 'BackSpace',
+    'DELETE' => 'Delete',
+    'TAB' => 'Tab',
+    'LEFT' => 'Left',
+    'RIGHT' => 'Right',
+    'UP' => 'Up',
+    'DOWN' => 'Down',
+    'HOME' => 'Home',
+    'END' => 'End',
+    'PAGEUP' => 'Prior',
+    'PAGEDOWN' => 'Next',
+    'SPACE' => 'space',
+    '[' => 'bracketleft',
+    ']' => 'bracketright',
+    '`' => 'quoteleft',
+    '/' => 'slash',
+    '\\' => 'backslash',
+    '-' => 'minus',
+    '=' => 'equal',
+    _ when RegExp(r'^F([1-9]|1[0-2])$').hasMatch(key) => key,
+    _ => key.toLowerCase(),
+  };
 
   Future<void> _sendWindowsShortcut(
     List<String> keys, {
@@ -1014,10 +1186,10 @@ Add-Type -AssemblyName System.Windows.Forms
   Future<bool> _foregroundMatches(String appId) async {
     final processNames = _foregroundProcessNames(appId);
     if (processNames == null) return false;
-    if (Platform.isWindows) {
+    if (_isWindows) {
       return false; // Windows is checked atomically in SendKeys.
     }
-    if (Platform.isMacOS) {
+    if (_isMacOS) {
       final result = await runner.run('/usr/bin/osascript', const [
         '-e',
         'tell application "System Events" to get name of first application process whose frontmost is true',
@@ -1055,7 +1227,13 @@ Add-Type -AssemblyName System.Windows.Forms
     if (active.exitCode != 0 || pid == null) return false;
     final process = await runner.run('ps', ['-p', '$pid', '-o', 'comm=']);
     final name = process.stdout.toString().trim().toLowerCase();
-    return process.exitCode == 0 && processNames.any(name.contains);
+    return process.exitCode == 0 &&
+        (appId == 'teams' && name == 'teams-for-linux' ||
+            processNames.any(
+              (candidate) =>
+                  name == candidate.toLowerCase() ||
+                  name == candidate.toLowerCase().replaceAll('.exe', ''),
+            ));
   }
 
   Future<bool> _waitForForeground(String appId) async {

@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'desktop_controller.dart';
@@ -15,11 +16,16 @@ class CompanionServer extends ChangeNotifier {
     required this.controller,
     this.discoveryPort = 45832,
     DictationTextSink? dictationSink,
-  }) : dictationSink = dictationSink ?? MethodChannelDictationTextSink();
+  }) : _hasProvidedDictationSink =
+           dictationSink != null &&
+           dictationSink is! MethodChannelDictationTextSink,
+       dictationSink = dictationSink ?? MethodChannelDictationTextSink();
 
   final DesktopController controller;
   final int discoveryPort;
   final DictationTextSink dictationSink;
+  final bool _hasProvidedDictationSink;
+  bool _pointerReady = false;
   final String token = List.generate(
     32,
     (_) => Random.secure().nextInt(16).toRadixString(16),
@@ -33,11 +39,7 @@ class CompanionServer extends ChangeNotifier {
   int? get actionPort => _http?.port;
   String? get lastPhone => controller.connectedPhone;
 
-  String get platform => Platform.isMacOS
-      ? 'macos'
-      : Platform.isWindows
-      ? 'windows'
-      : 'linux';
+  String get platform => controller.actions.platformName;
 
   List<String> get capabilities => [
     'manifest',
@@ -49,8 +51,9 @@ class CompanionServer extends ChangeNotifier {
     'foreground-app',
     'app-activation',
     'launcher-pad-v1',
-    'local-dictation-v1',
-    if (Platform.isWindows || Platform.isMacOS) 'mouse-control-v1',
+    if (controller.actions.supportsNativeDictation || _hasProvidedDictationSink)
+      'local-dictation-v1',
+    if (_pointerReady) 'mouse-control-v1',
   ];
 
   late final DictationReceiver _dictationReceiver = DictationReceiver(
@@ -61,6 +64,7 @@ class CompanionServer extends ChangeNotifier {
   Future<void> start() async {
     if (_http != null) return;
     try {
+      _pointerReady = await controller.actions.probePointerSupport();
       _http = await HttpServer.bind(InternetAddress.anyIPv4, 0);
       _http!.listen(_handleRequest);
       _udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -116,17 +120,31 @@ class CompanionServer extends ChangeNotifier {
         return;
       }
       final bytes = await controller.applicationIcon(appId);
-      if (bytes == null ||
-          bytes.isEmpty ||
-          bytes.length > 64 * 1024 ||
-          !_isPng(bytes)) {
+      if (bytes == null) {
         await _reject(request, HttpStatus.notFound, 'icon not found');
+        return;
+      }
+      final etag = '"${sha256.convert(bytes)}"';
+      request.response.headers
+        ..set(HttpHeaders.etagHeader, etag)
+        ..set(HttpHeaders.cacheControlHeader, 'private, max-age=300')
+        ..set(HttpHeaders.varyHeader, 'x-lumiakeys-token')
+        ..set('x-content-type-options', 'nosniff');
+      final matches =
+          request.headers
+              .value(HttpHeaders.ifNoneMatchHeader)
+              ?.split(',')
+              .map((value) => value.trim().replaceFirst(RegExp(r'^W/'), ''))
+              .contains(etag) ??
+          false;
+      if (matches) {
+        request.response.statusCode = HttpStatus.notModified;
+        await request.response.close();
         return;
       }
       request.response
         ..statusCode = HttpStatus.ok
         ..headers.contentType = ContentType('image', 'png')
-        ..headers.set(HttpHeaders.cacheControlHeader, 'private, max-age=86400')
         ..add(bytes);
       await request.response.close();
       return;
@@ -146,6 +164,14 @@ class CompanionServer extends ChangeNotifier {
       return;
     }
     if (request.method == 'POST' && request.uri.path == '/dictation') {
+      if (!capabilities.contains('local-dictation-v1')) {
+        await _reject(
+          request,
+          HttpStatus.notImplemented,
+          'dictation unsupported on this platform',
+        );
+        return;
+      }
       try {
         await _dictationReceiver.handle(request);
         controller.recordConnectedPhone(
@@ -167,8 +193,7 @@ class CompanionServer extends ChangeNotifier {
       return;
     }
     if (request.method == 'POST' && request.uri.path == '/pointer') {
-      if ((!Platform.isWindows && !Platform.isMacOS) ||
-          !capabilities.contains('mouse-control-v1')) {
+      if (!capabilities.contains('mouse-control-v1')) {
         await _reject(
           request,
           HttpStatus.notImplemented,
@@ -256,17 +281,6 @@ class CompanionServer extends ChangeNotifier {
     }
     await request.response.close();
   }
-
-  static bool _isPng(List<int> bytes) =>
-      bytes.length >= 8 &&
-      bytes[0] == 0x89 &&
-      bytes[1] == 0x50 &&
-      bytes[2] == 0x4e &&
-      bytes[3] == 0x47 &&
-      bytes[4] == 0x0d &&
-      bytes[5] == 0x0a &&
-      bytes[6] == 0x1a &&
-      bytes[7] == 0x0a;
 
   Future<void> _reject(
     HttpRequest request,

@@ -1,5 +1,9 @@
 library;
 
+part 'src/compact_layouts.dart';
+
+const int launcherSlotCount = 12;
+
 /// IDs accepted by the optional authenticated native app-icon resource.
 const Set<String> remoteApplicationIconAppIds = <String>{
   'codex',
@@ -538,17 +542,26 @@ class DesktopManifest {
     this.schemaVersion = 1,
     this.applicationActivationSequence = 0,
     this.activatedApplicationId,
-    this.launcherApplicationIds = const <String?>[
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-    ],
-  });
+    List<String?>? launcherApplicationIds,
+    bool? hasLauncherConfiguration,
+  }) : launcherApplicationIds =
+           launcherApplicationIds ??
+           const <String?>[
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+           ],
+       hasLauncherConfiguration =
+           hasLauncherConfiguration ?? launcherApplicationIds != null;
 
   final int schemaVersion;
   final int revision;
@@ -564,8 +577,11 @@ class DesktopManifest {
   final int applicationActivationSequence;
   final String? activatedApplicationId;
 
-  /// Eight desktop-configured launcher slots, synced for phone display.
+  /// Desktop-configured launcher slots, synced for phone display.
   final List<String?> launcherApplicationIds;
+
+  /// Distinguishes a legacy manifest from an intentionally empty launcher.
+  final bool hasLauncherConfiguration;
 
   RemoteProfile? get currentProfile =>
       profiles.cast<RemoteProfile?>().firstWhere(
@@ -619,6 +635,8 @@ class DesktopManifest {
         activatedApplicationId ?? this.activatedApplicationId,
     launcherApplicationIds:
         launcherApplicationIds ?? this.launcherApplicationIds,
+    hasLauncherConfiguration:
+        launcherApplicationIds != null || hasLauncherConfiguration,
   );
 
   Map<String, Object?> toJson({bool forSync = false}) {
@@ -663,7 +681,7 @@ class DesktopManifest {
                       syncedApplications.any((app) => app.id == id) ? id : null,
                 )
                 .toList(growable: false)
-          : List<String?>.filled(8, null),
+          : List<String?>.filled(launcherSlotCount, null),
     };
   }
 
@@ -693,12 +711,8 @@ class DesktopManifest {
           : 0,
       activatedApplicationId: _nullableString(json['activatedApplicationId']),
       launcherApplicationIds: json.containsKey('launcherApplicationIds')
-          ? json['launcherApplicationIds'] is List
-                ? (json['launcherApplicationIds']! as List)
-                      .map((value) => _nullableString(value))
-                      .toList(growable: false)
-                : throw const FormatException('Invalid launcher slots')
-          : List<String?>.filled(8, null),
+          ? _launcherSlotsFromJson(json['launcherApplicationIds'])
+          : null,
     );
     manifest.validate();
     return manifest;
@@ -715,7 +729,7 @@ class DesktopManifest {
         !profiles.any((profile) => profile.id == currentProfileId)) {
       throw const FormatException('Manifest contains invalid references');
     }
-    if (launcherApplicationIds.length != 8 ||
+    if (launcherApplicationIds.length != launcherSlotCount ||
         launcherApplicationIds.any(
           (id) => id != null && !applications.any((app) => app.id == id),
         )) {
@@ -740,6 +754,17 @@ class DesktopManifest {
         }
       }
     }
+  }
+
+  /// Twelve-key defaults used by the Regular mobile control surface.
+  /// [starter] retains the complete historical action catalog for migration.
+  factory DesktopManifest.regularStarter() {
+    final catalog = DesktopManifest.starter();
+    return catalog.copyWith(
+      layouts: catalog.layouts
+          .map(compactDesktopLayout)
+          .toList(growable: false),
+    );
   }
 
   factory DesktopManifest.starter() {
@@ -1491,3 +1516,15 @@ List<Map<String, Object?>> _mapList(Object? value) {
 List<String> _stringList(Object? value) => value is List
     ? value.map((item) => item.toString()).toList(growable: false)
     : const [];
+
+List<String?> _launcherSlotsFromJson(Object? value) {
+  if (value is! List ||
+      (value.length != 8 && value.length != launcherSlotCount) ||
+      value.any((id) => id != null && (id is! String || id.isEmpty))) {
+    throw const FormatException('Invalid launcher slots');
+  }
+  return List<String?>.unmodifiable([
+    ...value.cast<String?>(),
+    for (var index = value.length; index < launcherSlotCount; index++) null,
+  ]);
+}

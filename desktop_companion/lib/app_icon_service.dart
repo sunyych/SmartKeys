@@ -1,17 +1,28 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 /// Reads an installed app's local icon. This never resolves a URL or accepts
 /// arbitrary executable names from remote actions; `application.executable`
 /// comes from the desktop-owned manifest.
 class NativeAppIconService {
-  NativeAppIconService({MethodChannel? channel})
-    : channel = channel ?? const MethodChannel('lumiakeys/app_icon');
+  NativeAppIconService({
+    MethodChannel? channel,
+    this.platformOverride,
+    Map<String, String>? environment,
+    this.timeout = const Duration(seconds: 3),
+    this.processRunner,
+    this.linuxDesktopDirectories,
+    this.linuxIconDirectories,
+    DateTime Function()? now,
+  }) : channel = channel ?? const MethodChannel('lumiakeys/app_icon'),
+       environment = environment ?? Platform.environment,
+       _now = now ?? DateTime.now;
 
   static const supportedAppIds = <String>{
     'codex',
@@ -34,30 +45,72 @@ class NativeAppIconService {
   };
 
   final MethodChannel channel;
+  final TargetPlatform? platformOverride;
+  final Map<String, String> environment;
+  final Duration timeout;
+  final Future<ProcessResult> Function(String, List<String>, Duration)?
+  processRunner;
+  final List<String>? linuxDesktopDirectories;
+  final List<String>? linuxIconDirectories;
+  final DateTime Function() _now;
+  final Map<String, (DateTime, Uint8List?)> _cache = {};
+  final Map<String, Future<Uint8List?>> _pending = {};
 
   Future<Uint8List?> getNativeIcon(RemoteApplication application) async {
-    if (!supportedAppIds.contains(application.id)) return null;
-    if (Platform.isLinux) return _linuxDesktopIcon(application);
-    if (Platform.isWindows) return _windowsNativeIcon(application.id);
-    if (!Platform.isMacOS) return null;
-    try {
-      final bytes = await channel.invokeMethod<Uint8List>('get', {
-        'appId': application.id,
-        'executable': application.executable,
-      });
-      if (bytes == null || bytes.isEmpty || bytes.length > 64 * 1024)
-        return null;
-      return bytes;
-    } on PlatformException {
+    if (!supportedAppIds.contains(application.id) ||
+        application.executable.length > 1024 ||
+        application.executable.codeUnits.any(
+          (unit) => unit < 32 || unit == 127,
+        )) {
       return null;
-    } on MissingPluginException {
+    }
+    final key = '${application.id}\u0000${application.executable}';
+    final cached = _cache[key];
+    if (cached != null && _now().isBefore(cached.$1)) return cached.$2;
+    return _pending[key] ??= _extract(application)
+        .then((bytes) {
+          _cache[key] = (
+            _now().add(
+              bytes == null
+                  ? const Duration(seconds: 30)
+                  : const Duration(minutes: 5),
+            ),
+            bytes,
+          );
+          if (_cache.length > supportedAppIds.length * 2) {
+            _cache.remove(_cache.keys.first);
+          }
+          return bytes;
+        })
+        .whenComplete(() {
+          _pending.remove(key);
+        });
+  }
+
+  Future<Uint8List?> _extract(RemoteApplication application) async {
+    try {
+      final platform = platformOverride ?? defaultTargetPlatform;
+      final bytes = await (switch (platform) {
+        TargetPlatform.linux => _linuxDesktopIcon(application),
+        TargetPlatform.windows => _windowsNativeIcon(application.id),
+        TargetPlatform.macOS => channel.invokeMethod<Uint8List>('get', {
+          'appId': application.id,
+          'executable': application.executable,
+        }),
+        _ => Future<Uint8List?>.value(),
+      }).timeout(timeout);
+      return bytes != null && validApplicationIconPng(bytes) ? bytes : null;
+    } catch (_) {
       return null;
     }
   }
 
-  Future<Uint8List?> _windowsNativeIcon(String appId) async {
+  static String windowsIconCommand(String appId) {
+    if (!supportedAppIds.contains(appId)) {
+      throw const FormatException('Unknown icon application');
+    }
     const script = r'''
-$executables = switch ($args[0]) {
+$executables = switch ($appId) {
   'codex' { @('Codex.exe') }
   'chatgpt' { @('ChatGPT.exe') }
   'claude' { @('Claude.exe') }
@@ -104,19 +157,30 @@ if ($stream.Length -gt 65536) { exit 4 }
 [Convert]::ToBase64String($stream.ToArray())
 $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
 ''';
+    return '''
+& {
+param([string]\$appId)
+$script
+} '$appId'
+''';
+  }
+
+  Future<Uint8List?> _windowsNativeIcon(String appId) async {
     try {
-      final result = await Process.run('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        script,
-        appId,
-      ]).timeout(const Duration(seconds: 3));
+      final result =
+          await (processRunner ?? runBoundedDesktopProcess)('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-WindowStyle',
+            'Hidden',
+            '-Command',
+            windowsIconCommand(appId),
+          ], timeout);
       if (result.exitCode != 0) return null;
       final encoded = '${result.stdout}'.trim();
       if (encoded.isEmpty || encoded.length > 88 * 1024) return null;
       final bytes = base64Decode(encoded);
-      return bytes.length <= 64 * 1024 && _isPng(bytes) ? bytes : null;
+      return validApplicationIconPng(bytes) ? bytes : null;
     } on ProcessException {
       return null;
     } on TimeoutException {
@@ -128,31 +192,45 @@ $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
 
   Future<Uint8List?> _linuxDesktopIcon(RemoteApplication application) async {
     final aliases = _linuxAliases(application.id, application.executable);
-    final roots = <String>[
-      if (Platform.environment['HOME'] case final home?)
-        '$home/.local/share/applications',
-      '/usr/local/share/applications',
-      '/usr/share/applications',
-    ];
+    final roots =
+        linuxDesktopDirectories ??
+        <String>[
+          if (environment['HOME'] case final home?)
+            '$home/.local/share/applications',
+          '/usr/local/share/applications',
+          '/usr/share/applications',
+        ];
     final iconNames = <String>[];
+    var visited = 0;
+    final deadline = _now().add(timeout);
     for (final root in roots) {
       final directory = Directory(root);
       if (!await directory.exists()) continue;
       await for (final entry in directory.list(followLinks: false)) {
+        if (++visited > 512 || _now().isAfter(deadline)) return null;
         if (entry is! File || !entry.path.endsWith('.desktop')) continue;
+        if (await entry.length() > 256 * 1024) continue;
         final contents = await entry.readAsString().catchError((_) => '');
         final desktop = _desktopEntry(contents);
         if (desktop == null) continue;
         final name = (desktop['Name'] ?? '').toLowerCase();
-        final exec = (desktop['Exec'] ?? '').toLowerCase();
+        final exec = (desktop['Exec'] ?? '')
+            .split(RegExp(r'\s+'))
+            .first
+            .replaceAll('"', '')
+            .split('/')
+            .last
+            .toLowerCase();
         final file = entry.uri.pathSegments.last.toLowerCase();
         if (!aliases.any(
           (alias) =>
-              name.contains(alias) ||
-              exec.contains(alias) ||
-              file.contains(alias),
-        ))
+              name == alias ||
+              exec == alias ||
+              file == '$alias.desktop' ||
+              file.endsWith('.$alias.desktop'),
+        )) {
           continue;
+        }
         final icon = desktop['Icon'];
         if (icon != null && icon.isNotEmpty) iconNames.add(icon);
       }
@@ -162,8 +240,9 @@ $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
       for (final path in candidates) {
         final file = File(path);
         if (!await file.exists()) continue;
+        if (await file.length() > 64 * 1024) continue;
         final bytes = await file.readAsBytes();
-        if (bytes.length <= 64 * 1024 && _isPng(bytes)) return bytes;
+        if (validApplicationIconPng(bytes)) return bytes;
       }
     }
     return null;
@@ -178,8 +257,9 @@ $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
         inEntry = line == '[Desktop Entry]';
       } else if (inEntry && !line.startsWith('#')) {
         final split = line.indexOf('=');
-        if (split > 0)
+        if (split > 0) {
           values[line.substring(0, split)] = line.substring(split + 1);
+        }
       }
     }
     return inEntry ? values : null;
@@ -187,7 +267,8 @@ $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
 
   static List<String> _linuxAliases(String id, String executable) {
     final alias = switch (id) {
-      'codex' || 'chatgpt' => const ['codex', 'chatgpt', 'openai'],
+      'codex' => const ['codex'],
+      'chatgpt' => const ['chatgpt', 'openai chatgpt'],
       'vscode' => const ['visual studio code', 'vscode', 'code'],
       'chrome' => const ['google chrome', 'chrome'],
       'edge' => const ['microsoft edge', 'edge'],
@@ -209,9 +290,16 @@ $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
     return {...alias, if (executableName.isNotEmpty) executableName}.toList();
   }
 
-  static List<String> _linuxIconCandidates(String icon) {
-    if (icon.startsWith('/'))
+  List<String> _linuxIconCandidates(String icon) {
+    if (icon.contains('..') ||
+        icon.contains('\\') ||
+        icon.contains('://') ||
+        icon.length > 1024) {
+      return const [];
+    }
+    if (icon.startsWith('/')) {
       return [if (icon.toLowerCase().endsWith('.png')) icon];
+    }
     final fileName = icon.toLowerCase().endsWith('.png') ? icon : '$icon.png';
     const sizes = [
       '512x512',
@@ -222,12 +310,13 @@ $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
       '48x48',
       '32x32',
     ];
-    final roots = <String>[
-      if (Platform.environment['HOME'] case final home?)
-        '$home/.local/share/icons',
-      '/usr/local/share/icons',
-      '/usr/share/icons',
-    ];
+    final roots =
+        linuxIconDirectories ??
+        <String>[
+          if (environment['HOME'] case final home?) '$home/.local/share/icons',
+          '/usr/local/share/icons',
+          '/usr/share/icons',
+        ];
     return [
       ...roots.expand(
         (root) => sizes.map((size) => '$root/hicolor/$size/apps/$fileName'),
@@ -237,15 +326,63 @@ $stream.Dispose(); $bitmap.Dispose(); $icon.Dispose()
       '/usr/share/pixmaps/$fileName',
     ];
   }
+}
 
-  static bool _isPng(Uint8List bytes) =>
-      bytes.length >= 8 &&
-      bytes[0] == 0x89 &&
-      bytes[1] == 0x50 &&
-      bytes[2] == 0x4e &&
-      bytes[3] == 0x47 &&
-      bytes[4] == 0x0d &&
-      bytes[5] == 0x0a &&
-      bytes[6] == 0x1a &&
-      bytes[7] == 0x0a;
+/// Bound dimensions before decompressing, then reject malformed image data.
+bool validApplicationIconPng(Uint8List bytes) {
+  if (bytes.length < 33 ||
+      bytes.length > 64 * 1024 ||
+      !const [
+        137,
+        80,
+        78,
+        71,
+        13,
+        10,
+        26,
+        10,
+      ].asMap().entries.every((entry) => bytes[entry.key] == entry.value) ||
+      ascii.decode(bytes.sublist(12, 16), allowInvalid: true) != 'IHDR') {
+    return false;
+  }
+  final header = ByteData.sublistView(bytes);
+  final width = header.getUint32(16), height = header.getUint32(20);
+  if (width < 1 || height < 1 || width > 512 || height > 512) return false;
+  try {
+    final decoded = img.decodePng(bytes);
+    return decoded != null &&
+        decoded.width == width &&
+        decoded.height == height;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<ProcessResult> runBoundedDesktopProcess(
+  String executable,
+  List<String> arguments,
+  Duration timeout,
+) async {
+  final process = await Process.start(
+    executable,
+    arguments,
+    environment:
+        Platform.isLinux &&
+            const {'pactl', 'xdotool', 'ps', 'which'}.contains(executable)
+        ? const {'LC_ALL': 'C', 'LANG': 'C'}
+        : null,
+  );
+  final stdout = process.stdout.transform(systemEncoding.decoder).join();
+  final stderr = process.stderr.transform(systemEncoding.decoder).join();
+  try {
+    final result = await Future.wait<Object>([
+      process.exitCode,
+      stdout,
+      stderr,
+    ]).timeout(timeout);
+    return ProcessResult(process.pid, result[0] as int, result[1], result[2]);
+  } on TimeoutException {
+    process.kill(ProcessSignal.sigkill);
+    rethrow;
+  }
 }

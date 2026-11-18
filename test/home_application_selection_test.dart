@@ -123,7 +123,12 @@ void main() {
         ComputerSetup(applicationIds: const ['chatgpt']),
       );
 
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
       await tester.pumpAndSettle();
@@ -173,7 +178,12 @@ void main() {
         harness.controller.activeComputer!,
         ComputerSetup(applicationIds: ['vscode']),
       );
-      await tester.pumpWidget(SmartKeysApp(controller: harness.controller));
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('workspace-app-vscode')));
       await tester.pumpAndSettle();

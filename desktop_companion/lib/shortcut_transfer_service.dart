@@ -64,6 +64,16 @@ class DesktopShortcutTransferService {
       for (final button in layout.buttons) {
         if (button.targetType != RemoteTargetType.system) continue;
         final actionId = button.target ?? '';
+        final isGeneralMedia =
+            layout.id == 'keyboard' &&
+            const {
+              'mute',
+              'volumeDown',
+              'volumeUp',
+              'playPause',
+            }.contains(actionId) &&
+            button.id == 'keyboard.$actionId';
+        if (isGeneralMedia) continue;
         final isVibeAction =
             layout.id.startsWith('vibe.') &&
             _vibeApps.contains(layout.id.substring('vibe.'.length)) &&

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'dart:math' show sqrt;
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
@@ -10,7 +9,6 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import '../app.dart';
 import '../controllers/app_controller.dart';
 import '../icons/icon_catalog.dart';
-import '../icons/app_icon_catalog.dart';
 import '../models/config.dart';
 import '../models/computer_setup.dart';
 import '../models/control_surface_status.dart';
@@ -42,7 +40,10 @@ class HomeScreen extends StatefulWidget {
     this.dictationRecognizerFactory,
     this.enableDictationWakeLock,
     this.disableDictationWakeLock,
+    this.liteMode = false,
   });
+
+  final bool liteMode;
 
   final ModelManager? dictationModelManager;
   final DictationCapture? dictationCapture;
@@ -60,7 +61,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool editing = false;
-  _HomeTab selectedTab = _HomeTab.launcher;
+  _HomeTab selectedTab = _HomeTab.keyboard;
   String? selectedApplicationId;
   final GlobalKey<LocalDictationEntryButtonState> _dictationEntryKey =
       GlobalKey<LocalDictationEntryButtonState>();
@@ -81,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final controller = SmartKeysScope.of(context);
     final computer = controller.activeComputer;
     _trackComputerTarget(controller, computer);
-    _consumeDesktopActivation(controller);
+    if (!widget.liteMode) _consumeDesktopActivation(controller);
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     controller.registerLayoutOrientation(landscape);
@@ -97,49 +98,35 @@ class _HomeScreenState extends State<HomeScreen> {
         ? Theme.of(context).colorScheme.primary
         : Color(controller.activeProfile.accentColor!);
     final iosPairingGate =
-        controller.hid is IosCompanionHidService ||
-        defaultTargetPlatform == TargetPlatform.iOS;
+        !widget.liteMode &&
+        (controller.hid is IosCompanionHidService ||
+            defaultTargetPlatform == TargetPlatform.iOS);
     final desktopReconnecting =
-        computer?.mode == ComputerMode.advanced && !controller.isDesktopSynced;
+        !widget.liteMode &&
+        computer?.mode == ComputerMode.advanced &&
+        !controller.isDesktopSynced;
     final showFirstSetup =
+        !widget.liteMode &&
         computer != null &&
         !controller.isActiveComputerSetupComplete &&
         (computer.mode == ComputerMode.standalone ||
             controller.isDesktopSynced);
-    final availableApps = controller.availableComputerApplications;
+    final availableApps = widget.liteMode
+        ? const <ComputerApplication>[]
+        : controller.availableComputerApplications;
     var effectiveApplication = availableApps
         .cast<ComputerApplication?>()
         .firstWhere(
           (application) => application?.id == selectedApplicationId,
           orElse: () => null,
         );
-    if (effectiveApplication == null &&
-        selectedApplicationId != null &&
-        controller.desktopManifest?.launcherApplicationIds.contains(
-              selectedApplicationId,
-            ) ==
-            true) {
-      final assigned = controller.desktopManifest?.applicationById(
-        selectedApplicationId!,
-      );
-      if (assigned != null) {
-        effectiveApplication = ComputerApplication(
-          id: assigned.id,
-          name: assigned.name,
-          category: ComputerAppCategory.other,
-        );
-      }
-    }
-    final foreground = controller.isDesktopSynced
+    final foreground = !widget.liteMode && controller.isDesktopSynced
         ? controller.foregroundApplication
         : null;
-    var effectiveTab = selectedTab == _HomeTab.launcher
-        ? _HomeTab.launcher
-        : effectiveApplication == null
+    var effectiveTab = effectiveApplication == null
         ? _HomeTab.keyboard
         : selectedTab;
     if (_followForeground &&
-        selectedTab != _HomeTab.launcher &&
         effectiveTab == _HomeTab.keyboard &&
         foreground != null) {
       effectiveApplication = availableApps
@@ -166,7 +153,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ? remoteApplication == null
               ? null
               : controller.layoutForApplication(remoteApplication)
-        : effectiveTab == _HomeTab.keyboard &&
+        : !widget.liteMode &&
+              effectiveTab == _HomeTab.keyboard &&
               controller.isDesktopSynced &&
               !desktopReconnecting
         ? controller.genericSyncedLayout
@@ -408,19 +396,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final content = switch (effectiveTab) {
-      _HomeTab.launcher => _LauncherPad(
-        controller: controller,
-        connected: controller.isDesktopSynced,
-        onLaunch: selectApplication,
-        onManage: editComputerSetup,
-        showSetupAction: showFirstSetup,
-        onConnect: () => showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          builder: (_) =>
-              DesktopConnectionPanel(companion: controller.companion),
-        ),
-      ),
       _HomeTab.keyboard => keyboardSurface,
       _HomeTab.application =>
         computer == null || effectiveApplication == null
@@ -449,9 +424,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     };
     final iOSGateContent =
-        iosPairingGate &&
-            computer?.mode != ComputerMode.advanced &&
-            effectiveTab != _HomeTab.launcher
+        iosPairingGate && computer?.mode != ComputerMode.advanced
         ? ListView(
             key: const ValueKey('ios-desktop-pairing-gate'),
             padding: const EdgeInsets.all(16),
@@ -469,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           )
         : null;
-    final setupContent = showFirstSetup && effectiveTab != _HomeTab.launcher
+    final setupContent = showFirstSetup
         ? ComputerSetupWizard(
             key: ValueKey('first-computer-setup-${computer.id}'),
             controller: controller,
@@ -482,20 +455,23 @@ class _HomeScreenState extends State<HomeScreen> {
             }),
           )
         : null;
-    final safeContent =
-        desktopReconnecting &&
-            !showFirstSetup &&
-            effectiveTab != _HomeTab.launcher
+    final safeContent = desktopReconnecting && !showFirstSetup
         ? _DesktopReconnectState(onManage: editComputerSetup)
         : setupContent ?? content;
-    final visibleProfiles = controller.visibleHomeProfiles
-        .where(
-          (profile) =>
-              computer == null ||
-              profile.id != 'profile_web' && profile.id != 'profile_meetings',
-        )
-        .toList(growable: false);
+    final visibleProfiles =
+        (widget.liteMode
+                ? controller.orderedProfiles
+                : controller.visibleHomeProfiles)
+            .where(
+              (profile) =>
+                  widget.liteMode ||
+                  computer == null ||
+                  profile.id != 'profile_web' &&
+                      profile.id != 'profile_meetings',
+            )
+            .toList(growable: false);
     final showComputerAppBar =
+        !widget.liteMode &&
         !showFirstSetup &&
         computer != null &&
         controller.isActiveComputerSetupComplete &&
@@ -518,19 +494,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (iOSGateContent != null) ...[
                     ComputerSwitcher(controller: controller),
                     Expanded(child: iOSGateContent),
-                  ] else if (showFirstSetup &&
-                      effectiveTab != _HomeTab.launcher) ...[
+                  ] else if (showFirstSetup) ...[
                     ComputerSwitcher(controller: controller),
                     Expanded(child: safeContent),
                   ] else ...[
-                    if (showComputerAppBar && !landscape)
+                    if (showComputerAppBar)
                       _ComputerApplicationBar(
                         controller: controller,
                         applications: availableApps,
                         reservedRightInset: 126,
-                        profiles:
-                            effectiveTab == _HomeTab.keyboard ||
-                                effectiveTab == _HomeTab.launcher
+                        profiles: effectiveTab == _HomeTab.keyboard
                             ? visibleProfiles
                             : const [],
                         activeProfileId: controller.activeProfile.id,
@@ -541,30 +514,26 @@ class _HomeScreenState extends State<HomeScreen> {
                           await controller.switchProfile(id);
                         },
                         onSelectGeneral: () => selectTab(_HomeTab.keyboard),
-                        onSelectLauncher: () => selectTab(_HomeTab.launcher),
-                        launcherSelected: effectiveTab == _HomeTab.launcher,
                         onTouchpad: isDesktopVibeWorkspace
                             ? () => _showDesktopTouchpad(context, controller)
                             : null,
                       ),
-                    if (!showComputerAppBar && !landscape)
+                    if (!showComputerAppBar)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(8, 5, 190, 5),
                         child: Row(
                           children: [
-                            ComputerSwitcher(
-                              controller: controller,
-                              compact: true,
-                              iconOnly: true,
-                            ),
+                            if (!widget.liteMode)
+                              ComputerSwitcher(
+                                controller: controller,
+                                compact: true,
+                                iconOnly: true,
+                              ),
                             const SizedBox(width: 4),
                             Expanded(
                               child: _HomeTabBar(
                                 controller: controller,
-                                applications: availableApps,
-                                onSelectApplication: selectApplication,
                                 profiles: visibleProfiles,
-                                selectedTab: effectiveTab,
                                 activeProfileId: controller.activeProfile.id,
                                 onSelectTab: selectTab,
                               ),
@@ -572,48 +541,59 @@ class _HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
                       ),
-                    if (!landscape || !showComputerAppBar)
-                      const Divider(height: 1),
-                    if (landscape)
-                      Expanded(
-                        child: Row(
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ValueListenableBuilder<String?>(
+                        valueListenable: controller.hid.errorMessage,
+                        builder: (context, error, _) => Column(
                           children: [
-                            _ComputerApplicationRail(
-                              applications: availableApps,
-                              profiles:
-                                  effectiveTab == _HomeTab.keyboard ||
-                                      effectiveTab == _HomeTab.launcher
-                                  ? visibleProfiles
-                                  : const [],
-                              activeProfileId: controller.activeProfile.id,
-                              selectedApplicationId: effectiveApplication?.id,
-                              launcherSelected:
-                                  effectiveTab == _HomeTab.launcher,
-                              onSelectApplication: selectApplication,
-                              onSelectProfile: (id) async {
-                                await selectTab(_HomeTab.keyboard);
-                                await controller.switchProfile(id);
-                              },
-                              onSelectLauncher: () =>
-                                  selectTab(_HomeTab.launcher),
-                              onSelectGeneral: () =>
-                                  selectTab(_HomeTab.keyboard),
-                              controller: controller,
-                            ),
-                            const VerticalDivider(width: 1),
-                            Expanded(
-                              child: _desktopErrorContent(
-                                controller,
-                                safeContent,
+                            if (error != null)
+                              Material(
+                                key: const ValueKey('control-surface-error'),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.errorContainer,
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 5,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onErrorContainer,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Tooltip(
+                                            message: error,
+                                            child: Text(
+                                              error,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onErrorContainer,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                            Expanded(child: safeContent),
                           ],
                         ),
-                      )
-                    else
-                      Expanded(
-                        child: _desktopErrorContent(controller, safeContent),
                       ),
+                    ),
                   ],
                 ],
               ),
@@ -626,7 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     editing: editing,
                     inApplicationWorkspace: effectiveTab != _HomeTab.keyboard,
                     compactToolbar: showComputerAppBar,
-                    onManage: editComputerSetup,
+                    onManage: widget.liteMode ? null : editComputerSetup,
                     onToggleEditing: () => setState(() => editing = !editing),
                   ),
                 ),
@@ -664,49 +644,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  Widget _desktopErrorContent(AppController controller, Widget child) =>
-      ValueListenableBuilder<String?>(
-        valueListenable: controller.hid.errorMessage,
-        builder: (context, error, _) => Column(
-          children: [
-            if (error != null)
-              Material(
-                key: const ValueKey('control-surface-error'),
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 5,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          color: Theme.of(context).colorScheme.onErrorContainer,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Tooltip(
-                            message: error,
-                            child: Text(
-                              error,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            Expanded(child: child),
-          ],
-        ),
-      );
 
   Future<void> _showDesktopTouchpad(
     BuildContext context,
@@ -810,11 +747,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final token = '${host.token}:$sequence';
     if (_handledActivationToken == token) return;
-    if (selectedTab == _HomeTab.launcher &&
-        _pendingDesktopActivationApplicationId == null) {
-      _handledActivationToken = token;
-      return;
-    }
     final app = controller.remoteApplicationForComputerApp(canonicalAppId);
     final computerApp = controller.availableComputerApplications
         .cast<ComputerApplication?>()
@@ -822,25 +754,13 @@ class _HomeScreenState extends State<HomeScreen> {
           (candidate) => candidate?.id == canonicalAppId,
           orElse: () => null,
         );
-    final launcherApp =
-        computerApp == null &&
-            controller.desktopManifest?.launcherApplicationIds.contains(
-                  canonicalAppId,
-                ) ==
-                true
-        ? ComputerApplication(
-            id: app?.id ?? canonicalAppId,
-            name: app?.name ?? canonicalAppId,
-            category: ComputerAppCategory.other,
-          )
-        : computerApp;
-    if (app == null || launcherApp == null || app.foreground != true) return;
+    if (app == null || computerApp == null || app.foreground != true) return;
     if (controller.layoutForApplication(app)?.buttons.isEmpty != false) {
       return;
     }
     _handledActivationToken = token;
-    selectedTab = _applicationTabFor(launcherApp.id);
-    selectedApplicationId = launcherApp.id;
+    selectedTab = _applicationTabFor(computerApp.id);
+    selectedApplicationId = computerApp.id;
     editing = false;
     _followForeground = false;
   }
@@ -934,145 +854,7 @@ int _remoteLayoutPageVisibleCount(
   return (secondaryCount - start).clamp(0, pageCapacity).toInt();
 }
 
-enum _HomeTab { launcher, keyboard, application, vibeCoding }
-
-class _LauncherPad extends StatelessWidget {
-  const _LauncherPad({
-    required this.controller,
-    required this.connected,
-    required this.onLaunch,
-    required this.onManage,
-    required this.showSetupAction,
-    required this.onConnect,
-  });
-
-  final AppController controller;
-  final bool connected;
-  final ValueChanged<ComputerApplication> onLaunch;
-  final VoidCallback onManage;
-  final bool showSetupAction;
-  final VoidCallback onConnect;
-
-  @override
-  Widget build(BuildContext context) {
-    final manifest = controller.desktopManifest;
-    final slots =
-        manifest?.launcherApplicationIds ?? List<String?>.filled(8, null);
-    return ListView(
-      key: const ValueKey('mobile-launcher-pad'),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Launcher Pad',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-            ),
-            if (!connected)
-              const Chip(
-                key: ValueKey('launcher-desktop-offline'),
-                avatar: Icon(Icons.cloud_off_outlined, size: 16),
-                label: Text('Desktop offline'),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final landscape =
-                MediaQuery.orientationOf(context) == Orientation.landscape;
-            final columns = landscape ? 4 : 2;
-            const gap = 10.0;
-            final width =
-                (constraints.maxWidth - gap * (columns - 1)) / columns;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: List.generate(8, (index) {
-                final id = slots[index];
-                final remote = manifest?.applicationById(id ?? '');
-                final label = id == null ? 'Empty slot' : remote?.name ?? id;
-                return SizedBox(
-                  width: width,
-                  height: 100,
-                  child: Card(
-                    key: ValueKey('launcher-slot-$index'),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: connected && remote != null
-                          ? () => onLaunch(
-                              ComputerApplication(
-                                id: remote.id,
-                                name: remote.name,
-                                category: ComputerAppCategory.other,
-                              ),
-                            )
-                          : null,
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: id == null
-                                  ? const Icon(
-                                      Icons.add_circle_outline,
-                                      size: 32,
-                                    )
-                                  : FutureBuilder<Uint8List?>(
-                                      future: controller
-                                          .loadDesktopApplicationIcon(id),
-                                      builder: (context, snapshot) =>
-                                          AppArtwork(
-                                            appId: id,
-                                            pngBytes: snapshot.data,
-                                            size: 38,
-                                            semanticLabel: label,
-                                          ),
-                                    ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            );
-          },
-        ),
-        const SizedBox(height: 12),
-        if (!connected)
-          Center(
-            child: OutlinedButton.icon(
-              key: const ValueKey('launcher-connect-desktop'),
-              onPressed: showSetupAction ? onManage : onConnect,
-              icon: const Icon(Icons.computer),
-              label: Text(
-                showSetupAction ? 'Set up this computer' : 'Connect Desktop',
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
-        Text(
-          connected
-              ? 'These apps are configured in LumiaKey Desktop. Tap one to activate it and open its shortcuts.'
-              : 'Connect to LumiaKey Desktop to see and launch your configured apps.',
-          style: Theme.of(context).textTheme.bodySmall,
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-}
+enum _HomeTab { keyboard, application, vibeCoding }
 
 class _ShortcutBoard extends StatelessWidget {
   const _ShortcutBoard({
@@ -1347,60 +1129,19 @@ class _LandscapePanel extends StatelessWidget {
 class _HomeTabBar extends StatelessWidget {
   const _HomeTabBar({
     required this.controller,
-    required this.applications,
-    required this.onSelectApplication,
     required this.profiles,
     required this.activeProfileId,
-    required this.selectedTab,
     required this.onSelectTab,
   });
 
   final AppController controller;
-  final List<ComputerApplication> applications;
-  final ValueChanged<ComputerApplication> onSelectApplication;
   final List<ProfileConfig> profiles;
   final String activeProfileId;
-  final _HomeTab selectedTab;
   final ValueChanged<_HomeTab> onSelectTab;
 
   @override
   Widget build(BuildContext context) {
     final items = <Widget>[];
-    items.add(
-      _HomeTabChip(
-        key: const ValueKey('profile-quick-launcher'),
-        label: 'Launcher Pad',
-        icon: const Icon(Icons.apps_outlined),
-        selected: selectedTab == _HomeTab.launcher,
-        onTap: () => onSelectTab(_HomeTab.launcher),
-      ),
-    );
-    items.add(
-      _HomeTabChip(
-        key: const ValueKey('profile-quick-keyboard'),
-        label: 'Keyboard',
-        icon: const Icon(Icons.keyboard_outlined),
-        selected: selectedTab == _HomeTab.keyboard,
-        onTap: () => onSelectTab(_HomeTab.keyboard),
-      ),
-    );
-    for (final application in applications) {
-      items.add(
-        _HomeTabChip(
-          key: ValueKey('workspace-app-${application.id}'),
-          label:
-              controller
-                  .remoteApplicationForComputerApp(application.id)
-                  ?.name ??
-              application.name,
-          icon: Icon(_computerApplicationIcon(application.id)),
-          selected:
-              application.id == controller.foregroundApplication?.id &&
-              selectedTab == _HomeTab.application,
-          onTap: () => onSelectApplication(application),
-        ),
-      );
-    }
     for (final profile in profiles) {
       items.add(
         _HomeTabChip(
@@ -1431,128 +1172,6 @@ class _HomeTabBar extends StatelessWidget {
   }
 }
 
-class _ComputerApplicationRail extends StatelessWidget {
-  const _ComputerApplicationRail({
-    required this.applications,
-    required this.profiles,
-    required this.activeProfileId,
-    required this.selectedApplicationId,
-    required this.launcherSelected,
-    required this.onSelectApplication,
-    required this.onSelectProfile,
-    required this.onSelectLauncher,
-    required this.onSelectGeneral,
-    required this.controller,
-  });
-
-  final List<ComputerApplication> applications;
-  final List<ProfileConfig> profiles;
-  final String activeProfileId;
-  final String? selectedApplicationId;
-  final bool launcherSelected;
-  final ValueChanged<ComputerApplication> onSelectApplication;
-  final ValueChanged<String> onSelectProfile;
-  final VoidCallback onSelectLauncher;
-  final VoidCallback onSelectGeneral;
-  final AppController controller;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    key: const ValueKey('computer-app-rail'),
-    width: 76,
-    child: ListView(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      children: [
-        _railItem(
-          context,
-          'Launcher Pad',
-          Icons.apps_outlined,
-          launcherSelected,
-          onSelectLauncher,
-        ),
-        if (selectedApplicationId != null)
-          _railItem(
-            context,
-            'General',
-            Icons.keyboard_outlined,
-            false,
-            onSelectGeneral,
-          ),
-        for (final app in applications)
-          _railItem(
-            context,
-            controller.remoteApplicationForComputerApp(app.id)?.name ??
-                app.name,
-            _computerApplicationIcon(app.id),
-            app.id == selectedApplicationId,
-            () => onSelectApplication(app),
-          ),
-        if (applications.isNotEmpty && profiles.isNotEmpty)
-          const Divider(indent: 12, endIndent: 12),
-        for (final profile in profiles)
-          _railItem(
-            context,
-            profile.name,
-            BuiltinIconCatalog.find(profile.profileIcon.value)?.icon ??
-                Icons.dashboard_outlined,
-            profile.id == activeProfileId &&
-                selectedApplicationId == null &&
-                !launcherSelected,
-            () => onSelectProfile(profile.id),
-          ),
-        const Divider(indent: 12, endIndent: 12),
-        Center(
-          child: ComputerSwitcher(
-            controller: controller,
-            compact: true,
-            iconOnly: true,
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _railItem(
-    BuildContext context,
-    String label,
-    IconData icon,
-    bool selected,
-    VoidCallback onTap,
-  ) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-    child: Tooltip(
-      message: label,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Container(
-          height: 58,
-          decoration: BoxDecoration(
-            color: selected
-                ? Theme.of(context).colorScheme.secondaryContainer
-                : null,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 5),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 19),
-              const SizedBox(height: 3),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
 class _ComputerApplicationBar extends StatelessWidget {
   const _ComputerApplicationBar({
     required this.controller,
@@ -1564,8 +1183,6 @@ class _ComputerApplicationBar extends StatelessWidget {
     required this.onSelectApplication,
     required this.onSelectProfile,
     required this.onSelectGeneral,
-    required this.onSelectLauncher,
-    required this.launcherSelected,
     this.onTouchpad,
   });
 
@@ -1578,8 +1195,6 @@ class _ComputerApplicationBar extends StatelessWidget {
   final ValueChanged<ComputerApplication> onSelectApplication;
   final ValueChanged<String> onSelectProfile;
   final VoidCallback onSelectGeneral;
-  final VoidCallback onSelectLauncher;
-  final bool launcherSelected;
   final VoidCallback? onTouchpad;
 
   @override
@@ -1602,14 +1217,9 @@ class _ComputerApplicationBar extends StatelessWidget {
                 itemCount:
                     applications.length +
                     profiles.length +
-                    2 +
                     (selectedApplicationId == null ? 0 : 1),
                 separatorBuilder: (_, index) =>
-                    index ==
-                            applications.length +
-                                (selectedApplicationId == null ? 1 : 2) -
-                                1 &&
-                        profiles.isNotEmpty
+                    index == applications.length - 1 && profiles.isNotEmpty
                     ? const SizedBox(
                         width: 12,
                         height: 22,
@@ -1617,28 +1227,8 @@ class _ComputerApplicationBar extends StatelessWidget {
                       )
                     : const SizedBox(width: 6),
                 itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return _HomeTabChip(
-                      key: const ValueKey('workspace-launcher'),
-                      label: 'Launcher Pad',
-                      icon: const Icon(Icons.apps_outlined),
-                      selected: launcherSelected,
-                      onTap: onSelectLauncher,
-                    );
-                  }
-                  if (index == 1) {
-                    return _HomeTabChip(
-                      key: const ValueKey('home-tab-keyboard'),
-                      label: 'Keyboard',
-                      icon: const Icon(Icons.keyboard_outlined),
-                      selected:
-                          selectedApplicationId == null && !launcherSelected,
-                      onTap: onSelectGeneral,
-                    );
-                  }
-                  final shiftedIndex = index - 2;
                   final hasGeneral = selectedApplicationId != null;
-                  if (hasGeneral && shiftedIndex == 0) {
+                  if (hasGeneral && index == 0) {
                     return _HomeTabChip(
                       key: const ValueKey('home-tab-general'),
                       label: 'General',
@@ -1646,7 +1236,7 @@ class _ComputerApplicationBar extends StatelessWidget {
                       onTap: onSelectGeneral,
                     );
                   }
-                  final itemIndex = shiftedIndex - (hasGeneral ? 1 : 0);
+                  final itemIndex = index - (hasGeneral ? 1 : 0);
                   if (itemIndex >= applications.length) {
                     final profile = profiles[itemIndex - applications.length];
                     return _HomeTabChip(

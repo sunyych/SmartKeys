@@ -133,12 +133,12 @@ class ScreenshotSupport {
     expect(decoded!.width, greaterThan(200));
     expect(decoded.height, greaterThan(200));
 
-    final fileName = 'phone/$id.png';
+    final fileName = 'bluetooth/$id.png';
     late final File pngFile;
     final metadata = <String, Object>{
       'id': id,
       'title': title,
-      'platform': 'Android widget',
+      'platform': 'Bluetooth Lite Android widget',
       'orientation': orientation,
       'width': decoded.width,
       'height': decoded.height,
@@ -147,7 +147,7 @@ class ScreenshotSupport {
           '$notes Fixed Flutter test viewport; this is not a physical-device screenshot.',
     };
     await tester.runAsync(() async {
-      final phone = Directory('${root.path}${Platform.pathSeparator}phone');
+      final phone = Directory('${root.path}${Platform.pathSeparator}bluetooth');
       await phone.create(recursive: true);
       pngFile = File('${phone.path}${Platform.pathSeparator}$id.png');
       await pngFile.writeAsBytes(png, flush: true);

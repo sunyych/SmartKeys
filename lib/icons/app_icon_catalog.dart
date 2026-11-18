@@ -4,51 +4,62 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+
+import 'app_icon_validation.dart';
 
 /// Canonical IDs accepted by the bundled catalog and same-origin download API.
 abstract final class AppIconCatalog {
-  static const ids = <String>{
-    'codex',
-    'chatgpt',
-    'claude',
-    'cursor',
-    'chrome',
-    'edge',
-    'firefox',
-    'safari',
-    'teams',
-    'zoom',
-    'photoshop',
-    'illustrator',
-    'vscode',
-    'solidworks',
-    'premiere',
-    'appleMusic',
-    'finder',
-  };
+  static const ids = remoteApplicationIconAppIds;
 
   static const assets = <String, String>{
     'codex': 'assets/app_icons/openai.png',
     'chatgpt': 'assets/app_icons/openai.png',
+    'claude': 'assets/app_icons/claude-app.png',
+    'cursor': 'assets/app_icons/cursor.png',
     'chrome': 'assets/app_icons/chrome.png',
     'vscode': 'assets/app_icons/vscode.png',
     'photoshop': 'assets/app_icons/photoshop.png',
     'illustrator': 'assets/app_icons/illustrator.png',
     'premiere': 'assets/app_icons/premiere.png',
-    'solidworks': 'assets/app_icons/solidworks.png',
+    'solidworks': 'assets/app_icons/solidworks-app.png',
+    'edge': 'assets/app_icons/edge.png',
+    'firefox': 'assets/app_icons/firefox.png',
+    'safari': 'assets/app_icons/safari.png',
+    'teams': 'assets/app_icons/teams.png',
+    'zoom': 'assets/app_icons/zoom.png',
+    'appleMusic': 'assets/app_icons/appleMusic.png',
+    'finder': 'assets/app_icons/finder.png',
   };
+
+  static final Map<String, Future<bool>> _bundledAvailability = {};
+  static Future<bool> hasBundledAsset(String appId) =>
+      _bundledAvailability.putIfAbsent(appId, () async {
+        final asset = assets[appId];
+        if (asset == null) return false;
+        try {
+          return (await rootBundle.load(asset)).lengthInBytes > 0;
+        } catch (_) {
+          return false;
+        }
+      });
 }
 
 /// Small shared RAM cache for downloaded or CompanionServer-provided PNGs.
 /// The caller owns durable storage; this cache deliberately resets on restart.
 abstract final class AppIconCache {
   static final Map<String, Uint8List> _items = {};
-  static Uint8List? get(String appId) => _items[appId];
+  static Uint8List? get(String appId) {
+    final bytes = _items[appId];
+    return bytes == null ? null : Uint8List.fromList(bytes);
+  }
+
   static void put(String appId, Uint8List bytes) {
     if (!AppIconCatalog.ids.contains(appId) ||
-        !_isPng(bytes) ||
-        bytes.length > 64 * 1024)
+        !AppIconValidation.isValidPng(bytes)) {
       return;
+    }
     _items[appId] = Uint8List.fromList(bytes);
   }
 
@@ -104,8 +115,7 @@ class IconCatalogClient {
   }
 
   Future<Uint8List?> downloadByAppId(String appId) async {
-    if (!AppIconCatalog.ids.contains(appId))
-      throw ArgumentError.value(appId, 'appId');
+    if (!AppIconCatalog.ids.contains(appId)) return null;
     final cached = AppIconCache.get(appId);
     if (cached != null) return Uint8List.fromList(cached);
     final base = _baseUri;
@@ -116,24 +126,37 @@ class IconCatalogClient {
     final client = _clientFactory();
     try {
       final request = await client.getUrl(uri).timeout(timeout);
+      request.followRedirects = false;
       request.headers.set(HttpHeaders.acceptHeader, 'image/png');
       final response = await request.close().timeout(timeout);
       if (response.statusCode != HttpStatus.ok ||
           !((response.headers.contentType?.mimeType.toLowerCase() ?? '') ==
-              'image/png'))
+              'image/png')) {
         return null;
-      final builder = BytesBuilder(copy: false);
-      await for (final chunk in response.timeout(timeout)) {
-        if (builder.length + chunk.length > maxResponseBytes) return null;
-        builder.add(chunk);
       }
-      final bytes = builder.takeBytes();
-      if (!_isPng(bytes)) return null;
+      Future<Uint8List?> readImage() async {
+        final builder = BytesBuilder(copy: false);
+        await for (final chunk in response.timeout(timeout)) {
+          if (builder.length + chunk.length > maxResponseBytes ||
+              builder.length + chunk.length > AppIconValidation.maxBytes) {
+            return null;
+          }
+          builder.add(chunk);
+        }
+        return builder.takeBytes();
+      }
+
+      final bytes = await readImage().timeout(timeout);
+      if (bytes == null || !AppIconValidation.isValidPng(bytes)) return null;
       AppIconCache.put(appId, bytes);
       return bytes;
     } on TimeoutException {
       return null;
     } on SocketException {
+      return null;
+    } on HttpException {
+      return null;
+    } on FormatException {
       return null;
     } finally {
       client.close(force: true);
@@ -162,14 +185,14 @@ class AppArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Uint8List? bytes = pngBytes;
-    if (bytes == null && pngBase64 != null) {
+    if (bytes == null && pngBase64 != null && pngBase64!.length <= 87384) {
       try {
         bytes = base64Decode(pngBase64!);
       } on FormatException {
         bytes = null;
       }
     }
-    if (bytes != null && _isPng(bytes) && bytes.length <= 64 * 1024) {
+    if (bytes != null && AppIconValidation.isValidPng(bytes)) {
       return Image.memory(
         bytes,
         width: size,
@@ -177,6 +200,8 @@ class AppArtwork extends StatelessWidget {
         fit: BoxFit.contain,
         semanticLabel: semanticLabel ?? '$appId app icon',
         filterQuality: FilterQuality.none,
+        frameBuilder: (context, child, frame, synchronous) =>
+            synchronous || frame != null ? child : _bundled(context),
         errorBuilder: (_, _, _) => _bundled(context),
       );
     }
@@ -192,6 +217,8 @@ class AppArtwork extends StatelessWidget {
         height: size,
         fit: BoxFit.contain,
         semanticLabel: semanticLabel ?? '$appId app icon',
+        frameBuilder: (context, child, frame, synchronous) =>
+            synchronous || frame != null ? child : _fallback(context),
         errorBuilder: (_, _, _) => _fallback(context),
       );
     }
@@ -211,14 +238,3 @@ class AppArtwork extends StatelessWidget {
     ),
   );
 }
-
-bool _isPng(Uint8List bytes) =>
-    bytes.length >= 8 &&
-    bytes[0] == 0x89 &&
-    bytes[1] == 0x50 &&
-    bytes[2] == 0x4e &&
-    bytes[3] == 0x47 &&
-    bytes[4] == 0x0d &&
-    bytes[5] == 0x0a &&
-    bytes[6] == 0x1a &&
-    bytes[7] == 0x0a;

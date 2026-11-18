@@ -44,7 +44,13 @@ void main() {
           (key, value) => MapEntry(key.toString(), value),
         ),
       );
-      expect(manifest.layoutById('codex')!.buttons, hasLength(15));
+      expect(manifest.layoutById('codex')!.buttons, hasLength(12));
+      expect(manifest.layoutById('keyboard')!.buttons, hasLength(12));
+      for (final action in ['mute', 'volumeDown', 'volumeUp', 'playPause']) {
+        final button = manifest.buttonById('keyboard.$action')!;
+        expect(button.targetType, RemoteTargetType.system);
+        expect(button.target, action);
+      }
 
       final actionRequest = await client.post(
         InternetAddress.loopbackIPv4.address,
@@ -92,6 +98,4 @@ void main() {
       expect(response.statusCode, HttpStatus.forbidden);
     },
   );
-
-
 }

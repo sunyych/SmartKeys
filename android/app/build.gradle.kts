@@ -55,6 +55,25 @@ android {
         versionName = flutter.versionName
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("regular") {
+            dimension = "edition"
+            manifestPlaceholders["appLabel"] = "LumiaKey"
+            buildConfigField("boolean", "IS_LITE", "false")
+        }
+        create("lite") {
+            dimension = "edition"
+            applicationIdSuffix = ".lite"
+            manifestPlaceholders["appLabel"] = "LumiaKey Lite"
+            buildConfigField("boolean", "IS_LITE", "true")
+        }
+    }
+
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {

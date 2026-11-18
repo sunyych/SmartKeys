@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app.dart';
+import '../app_edition.dart';
 import '../controllers/app_controller.dart';
 import '../data/community_setup_repository.dart';
 import '../models/config.dart';
@@ -13,6 +14,7 @@ import 'desktop_connection_panel.dart';
 import 'usage_dashboard_screen.dart';
 import 'account_backup_screen.dart';
 import 'community_setup_screen.dart';
+import 'lite_shortcut_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -24,10 +26,11 @@ class SettingsScreen extends StatelessWidget {
     final controller = SmartKeysScope.of(context);
     final preferences = controller.config.preferences;
     final isIosDesktop = controller.hid is IosCompanionHidService;
+    final isLite = SmartKeysScope.editionOf(context) == AppEdition.lite;
     final content = ListView(
       key: ValueKey(embedded ? 'embedded-settings' : 'settings-list'),
       children: [
-        if (!isIosDesktop) ...[
+        if (isLite) ...[
           const _SectionLabel('BLUETOOTH HID'),
           ValueListenableBuilder(
             valueListenable: controller.hid.connectionStatus,
@@ -45,178 +48,202 @@ class SettingsScreen extends StatelessWidget {
           ),
           const Divider(),
         ],
-        const _SectionLabel('DESKTOP COMPANION'),
-        DesktopConnectionPanel(companion: controller.companion),
-        const Divider(),
-        if (!isIosDesktop) ...[
-          const _SectionLabel('SETUP EXPERIENCE'),
-          SwitchListTile(
-            key: const ValueKey('beginner-mode-setting'),
-            secondary: const Icon(Icons.school_outlined),
-            title: const Text('Beginner mode'),
-            subtitle: const Text(
-              'Show step-by-step computer shortcut setup on Android Bluetooth connections.',
-            ),
-            value: preferences.beginnerMode,
-            onChanged: controller.setBeginnerMode,
-          ),
+        if (!isLite) ...[
+          const _SectionLabel('DESKTOP COMPANION'),
+          DesktopConnectionPanel(companion: controller.companion),
           const Divider(),
+          const ListTile(
+            leading: Icon(Icons.desktop_windows_outlined),
+            title: Text('Shortcut settings on your computer'),
+            subtitle: Text(
+              'Edit applications and shortcut buttons in LumiaKey Desktop. '
+              'Launchpad shows the installed apps synced from your computer. '
+              'The mobile app displays twelve buttons in four columns and three rows.',
+            ),
+          ),
         ],
-        const _SectionLabel('SHORTCUT PLATFORM'),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Text(
-            'Per-app shortcuts are sent exactly as entered. This setting is the fallback for Primary profile keys; the saved or paired computer OS takes priority.',
-          ),
-        ),
-        Builder(
-          builder: (context) {
-            final computer = controller.activeComputer;
-            final operatingSystem = computer?.operatingSystem;
-            final currentSystem = operatingSystem == null
-                ? 'Computer OS not identified'
-                : operatingSystem.label;
-            final modifier = controller.primaryShortcutLabel == 'Command'
-                ? 'Command (⌘)'
-                : 'Ctrl';
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(
-                computer == null
-                    ? 'No computer selected · fallback now uses $modifier.'
-                    : 'Current computer: $currentSystem · Primary uses $modifier.',
-                key: const ValueKey('current-computer-shortcut-system'),
-                style: Theme.of(context).textTheme.bodySmall,
+        if (isLite) ...[
+          const _SectionLabel('LOCAL SHORTCUTS'),
+          ListTile(
+            key: const ValueKey('lite-shortcut-settings'),
+            leading: const Icon(Icons.keyboard_outlined),
+            title: const Text('Shortcut settings'),
+            subtitle: const Text(
+              'Edit General, ChatGPT, Chrome, or add a profile',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => const LiteShortcutSettingsScreen(),
               ),
-            );
-          },
-        ),
-        RadioGroup<ShortcutPlatform>(
-          groupValue: preferences.shortcutPlatform,
-          onChanged: (value) {
-            if (value != null) controller.updateShortcutPlatform(value);
-          },
-          child: Column(
-            children: ShortcutPlatform.values
-                .map(
-                  (platform) => RadioListTile<ShortcutPlatform>(
-                    title: Text(_shortcutPlatformTitle(platform)),
-                    subtitle: Text(
-                      _shortcutPlatformSubtitle(platform, controller),
-                    ),
-                    value: platform,
-                  ),
-                )
-                .toList(),
+            ),
           ),
-        ),
-        const Divider(),
-        const _SectionLabel('CONTROL SURFACE'),
-        RadioGroup<ControlSurfaceLayout>(
-          groupValue: preferences.controlSurfaceLayout,
-          onChanged: (value) {
-            if (value != null) controller.updateControlSurfaceLayout(value);
-          },
-          child: Column(
-            children: ControlSurfaceLayout.values
-                .map(
-                  (layout) => RadioListTile<ControlSurfaceLayout>(
-                    title: Text(_controlSurfaceLayoutTitle(layout)),
-                    subtitle: Text(_controlSurfaceLayoutSubtitle(layout)),
-                    value: layout,
-                  ),
-                )
-                .toList(),
+          const _SectionLabel('SHORTCUT PLATFORM'),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              'Per-app shortcuts are sent exactly as entered. This setting is the fallback for Primary profile keys; the saved or paired computer OS takes priority.',
+            ),
           ),
-        ),
-        ListTile(
-          leading: const Icon(Icons.grid_view_outlined),
-          title: const Text('Shortcut board keys per screen'),
-          trailing: DropdownButton<int>(
-            key: const ValueKey('tablet-keys-per-page'),
-            value: preferences.tabletKeysPerPage,
-            items: [
-              for (
-                var count = minTabletKeysPerPage;
-                count <= maxTabletKeysPerPage;
-                count++
-              )
-                DropdownMenuItem<int>(
-                  value: count,
-                  child: Text(
-                    count == 40
-                        ? '$count (default)'
-                        : tabletKeysPerPageOptions.contains(count)
-                        ? '$count (preset)'
-                        : '$count',
-                  ),
+          Builder(
+            builder: (context) {
+              final computer = controller.activeComputer;
+              final operatingSystem = computer?.operatingSystem;
+              final currentSystem = operatingSystem == null
+                  ? 'Computer OS not identified'
+                  : operatingSystem.label;
+              final modifier = controller.primaryShortcutLabel == 'Command'
+                  ? 'Command (⌘)'
+                  : 'Ctrl';
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  computer == null
+                      ? 'No computer selected · fallback now uses $modifier.'
+                      : 'Current computer: $currentSystem · Primary uses $modifier.',
+                  key: const ValueKey('current-computer-shortcut-system'),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-            ],
-            onChanged: (value) {
-              if (value != null) controller.updateTabletKeysPerPage(value);
+              );
             },
           ),
-        ),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.dashboard_customize_outlined),
-          title: const Text('Profiles'),
-          subtitle: Text(
-            '${controller.config.profiles.length}/$freeProfileLimit profiles · manual switching',
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const ProfileManagementScreen(),
+          RadioGroup<ShortcutPlatform>(
+            groupValue: preferences.shortcutPlatform,
+            onChanged: (value) {
+              if (value != null) controller.updateShortcutPlatform(value);
+            },
+            child: Column(
+              children: ShortcutPlatform.values
+                  .map(
+                    (platform) => RadioListTile<ShortcutPlatform>(
+                      title: Text(_shortcutPlatformTitle(platform)),
+                      subtitle: Text(
+                        _shortcutPlatformSubtitle(platform, controller),
+                      ),
+                      value: platform,
+                    ),
+                  )
+                  .toList(),
             ),
           ),
-        ),
-        ListTile(
-          leading: const Icon(Icons.groups_outlined),
-          title: const Text('Shortcut Community'),
-          subtitle: const Text(
-            'Import, replace, copy, and export Profile JSON',
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const ShortcutCommunityScreen(),
+        ],
+        if (isLite && !isIosDesktop) ...[
+          const Divider(),
+          const _SectionLabel('CONTROL SURFACE'),
+          RadioGroup<ControlSurfaceLayout>(
+            groupValue: preferences.controlSurfaceLayout,
+            onChanged: (value) {
+              if (value != null) controller.updateControlSurfaceLayout(value);
+            },
+            child: Column(
+              children: ControlSurfaceLayout.values
+                  .map(
+                    (layout) => RadioListTile<ControlSurfaceLayout>(
+                      title: Text(_controlSurfaceLayoutTitle(layout)),
+                      subtitle: Text(_controlSurfaceLayoutSubtitle(layout)),
+                      value: layout,
+                    ),
+                  )
+                  .toList(),
             ),
           ),
-        ),
-        ListTile(
-          key: const ValueKey('open-desktop-installers'),
-          leading: const Icon(Icons.install_desktop_outlined),
-          title: const Text('Desktop installers'),
-          subtitle: const Text(
-            'Verify and export bundled Windows and macOS installers',
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const DesktopInstallersScreen(),
+          ListTile(
+            leading: const Icon(Icons.grid_view_outlined),
+            title: const Text('Shortcut board keys per screen'),
+            trailing: DropdownButton<int>(
+              key: const ValueKey('tablet-keys-per-page'),
+              value: preferences.tabletKeysPerPage,
+              items: [
+                for (
+                  var count = minTabletKeysPerPage;
+                  count <= maxTabletKeysPerPage;
+                  count++
+                )
+                  DropdownMenuItem<int>(
+                    value: count,
+                    child: Text(
+                      count == 40
+                          ? '$count (default)'
+                          : tabletKeysPerPageOptions.contains(count)
+                          ? '$count (preset)'
+                          : '$count',
+                    ),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) controller.updateTabletKeysPerPage(value);
+              },
             ),
           ),
-        ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.dashboard_customize_outlined),
+            title: const Text('Profiles'),
+            subtitle: Text(
+              '${controller.config.profiles.length}/$freeProfileLimit profiles · manual switching',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ProfileManagementScreen(),
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.groups_outlined),
+            title: const Text('Shortcut Community'),
+            subtitle: const Text(
+              'Import, replace, copy, and export Profile JSON',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ShortcutCommunityScreen(),
+              ),
+            ),
+          ),
+        ],
+        if (!isLite)
+          ListTile(
+            key: const ValueKey('open-desktop-installers'),
+            leading: const Icon(Icons.install_desktop_outlined),
+            title: const Text('Desktop installers'),
+            subtitle: const Text(
+              'Verify and export bundled Windows and macOS installers',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const DesktopInstallersScreen(),
+              ),
+            ),
+          ),
         const Divider(),
         const _SectionLabel('SCREEN ORIENTATION'),
-        RadioGroup<OrientationMode>(
-          groupValue: preferences.orientationMode,
-          onChanged: (value) {
-            if (value != null) controller.updateOrientationMode(value);
-          },
-          child: Column(
-            children: OrientationMode.values
-                .map(
-                  (mode) => RadioListTile<OrientationMode>(
-                    title: Text(_orientationTitle(mode)),
-                    subtitle: Text(_orientationSubtitle(mode)),
-                    value: mode,
-                  ),
-                )
-                .toList(),
+        if (!isLite)
+          const ListTile(
+            leading: Icon(Icons.screen_lock_landscape_outlined),
+            title: Text('Landscape only'),
+            subtitle: Text('The control surface always stays horizontal.'),
           ),
-        ),
+        if (isLite)
+          RadioGroup<OrientationMode>(
+            groupValue: preferences.orientationMode,
+            onChanged: (value) {
+              if (value != null) controller.updateOrientationMode(value);
+            },
+            child: Column(
+              children: OrientationMode.values
+                  .map(
+                    (mode) => RadioListTile<OrientationMode>(
+                      title: Text(_orientationTitle(mode)),
+                      subtitle: Text(_orientationSubtitle(mode)),
+                      value: mode,
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
         const Divider(),
         const _SectionLabel('CHARGING DISPLAY'),
         RadioGroup<ChargingBrightnessMode>(
@@ -311,15 +338,14 @@ class SettingsScreen extends StatelessWidget {
         const _SectionLabel('SHORTCUT USAGE'),
         _ShortcutUsageSection(controller: controller),
         const Divider(),
-        const _SectionLabel('BUILT-IN TEMPLATES'),
-        ListTile(
-          leading: const Icon(Icons.restore),
-          title: const Text('Restore all default profiles'),
-          subtitle: const Text(
-            'Restores General, Web, Zoom / Teams, and Custom',
+        if (isLite) const _SectionLabel('BUILT-IN TEMPLATES'),
+        if (isLite)
+          ListTile(
+            leading: const Icon(Icons.restore),
+            title: const Text('Restore all default profiles'),
+            subtitle: const Text('Restores General, ChatGPT, and Chrome'),
+            onTap: () => _confirmRestore(context),
           ),
-          onTap: () => _confirmRestore(context),
-        ),
         Padding(
           padding: const EdgeInsets.all(16),
           child: Card(
@@ -331,18 +357,17 @@ class SettingsScreen extends StatelessWidget {
                   const Icon(Icons.info_outline),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: isIosDesktop
+                    child: !isLite
                         ? const Text(
-                            'iPad sends supported keyboard shortcuts to '
+                            'LumiaKey sends shortcuts and pointer controls to '
                             'LumiaKey Desktop over Wi-Fi; speech recognition '
                             'stays on this device.',
                             key: ValueKey('ipad-desktop-keyboard-explanation'),
                           )
                         : const Text(
-                            'Bluetooth and Desktop use the same control '
-                            'surface. Desktop provides installed apps and '
-                            'dynamic app shortcuts; your phone Profiles '
-                            'remain available.',
+                            'LumiaKey Lite sends Bluetooth keyboard and mouse '
+                            'input directly to your computer. Open the target '
+                            'app yourself and configure its shortcuts here.',
                           ),
                   ),
                 ],
@@ -414,7 +439,7 @@ class SettingsScreen extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('Restore default profiles?'),
         content: const Text(
-          'All four Profile slots will return to General, Web, Zoom / Teams, and Custom.',
+          'Your local shortcuts will be replaced with General, ChatGPT, and Chrome.',
         ),
         actions: [
           TextButton(

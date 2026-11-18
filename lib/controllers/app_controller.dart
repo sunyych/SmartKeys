@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:crypto/crypto.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../data/config_repository.dart';
@@ -14,6 +15,8 @@ import '../data/shortcut_usage_repository.dart';
 import '../models/config.dart';
 import '../models/computer_setup.dart';
 import '../models/control_surface_status.dart';
+import '../icons/app_icon_catalog.dart';
+import '../icons/app_icon_validation.dart';
 import '../services/hid_service.dart';
 import '../services/ios_companion_hid_service.dart';
 import '../services/companion_service.dart';
@@ -31,7 +34,8 @@ class AppController extends ChangeNotifier {
     required this.powerBrightnessService,
     required this.shortcutUsage,
     this.platformOverride,
-  }) {
+    IconCatalogClient? iconCatalogClient,
+  }) : _iconCatalogClient = iconCatalogClient ?? IconCatalogClient() {
     hid.activeHost.addListener(_handleActiveHostChanged);
     hid.connectionStatus.addListener(_handleActiveHostChanged);
     hid.pairedHosts.addListener(notifyListeners);
@@ -57,6 +61,7 @@ class AppController extends ChangeNotifier {
   final PowerBrightnessService powerBrightnessService;
   final ShortcutUsageRepository shortcutUsage;
   final TargetPlatform? platformOverride;
+  final IconCatalogClient _iconCatalogClient;
 
   AppConfig? _config;
   String? _acceptedCompanionSession;
@@ -69,6 +74,7 @@ class AppController extends ChangeNotifier {
   final Set<int> _pressedPositions = {};
   final Map<int, HidAction> _pressedButtonActions = {};
   final Map<String, Uint8List> _desktopAppIconBytes = {};
+  final Map<String, DateTime> _desktopAppIconStoredAt = {};
   final Map<String, Future<Uint8List?>> _desktopAppIconLoads = {};
   HidAction? _pressedWheelCenterAction;
   double _touchpadScrollAccumulator = 0;
@@ -101,51 +107,105 @@ class AppController extends ChangeNotifier {
   bool get isDarkModeActive => _darkModeActive;
   DesktopManifest? get desktopManifest => companion.manifest.value;
 
-  Future<Uint8List?> loadDesktopApplicationIcon(String appId) {
-    if (!remoteApplicationIconAppIds.contains(appId)) return Future.value(null);
+  /// A stable disk-cache scope for one computer endpoint; tokens are never
+  /// persisted. A session check separately prevents late responses crossing KVM.
+  String? get desktopIconScope {
     final manifest = desktopManifest;
-    final computerId = manifest?.computerId;
-    if (manifest == null || computerId == null) return Future.value(null);
-    final key = '$computerId:$appId';
+    final host = companion.activeHost.value;
+    if (!isDesktopSynced ||
+        host == null ||
+        manifest?.settings.syncIcons != true) {
+      return null;
+    }
+    final identity = manifest?.computerId ?? host.computerId ?? host.address;
+    return md5.convert(utf8.encode('$identity|${host.platform}')).toString();
+  }
+
+  String? get desktopIconRequestScope {
+    final scope = desktopIconScope;
+    final host = companion.activeHost.value;
+    return scope == null || host == null
+        ? null
+        : '$scope:${md5.convert(utf8.encode(_companionSessionId(host)))}:${desktopManifest?.revision}';
+  }
+
+  Future<Uint8List?> loadDesktopApplicationIcon(String appId) {
+    final scope = desktopIconScope;
+    final host = companion.activeHost.value;
+    if (scope == null ||
+        host == null ||
+        !remoteApplicationIconAppIds.contains(appId) ||
+        desktopManifest?.applicationById(appId) == null) {
+      return Future.value(null);
+    }
+    final session = _companionSessionId(host);
+    final app = desktopManifest!.applicationById(appId)!;
+    bool current() =>
+        desktopIconScope == scope &&
+        companion.activeHost.value != null &&
+        _companionSessionId(companion.activeHost.value!) == session &&
+        desktopManifest?.applicationById(appId)?.executable == app.executable &&
+        desktopManifest?.applicationById(appId)?.icon == app.icon;
+    final identity = md5
+        .convert(utf8.encode('${app.executable}|${app.icon}'))
+        .toString()
+        .substring(0, 12);
+    final cacheAppId = '${appId}_$identity';
+    final key = '$scope:$cacheAppId';
     final cached = _desktopAppIconBytes[key];
-    if (cached != null) return Future.value(Uint8List.fromList(cached));
-    return _desktopAppIconLoads.putIfAbsent(key, () async {
+    final cachedAt = _desktopAppIconStoredAt[key];
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(hours: 24)) {
+      return Future.value(Uint8List.fromList(cached));
+    }
+    final requestKey = '$key:${md5.convert(utf8.encode(session))}';
+    return _desktopAppIconLoads.putIfAbsent(requestKey, () async {
       try {
-        final local = await imageStore.readDesktopAppIcon(computerId, appId);
-        if (local != null) {
-          _desktopAppIconBytes[key] = local;
-          return Uint8List.fromList(local);
+        final local = await imageStore.readDesktopAppIcon(scope, cacheAppId);
+        final updatedAt = local == null
+            ? null
+            : await imageStore.desktopAppIconUpdatedAt(scope, cacheAppId);
+        if (!current()) return null;
+        Uint8List? bytes = local;
+        if (bytes == null &&
+            host.capabilities.contains('app-icons-v1') &&
+            companion is CompanionIconConnection) {
+          bytes = await (companion as CompanionIconConnection)
+              .fetchApplicationIcon(appId);
+          if (!current()) return null;
         }
-        if (!isDesktopSynced ||
-            manifest.settings.syncIcons != true ||
-            companion.activeHost.value?.capabilities.contains('app-icons-v1') !=
-                true ||
-            manifest.applicationById(appId) == null ||
-            companion is! CompanionIconConnection) {
-          return null;
+        // Bundled icons stay available without any centralized-service request.
+        if ((bytes == null || !AppIconValidation.isValidPng(bytes)) &&
+            !await AppIconCatalog.hasBundledAsset(appId)) {
+          bytes = await _iconCatalogClient.downloadByAppId(appId);
+          if (!current()) return null;
         }
-        final bytes = await (companion as CompanionIconConnection)
-            .fetchApplicationIcon(appId);
         if (bytes == null ||
-            bytes.length < 8 ||
-            bytes.length > 64 * 1024 ||
-            bytes[0] != 0x89 ||
-            bytes[1] != 0x50 ||
-            bytes[2] != 0x4e ||
-            bytes[3] != 0x47 ||
-            bytes[4] != 0x0d ||
-            bytes[5] != 0x0a ||
-            bytes[6] != 0x1a ||
-            bytes[7] != 0x0a) {
+            !AppIconValidation.isValidPng(bytes) ||
+            !current()) {
           return null;
         }
-        await imageStore.cacheDesktopAppIcon(computerId, appId, bytes);
+        if (local == null) {
+          try {
+            await imageStore.cacheDesktopAppIcon(scope, cacheAppId, bytes);
+          } catch (_) {
+            // A read-only/full cache must not hide a valid in-memory native icon.
+          }
+        }
+        if (!current()) return null;
+        if (_desktopAppIconBytes.length >= 128) {
+          final oldest = _desktopAppIconBytes.keys.first;
+          _desktopAppIconBytes.remove(oldest);
+          _desktopAppIconStoredAt.remove(oldest);
+        }
         _desktopAppIconBytes[key] = Uint8List.fromList(bytes);
+        _desktopAppIconStoredAt[key] = updatedAt ?? DateTime.now();
         return Uint8List.fromList(bytes);
       } catch (_) {
         return null;
       } finally {
-        _desktopAppIconLoads.remove(key);
+        _desktopAppIconLoads.remove(requestKey);
       }
     });
   }

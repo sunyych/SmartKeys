@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/app.dart';
+import 'package:smart_keys/app_edition.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/services/hid_service.dart';
@@ -49,33 +50,23 @@ void main() {
     await shots.setViewport(const Size(390, 844));
     final key = GlobalKey();
     await tester.pumpWidget(_app(harness, key, const HomeScreen()));
-    expect(find.byKey(const ValueKey('mobile-launcher-pad')), findsOneWidget);
-    await shots.capture(
-      id: 'phone-home-launcher-portrait',
-      title: 'Launcher Pad · portrait',
-      orientation: 'portrait',
-      notes: 'The full app opens on the desktop-configured launcher surface.',
-      boundaryKey: key,
-    );
-    await tester.tap(find.byKey(const ValueKey('home-tab-keyboard')));
-    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('portrait-layout')), findsOneWidget);
     expect(find.byKey(const ValueKey('local-quick-output')), findsOneWidget);
     await shots.capture(
       id: 'phone-home-portrait',
       title: 'Home control surface · portrait',
       orientation: 'portrait',
-      notes: 'Full home screen at 390×844 logical pixels.',
+      notes:
+          'Legacy phone-control component at 390×844 logical pixels; the production Full root is covered by regular_home_screenshot_test.dart.',
       boundaryKey: key,
     );
 
     await shots.setViewport(const Size(844, 390));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('computer-app-rail')), findsOneWidget);
     expect(find.byKey(const ValueKey('landscape-layout')), findsOneWidget);
     await shots.capture(
       id: 'phone-home-landscape',
-      title: 'Home control surface with left rail · landscape',
+      title: 'Legacy home control component · landscape',
       orientation: 'landscape',
       notes: 'Responsive home layout at 844×390 logical pixels.',
       boundaryKey: key,
@@ -895,6 +886,7 @@ Widget _app(TestHarness harness, GlobalKey boundaryKey, Widget page) =>
       boundaryKey,
       SmartKeysScope(
         controller: harness.controller,
+        edition: page is SettingsScreen ? AppEdition.lite : AppEdition.regular,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: ThemeData(

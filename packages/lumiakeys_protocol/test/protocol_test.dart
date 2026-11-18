@@ -578,6 +578,10 @@ void main() {
           null,
           null,
           null,
+          null,
+          null,
+          null,
+          null,
         ],
       );
       final synced = DesktopManifest.fromJson(configured.toJson(forSync: true));
@@ -587,7 +591,7 @@ void main() {
       final legacyJson = starter.toJson()..remove('launcherApplicationIds');
       expect(
         DesktopManifest.fromJson(legacyJson).launcherApplicationIds,
-        List<String?>.filled(8, null),
+        List<String?>.filled(launcherSlotCount, null),
       );
       final malformed = starter.toJson()
         ..['launcherApplicationIds'] = ['chrome'];
@@ -599,7 +603,7 @@ void main() {
       final hiddenSync = hidden.toJson(forSync: true);
       expect(
         hiddenSync['launcherApplicationIds'],
-        List<String?>.filled(8, null),
+        List<String?>.filled(launcherSlotCount, null),
       );
       expect(hiddenSync['applications'], isEmpty);
     },
