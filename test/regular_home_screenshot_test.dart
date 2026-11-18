@@ -101,6 +101,19 @@ void main() {
       notes: 'Twelve Desktop General actions and persistent touchpad.',
       boundaryKey: key,
     );
+    harness.companion.pointerErrors.value =
+        'Desktop mouse input failed: pointer_permission_missing';
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'regular-general-pointer-permission-error',
+      title: 'Regular phone mouse permission error',
+      orientation: 'landscape',
+      notes:
+          'Synthetic pointer permission failure displayed beside the touchpad; no private connection data.',
+      boundaryKey: key,
+    );
+    harness.companion.pointerErrors.value = null;
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
     await tester.pumpAndSettle();
     await shots.capture(

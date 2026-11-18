@@ -335,6 +335,12 @@ void main() {
             findsOneWidget,
           );
         }
+        if (section == 0 && Platform.isMacOS) {
+          expect(
+            find.byKey(const ValueKey('mac-pointer-permission-card')),
+            findsOneWidget,
+          );
+        }
         expect(
           find.text(expected),
           findsWidgets,

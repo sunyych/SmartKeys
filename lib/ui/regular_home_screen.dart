@@ -1193,25 +1193,59 @@ class _DesktopTouchpad extends StatelessWidget {
             : 'Connect LumiaKey Desktop to use the touchpad.',
       );
     }
-    return MouseTouchpad(
-      key: const ValueKey('regular-touchpad'),
-      config: const WheelConfig(
-        controlType: WheelControlType.mousePad,
-        modeLabel: 'Touchpad',
-      ),
-      inputEpoch: controller.inputEpoch,
-      onMove: (delta) {
-        if (_canSend) controller.sendTouchpadMove(delta.dx, delta.dy);
-      },
-      onScroll: (delta) {
-        if (_canSend) controller.sendTouchpadScroll(delta);
-      },
-      onPrimaryTap: () {
-        if (_canSend) controller.sendMouseClick(secondary: false);
-      },
-      onSecondaryTap: () {
-        if (_canSend) controller.sendMouseClick(secondary: true);
-      },
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        MouseTouchpad(
+          key: const ValueKey('regular-touchpad'),
+          config: const WheelConfig(
+            controlType: WheelControlType.mousePad,
+            modeLabel: 'Touchpad',
+          ),
+          inputEpoch: controller.inputEpoch,
+          onMove: (delta) {
+            if (_canSend) controller.sendTouchpadMove(delta.dx, delta.dy);
+          },
+          onScroll: (delta) {
+            if (_canSend) controller.sendTouchpadScroll(delta);
+          },
+          onPrimaryTap: () {
+            if (_canSend) controller.sendMouseClick(secondary: false);
+          },
+          onSecondaryTap: () {
+            if (_canSend) controller.sendMouseClick(secondary: true);
+          },
+        ),
+        ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) {
+            final error = controller.desktopPointerError;
+            if (error == null || error.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            final macPermissionError =
+                error.contains('pointer_permission') ||
+                error.toLowerCase().contains('accessibility') ||
+                error.toLowerCase().contains('event posting');
+            return Align(
+              alignment: Alignment.bottomCenter,
+              child: Card(
+                key: const ValueKey('regular-desktop-pointer-error'),
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Text(
+                    macPermissionError
+                        ? 'Desktop could not send mouse input. On Mac, check LumiaKey Desktop → General → Accessibility and event posting permission, then retry.'
+                        : 'Desktop could not send mouse input. Check the Desktop connection and retry.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }
