@@ -36,7 +36,8 @@ values; an unsigned release APK is not an installable release delivery.
 
 The [earlier 1.5 / Lite 1.0 handoff validation](handoffs/2026-11-17-completion-validation.md)
 records those prior artifacts and installations. Current artifact sizes,
-signatures and platform results are recorded separately after verification.
+signatures and platform results are in the
+[1.6 / Lite 1.1 completion validation](handoffs/app-icon-library/COMPLETION.md).
 
 ## Build
 

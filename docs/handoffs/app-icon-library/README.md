@@ -1,5 +1,10 @@
 # 图标库与错误诊断：Coding agent handoff
 
+> 2026-11-17 状态：实现和验证已完成，并按用户后续授权在 `b354e8b`
+> 合并到 main。请以 [完成验收记录](COMPLETION.md) 和当前
+> [产品边界](../../EDITIONS.md) 为准；下文保留原始交接快照，
+> “仅交付 handoff”等描述不再代表当前状态。
+
 ## 任务与分支
 
 - 工作分支：`feature/app-icon-library`。

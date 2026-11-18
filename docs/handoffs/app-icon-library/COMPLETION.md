@@ -73,6 +73,10 @@ Full **1.6.0 / code 8**, Bluetooth Lite **1.1.0 / code 2**. Neither app's data
 was cleared, no permissions were automatically granted, and the historical
 shared-flavor Lite package was left intact. Verification does not authorize
 diagnostic sharing or send shortcuts to the computer.
+Both updated phone apps were confirmed in the foreground. Automated physical
+navigation from Full's Settings to its icon gallery could not be confirmed;
+that device interaction is not claimed as passed. Gallery behavior is covered
+by the widget tests and exact package-asset checks above.
 
 The combined current screenshot index contains **81** widget/browser renders:
 22 Full, 30 Desktop, 21 Lite and eight website states. They are generated
