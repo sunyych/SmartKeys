@@ -26,7 +26,7 @@ and the [design](../superpowers/specs/2026-11-17-installed-launchpad-and-header-
 
 | Check | Result |
 | --- | --- |
-| Full suite before the additional response-order fixture | 332 passed |
+| Full suite with synchronized UDP fixtures | 333 passed |
 | Desktop final serial suite | 133 passed; one Linux-only test skipped on Windows |
 | Shared protocol | 30 passed |
 | Android native unit tests | 16 passed |
@@ -49,7 +49,11 @@ paths through real filesystem I/O. Its native icon service is now explicitly
 injected and teardown is unconditional. The connection fixture atomically binds
 its UDP port and gates both possible manifest/action response orders. Its
 original revision, ready-state, request-count and error assertions remain.
-Neither fix changes product timeouts or weakens the relevant assertions.
+The remaining UDP fixtures also bind atomically and register state listeners
+before advertising. Expiry tests advance a controlled clock; competing-host
+tests await actual receipt and retain the active-host/token and rejected-server
+request assertions. Disposal is cleaned up even if an earlier phase fails.
+These fixture fixes do not change product timeouts or weaken the assertions.
 
 ## Builds and hosted validation
 
