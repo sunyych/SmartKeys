@@ -1,12 +1,21 @@
 # LumiaKey editions
 
 Current versions are **Full / Desktop 1.7.0+9** and independent
-**Bluetooth Lite 1.1.0+2**. The shared-package Android
+**Bluetooth Lite 1.2.0+3**. The shared-package Android
 `lite` flavor and `lib/main_lite.dart` remain historical 1.4 compatibility
 source and are not the independent Lite product. See
 [the 1.4 validation record](MOBILE_EDITIONS_VALIDATION.md) for those older builds.
 
 Full has mobile and Desktop companion projects; Bluetooth Lite builds independently.
+
+Lite 1.2 uses the same landscape rail, header, twelve-key grid and right touchpad
+as Full. Its header shows the Bluetooth host, clock and media controls. Launchpad
+slots send saved keyboard combinations over Bluetooth; the user configures the
+corresponding app-launch shortcut on the computer. Unconfigured slots open a local
+editor and send no input. Sidebar profile selection changes only the local page.
+Lite settings manage profiles, media shortcuts and launch bindings on the phone.
+It has no KVM, microphone/voice feature, Desktop transport or online service.
+See [Lite 1.2 validation and phone installation](handoffs/2026-11-17-lite-bluetooth-parity-validation.md).
 
 Full 1.7 keeps twelve landscape keys and the right touchpad. Its shared top bar
 places host, clock and media controls next to the current workspace title; the
@@ -83,7 +92,13 @@ the PEM filter; all other PEM/private signing files remain excluded.
 
 ## Shortcuts
 
-Lite shortcuts are user-authored combinations from the in-app editor and persisted in Android app preferences. They are local to that installation and are not synchronized or downloaded. The screens do not include setup wizards, launchers, companion management, dashboards, or account features.
+Lite shortcuts and launch bindings are edited locally and persisted in Android
+app preferences. The twelve launch slots are separate from existing profiles;
+new default profiles have twelve entries and longer saved lists retain pagination.
+Keyboard and media shortcuts remain offline Bluetooth HID actions. Saving must
+finish before a new launch binding is enabled. Profile navigation and editing
+never send a launch command. The computer must have a matching launch shortcut;
+Bluetooth acceptance does not confirm application startup or foreground focus.
 
 The new profile store preserves a WIP `lite.shortcuts` list as a Custom profile;
 it does not delete the old preference. A failed save leaves the previously

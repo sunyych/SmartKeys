@@ -20,6 +20,8 @@ ALLOWED_PERMISSIONS = {
     APP_ID + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
 }
 FORBIDDEN_PACKAGES = re.compile(r"^(?:http|google_sign_in.*|record(?:_.*)?|sherpa_onnx.*|local_dictation|lumiakeys_protocol|firebase.*|cloud_.*|flutter_sound.*)$")
+LITE_SURFACE_MARKERS = (b"lite-header-controls", b"lite-brand-icon", b"lite-twelve-key-grid")
+ANDROID_ORIENTATION = "{http://schemas.android.com/apk/res/android}screenOrientation"
 ANDROID_NAME = "{http://schemas.android.com/apk/res/android}name"
 
 
@@ -68,6 +70,8 @@ def verify_source(root: Path) -> dict[str, object]:
         for package in re.findall(r"(?:import|export)\s+['\"]package:([^/]+)/", text):
             if package not in {"flutter", "shared_preferences", "lumiakey_bluetooth_lite", "diagnostics_core"}:
                 raise ValueError(f"Unexpected package import in {path}: {package}")
+        if re.search(r"(?:lumiakeys/installed_apps|startDictation|sendTextBatch|nativeAppLaunch|launchApplication|KvmController)", text):
+            raise ValueError(f"Full-only capability in Lite application code: {path}")
         if re.search(r"\b(?:HttpClient|WebSocket|RawSocket|ServerSocket|Socket\.connect)\b", text):
             raise ValueError(f"Network API in Lite application code: {path}")
         for reference in re.findall(r"(?:import|export|part)\s+['\"]([^'\"]+)['\"]", text):
@@ -80,6 +84,9 @@ def verify_source(root: Path) -> dict[str, object]:
         permissions = {element.attrib.get(ANDROID_NAME, "") for element in tree.getroot() if element.tag.startswith("uses-permission")}
         if permissions - ALLOWED_PERMISSIONS:
             raise ValueError(f"Unexpected permissions in {manifest}: {permissions - ALLOWED_PERMISSIONS}")
+    activity = ET.parse(root / "android/app/src/main/AndroidManifest.xml").find("application/activity")
+    if activity is None or activity.attrib.get(ANDROID_ORIENTATION) != "sensorLandscape":
+        raise ValueError("Lite must declare sensorLandscape and keep its runtime portrait guard.")
     gradle = (root / "android" / "app" / "build.gradle.kts").read_text(encoding="utf-8")
     if f'applicationId = "{APP_ID}"' not in gradle:
         raise ValueError("Wrong independent Lite applicationId.")
@@ -109,6 +116,26 @@ def find_aapt(root: Path, explicit: Path | None) -> Path:
     return candidates[0]
 
 
+def verify_packaged_surface(archive: ZipFile) -> dict[str, object]:
+    """Inspect real compiled code, so new metadata cannot hide stale UI binaries."""
+    aot = [name for name in archive.namelist() if re.fullmatch(r"lib/[^/]+/libapp\.so", name)]
+    if aot:
+        for name in aot:
+            code = archive.read(name)
+            if not code.startswith(b"\x7fELF") or len(code) < 1024 * 1024:
+                raise ValueError("Invalid or unexpectedly small Lite AOT binary.")
+            if any(marker not in code for marker in LITE_SURFACE_MARKERS):
+                raise ValueError("Lite AOT binary does not contain the current control surface.")
+        return {"compiledSurface": "AOT", "aotAbisVerified": len(aot)}
+    kernel_name = "assets/flutter_assets/kernel_blob.bin"
+    if kernel_name not in archive.namelist():
+        raise ValueError("APK has neither Lite AOT code nor a debug kernel.")
+    kernel = archive.read(kernel_name)
+    if len(kernel) < 1024 * 1024 or any(marker not in kernel for marker in LITE_SURFACE_MARKERS):
+        raise ValueError("Debug kernel does not contain the current Lite control surface.")
+    return {"compiledSurface": "debug kernel (AOT not present)", "aotAbisVerified": 0}
+
+
 def verify_apk(root: Path, apk: Path, aapt: Path | None) -> dict[str, object]:
     tool = find_aapt(root, aapt)
     result = subprocess.run([str(tool), "dump", "permissions", str(apk)], check=True, capture_output=True, text=True, timeout=30)
@@ -119,6 +146,7 @@ def verify_apk(root: Path, apk: Path, aapt: Path | None) -> dict[str, object]:
     if f"package: name='{APP_ID}'" not in badging:
         raise ValueError("APK package does not match independent Lite.")
     with ZipFile(apk) as archive:
+        surface = verify_packaged_surface(archive)
         forbidden = [name for name in archive.namelist() if re.search(r"desktop_installers|sherpa|onnx|record_android|google_sign_in|local_dictation", name, re.IGNORECASE)]
         catalog = (root / "lib/icons/builtin_icon_catalog.g.dart").read_text(encoding="utf-8")
         assets = re.findall(r'assetPath:\s*"([^"]+)"', catalog)
@@ -128,7 +156,7 @@ def verify_apk(root: Path, apk: Path, aapt: Path | None) -> dict[str, object]:
                 raise ValueError("APK offline icon content does not match the registered Lite asset.")
     if forbidden:
         raise ValueError(f"Full-only assets/libraries in Lite APK: {forbidden}")
-    return {"apk": str(apk.resolve()), "permissions": sorted(permissions), "bytes": apk.stat().st_size, "bundledIconsVerified": len(assets)}
+    return {"apk": str(apk.resolve()), "permissions": sorted(permissions), "bytes": apk.stat().st_size, "bundledIconsVerified": len(assets), **surface}
 
 
 def main() -> None:

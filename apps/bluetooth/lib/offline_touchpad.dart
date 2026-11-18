@@ -5,6 +5,7 @@ class OfflineTouchpad extends StatefulWidget {
     super.key,
 
     required this.inputEpoch,
+    this.enabled = true,
     required this.onMove,
     required this.onScroll,
     required this.onPrimaryTap,
@@ -12,6 +13,7 @@ class OfflineTouchpad extends StatefulWidget {
   });
 
   final int inputEpoch;
+  final bool enabled;
   final ValueChanged<Offset> onMove;
   final ValueChanged<double> onScroll;
   final VoidCallback onPrimaryTap;
@@ -39,7 +41,8 @@ class _OfflineTouchpadState extends State<OfflineTouchpad> {
   @override
   void didUpdateWidget(covariant OfflineTouchpad oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.inputEpoch != widget.inputEpoch) {
+    if (oldWidget.inputEpoch != widget.inputEpoch ||
+        oldWidget.enabled && !widget.enabled) {
       _resetGesture(notify: false);
       _resetScrollStrip(notify: false);
     }
@@ -205,131 +208,149 @@ class _OfflineTouchpadState extends State<OfflineTouchpad> {
   Widget build(BuildContext context) {
     final active = _pointers.isNotEmpty;
     final scrollStripActive = _scrollStripPointer != null;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Semantics(
-          label: 'Mouse touchpad',
-          hint:
-              'Move with one finger, tap for left click, scroll with two fingers, two-finger tap for right click, or use the right edge to scroll directly',
-          child: Listener(
-            key: const ValueKey('mouse-touchpad'),
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: _handlePointerDown,
-            onPointerMove: _handlePointerMove,
-            onPointerUp: _handlePointerUp,
-            onPointerCancel: _handlePointerCancel,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 100),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF25354A), Color(0xFF101923)],
-                ),
-                border: Border.all(
-                  color: active
-                      ? const Color(0xFF6ED7E8)
-                      : const Color(0xFF3D526D),
-                  width: active ? 2 : 1.5,
-                ),
-                boxShadow: active
-                    ? const [
-                        BoxShadow(color: Color(0x554DE7FF), blurRadius: 18),
-                      ]
-                    : const [
-                        BoxShadow(
-                          color: Colors.black38,
-                          blurRadius: 14,
-                          offset: Offset(0, 7),
-                        ),
-                      ],
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Icon(
-                    _moving ? Icons.near_me : Icons.touch_app_outlined,
-                    size: 52,
-                    color: active ? const Color(0xFF8CEBFA) : Colors.white24,
-                  ),
-                  if (_pointers.isNotEmpty)
-                    Positioned(
-                      top: 16,
-                      left: 16,
-                      child: _PointerCount(count: _pointers.length),
+    return Opacity(
+      opacity: widget.enabled ? 1 : .45,
+      child: AbsorbPointer(
+        absorbing: !widget.enabled,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Semantics(
+              label: 'Mouse touchpad',
+              hint:
+                  'Move with one finger, tap for left click, scroll with two fingers, two-finger tap for right click, or use the right edge to scroll directly',
+              child: Listener(
+                key: const ValueKey('mouse-touchpad'),
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: _handlePointerDown,
+                onPointerMove: _handlePointerMove,
+                onPointerUp: _handlePointerUp,
+                onPointerCancel: _handlePointerCancel,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 100),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF25354A), Color(0xFF101923)],
                     ),
-                ],
+                    border: Border.all(
+                      color: active
+                          ? const Color(0xFF6ED7E8)
+                          : const Color(0xFF3D526D),
+                      width: active ? 2 : 1.5,
+                    ),
+                    boxShadow: active
+                        ? const [
+                            BoxShadow(color: Color(0x554DE7FF), blurRadius: 18),
+                          ]
+                        : const [
+                            BoxShadow(
+                              color: Colors.black38,
+                              blurRadius: 14,
+                              offset: Offset(0, 7),
+                            ),
+                          ],
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(
+                        _moving ? Icons.near_me : Icons.touch_app_outlined,
+                        size: 52,
+                        color: active
+                            ? const Color(0xFF8CEBFA)
+                            : Colors.white24,
+                      ),
+                      if (_pointers.isNotEmpty)
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          child: _PointerCount(count: _pointers.length),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-        Positioned(
-          top: 8,
-          right: 6,
-          bottom: 8,
-          width: 38,
-          child: Semantics(
-            label: 'Direct scroll strip',
-            hint: 'Slide one finger up or down to scroll',
-            child: Listener(
-              key: const ValueKey('mouse-scroll-strip'),
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: _handleScrollStripDown,
-              onPointerMove: _handleScrollStripMove,
-              onPointerUp: _handleScrollStripUp,
-              onPointerCancel: _handleScrollStripCancel,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 100),
-                decoration: BoxDecoration(
-                  color: scrollStripActive
-                      ? const Color(0x663BC9DF)
-                      : const Color(0x33182735),
-                  borderRadius: BorderRadius.circular(19),
-                  border: Border.all(
-                    color: scrollStripActive
-                        ? const Color(0xFF8CEBFA)
-                        : const Color(0x66768CA4),
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 5),
-                      child: Icon(
-                        Icons.keyboard_arrow_up,
-                        size: 16,
-                        color: Colors.white54,
-                      ),
-                    ),
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 100),
-                      width: 5,
-                      height: scrollStripActive ? 32 : 24,
-                      decoration: BoxDecoration(
+            Positioned(
+              top: 8,
+              right: 6,
+              bottom: 8,
+              width: 38,
+              child: Semantics(
+                label: 'Direct scroll strip',
+                hint: 'Slide one finger up or down to scroll',
+                child: Listener(
+                  key: const ValueKey('mouse-scroll-strip'),
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: _handleScrollStripDown,
+                  onPointerMove: _handleScrollStripMove,
+                  onPointerUp: _handleScrollStripUp,
+                  onPointerCancel: _handleScrollStripCancel,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 100),
+                    decoration: BoxDecoration(
+                      color: scrollStripActive
+                          ? const Color(0x663BC9DF)
+                          : const Color(0x33182735),
+                      borderRadius: BorderRadius.circular(19),
+                      border: Border.all(
                         color: scrollStripActive
                             ? const Color(0xFF8CEBFA)
-                            : Colors.white38,
-                        borderRadius: BorderRadius.circular(3),
+                            : const Color(0x66768CA4),
                       ),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 5),
-                      child: Icon(
-                        Icons.keyboard_arrow_down,
-                        size: 16,
-                        color: Colors.white54,
-                      ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 5),
+                          child: Icon(
+                            Icons.keyboard_arrow_up,
+                            size: 16,
+                            color: Colors.white54,
+                          ),
+                        ),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 100),
+                          width: 5,
+                          height: scrollStripActive ? 32 : 24,
+                          decoration: BoxDecoration(
+                            color: scrollStripActive
+                                ? const Color(0xFF8CEBFA)
+                                : Colors.white38,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 5),
+                          child: Icon(
+                            Icons.keyboard_arrow_down,
+                            size: 16,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
+            if (!widget.enabled)
+              const Positioned(
+                left: 12,
+                right: 48,
+                bottom: 18,
+                child: Text(
+                  'Connect Bluetooth to use the touchpad.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

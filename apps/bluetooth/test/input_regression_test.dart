@@ -2,9 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:lumiakey_bluetooth_lite/main.dart';
+import 'package:lumiakey_bluetooth_lite/lite_controller.dart';
+import 'package:lumiakey_bluetooth_lite/local_profiles.dart';
+import 'package:lumiakey_bluetooth_lite/offline_touchpad.dart';
 
 const channel = MethodChannel('smart_keys/hid');
+const connected = {
+  'status': 'connected',
+  'activeHost': {'id': 'pc', 'address': 'AA:BB:CC:DD:EE:FF', 'name': 'Test PC'},
+  'pairedHosts': [],
+};
 
 class FailingStore implements LocalProfileStore {
   @override
@@ -22,114 +29,138 @@ void main() {
     calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-          if (call.method == 'refreshPairedHosts') {
-            return {
-              'status': 'connected',
-              'activeHost': {
-                'id': 'pc',
-                'address': 'AA:BB:CC:DD:EE:FF',
-                'name': 'Test PC',
-              },
-              'pairedHosts': [],
-            };
-          }
           calls.add(call);
-          return null;
+          return call.method == 'refreshPairedHosts' ? connected : null;
         });
   });
   tearDown(
     () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null),
   );
+  Future<LiteController> ready({LocalProfileStore? store}) async {
+    final controller = LiteController(profileStore: store);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    controller.setLandscape(true);
+    controller.setControlsVisible(true);
+    return controller;
+  }
 
-  testWidgets(
-    'Shift toggles only a modifier and never sends a phantom letter',
-    (tester) async {
-      await tester.pumpWidget(const BluetoothLiteApp());
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Shift').last);
-      await tester.pump();
-      expect(calls.where((call) => call.method == 'sendStep'), isEmpty);
-      await tester.tap(find.text('Q').last);
-      await tester.pumpAndSettle();
-      final actions = calls.where((call) => call.method == 'sendStep').toList();
-      expect(actions, hasLength(1));
-      expect((actions.single.arguments as Map)['keyCode'], 'Q');
-      expect((actions.single.arguments as Map)['modifiers'], ['LEFT_SHIFT']);
-      await tester.tap(find.text('Q').last);
-      await tester.pumpAndSettle();
+  test(
+    'Shift cannot send a phantom letter or become a sticky modifier',
+    () async {
+      final controller = await ready();
       expect(
-        (calls.lastWhere((call) => call.method == 'sendStep').arguments
-            as Map)['modifiers'],
-        isEmpty,
+        await controller.executeShortcut(
+          const LocalShortcut(
+            title: 'Shift',
+            keyCode: 'LEFT_SHIFT',
+            modifiers: [],
+          ),
+        ),
+        false,
       );
+      expect(calls.where((call) => call.method == 'sendStep'), isEmpty);
+      expect(
+        await controller.executeShortcut(
+          const LocalShortcut(
+            title: 'Shift Q',
+            keyCode: 'Q',
+            modifiers: ['LEFT_SHIFT'],
+          ),
+        ),
+        true,
+      );
+      expect(
+        await controller.executeShortcut(
+          const LocalShortcut(title: 'Q', keyCode: 'Q', modifiers: []),
+        ),
+        true,
+      );
+      final actions = calls.where((call) => call.method == 'sendStep').toList();
+      expect(actions, hasLength(2));
+      expect((actions.first.arguments as Map)['modifiers'], ['LEFT_SHIFT']);
+      expect((actions.last.arguments as Map)['modifiers'], isEmpty);
     },
   );
-
-  testWidgets('backgrounding releases input and clears pending modifiers', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const BluetoothLiteApp());
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Shift').last);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await tester.pump();
-    expect(calls.any((call) => call.method == 'releaseAllKeys'), isTrue);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Q').last);
-    await tester.pumpAndSettle();
-    expect(
-      (calls.lastWhere((call) => call.method == 'sendStep').arguments
-          as Map)['modifiers'],
-      isEmpty,
+  test(
+    'backgrounding releases input and invalidates old pointer callbacks',
+    () async {
+      final controller = await ready();
+      final epoch = controller.inputEpoch;
+      controller.handleLifecycle(AppLifecycleState.paused);
+      expect(calls.any((call) => call.method == 'releaseAllKeys'), true);
+      expect(await controller.primaryClick(epoch: epoch), false);
+      controller.handleLifecycle(AppLifecycleState.resumed);
+      expect(await controller.primaryClick(epoch: epoch), false);
+      expect(
+        await controller.executeShortcut(
+          const LocalShortcut(title: 'Q', keyCode: 'Q', modifiers: []),
+        ),
+        true,
+      );
+      final action =
+          calls.lastWhere((call) => call.method == 'sendStep').arguments as Map;
+      expect(action['modifiers'], isEmpty);
+    },
+  );
+  test('failed local save keeps the last durable shortcuts', () async {
+    final controller = await ready(store: FailingStore());
+    final before = controller.profiles.first;
+    await expectLater(
+      controller.saveProfile(
+        before.withShortcuts([
+          ...before.shortcuts,
+          const LocalShortcut(
+            title: 'Unsaved key',
+            keyCode: 'Q',
+            modifiers: [],
+          ),
+        ]),
+      ),
+      throwsStateError,
     );
-  });
-
-  testWidgets('failed local save keeps prior shortcuts and shows an error', (
-    tester,
-  ) async {
-    await tester.pumpWidget(BluetoothLiteApp(profileStore: FailingStore()));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Shortcuts').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Add'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).at(0), 'Unsaved key');
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
     expect(
-      find.text('Could not save this shortcut on the phone.'),
-      findsOneWidget,
+      controller.profiles.first.shortcuts.any((s) => s.title == 'Unsaved key'),
+      false,
     );
-    expect(find.text('Unsaved key'), findsNothing);
-    expect(find.text('Copy'), findsOneWidget);
+    expect(controller.profiles.first.shortcuts.first.title, 'Copy');
+    expect(controller.error, contains('Could not save'));
   });
-
-  testWidgets('media buttons dispatch consumer reports only', (tester) async {
-    await tester.pumpWidget(const BluetoothLiteApp());
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Media').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.play_arrow).last);
-    await tester.pumpAndSettle();
-    final report =
-        calls.lastWhere((call) => call.method == 'sendStep').arguments as Map;
-    expect(report['type'], 'consumerControl');
-    expect(report['value'], 'PLAY_PAUSE');
-  });
-
+  test(
+    'media dispatch uses consumer reports and captured Bluetooth host only',
+    () async {
+      final controller = await ready();
+      expect(await controller.sendConsumer('PLAY_PAUSE'), true);
+      expect(calls.lastWhere((call) => call.method == 'sendStep').arguments, {
+        'type': 'consumerControl',
+        'value': 'PLAY_PAUSE',
+        'expectedHostAddress': 'AA:BB:CC:DD:EE:FF',
+      });
+    },
+  );
   testWidgets(
     'two-finger gestures scroll and right-click without pointer clicks',
     (tester) async {
-      await tester.pumpWidget(const BluetoothLiteApp());
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Mouse').last);
-      await tester.pumpAndSettle();
-      final center = tester.getCenter(
-        find.byKey(const ValueKey('lite-touchpad')),
+      final controller = await ready();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 600,
+              height: 300,
+              child: OfflineTouchpad(
+                inputEpoch: controller.inputEpoch,
+                onMove: controller.movePointer,
+                onScroll: controller.scrollPointer,
+                onPrimaryTap: controller.primaryClick,
+                onSecondaryTap: controller.secondaryClick,
+              ),
+            ),
+          ),
+        ),
       );
+      final center = tester.getCenter(find.byType(OfflineTouchpad));
       final first = await tester.createGesture(pointer: 1);
       final second = await tester.createGesture(pointer: 2);
       await first.down(center - const Offset(20, 0));
@@ -139,17 +170,19 @@ void main() {
       await first.up();
       await second.up();
       await tester.pumpAndSettle();
-      final scrolling = calls.where(
-        (call) =>
-            call.method == 'sendStep' &&
-            (call.arguments as Map)['type'] == 'mouseWheel',
-      );
-      expect(scrolling, isNotEmpty);
       expect(
         calls.where(
-          (call) =>
-              call.method == 'sendStep' &&
-              (call.arguments as Map)['type'] == 'mouseButton',
+          (c) =>
+              c.method == 'sendStep' &&
+              (c.arguments as Map)['type'] == 'mouseWheel',
+        ),
+        isNotEmpty,
+      );
+      expect(
+        calls.where(
+          (c) =>
+              c.method == 'sendStep' &&
+              (c.arguments as Map)['type'] == 'mouseButton',
         ),
         isEmpty,
       );
@@ -159,10 +192,12 @@ void main() {
       await second.up();
       await tester.pumpAndSettle();
       expect(
-        (calls.lastWhere((call) => call.method == 'sendStep').arguments
+        (calls.lastWhere((c) => c.method == 'sendStep').arguments
             as Map)['value'],
         'RIGHT',
       );
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
     },
   );
 }

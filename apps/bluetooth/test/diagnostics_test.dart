@@ -29,6 +29,21 @@ LiteDiagnostics local() {
   return diagnostics;
 }
 
+Future<LiteController> inputController(LiteDiagnostics diagnostics) async {
+  final controller = LiteController(diagnostics: diagnostics);
+  addTearDown(controller.dispose);
+  await controller.initialize();
+  controller.setLandscape(true);
+  controller.setControlsVisible(true);
+  return controller;
+}
+
+const diagnosticTestKey = LocalShortcut(
+  title: 'Copy',
+  keyCode: 'C',
+  modifiers: ['LEFT_CTRL'],
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -166,9 +181,9 @@ void main() {
       }
     },
   );
-  testWidgets(
+  test(
     'successful keyboard and pointer input create no diagnostic events',
-    (tester) async {
+    () async {
       final diagnostics = local();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
@@ -176,26 +191,16 @@ void main() {
             (call) async =>
                 call.method == 'refreshPairedHosts' ? connected : null,
           );
-      await tester.pumpWidget(BluetoothLiteApp(diagnostics: diagnostics));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Q').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Mouse').last);
-      await tester.pumpAndSettle();
-      await tester.drag(
-        find.byKey(const ValueKey('lite-touchpad')),
-        const Offset(30, 10),
-      );
-      await tester.pumpAndSettle();
+      final controller = await inputController(diagnostics);
+      expect(await controller.executeShortcut(diagnosticTestKey), true);
+      expect(await controller.movePointer(const Offset(30, 10)), true);
       await diagnostics.settled;
       expect(diagnostics.journal.events, isEmpty);
-      await tester.pumpWidget(const SizedBox());
-      diagnostics.dispose();
     },
   );
-  testWidgets(
+  test(
     'a hostile native failure reaches only the fixed safe journal category',
-    (tester) async {
+    () async {
       final diagnostics = local();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
@@ -208,10 +213,8 @@ void main() {
             }
             return call.method == 'refreshPairedHosts' ? connected : null;
           });
-      await tester.pumpWidget(BluetoothLiteApp(diagnostics: diagnostics));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Q').last);
-      await tester.pumpAndSettle();
+      final controller = await inputController(diagnostics);
+      expect(await controller.executeShortcut(diagnosticTestKey), false);
       await diagnostics.settled;
       expect(
         diagnostics.journal.events.single.code,
@@ -230,13 +233,11 @@ void main() {
       ]) {
         expect(raw, isNot(contains(forbidden)));
       }
-      await tester.pumpWidget(const SizedBox());
-      diagnostics.dispose();
     },
   );
-  testWidgets(
+  test(
     'repeated native error snapshots do not turn refreshes into new errors',
-    (tester) async {
+    () async {
       final diagnostics = local();
       var failed = true;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -249,38 +250,30 @@ void main() {
                   }
                 : null,
           );
-      await tester.pumpWidget(BluetoothLiteApp(diagnostics: diagnostics));
-      await tester.pumpAndSettle();
+      final controller = await inputController(diagnostics);
       await diagnostics.settled;
       expect(diagnostics.journal.events.single.repeatCount, 1);
-      await tester.tap(find.byTooltip('Refresh paired devices'));
-      await tester.pumpAndSettle();
+      await controller.refreshPairedHosts();
       await diagnostics.settled;
       expect(diagnostics.journal.events.single.repeatCount, 1);
       failed = false;
-      await tester.tap(find.byTooltip('Refresh paired devices'));
-      await tester.pumpAndSettle();
+      await controller.refreshPairedHosts();
       failed = true;
-      await tester.tap(find.byTooltip('Refresh paired devices'));
-      await tester.pumpAndSettle();
+      await controller.refreshPairedHosts();
       await diagnostics.settled;
       expect(diagnostics.journal.events.single.repeatCount, 2);
-      await tester.pumpWidget(const SizedBox());
-      diagnostics.dispose();
     },
   );
-  testWidgets('a native callback plus failed command records one error', (
-    tester,
-  ) async {
+  test('a native callback plus failed command records one error', () async {
     final diagnostics = local();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           if (call.method == 'sendStep') {
             final delivered = Completer<void>();
-            tester.binding.channelBuffers.push(
+            ServicesBinding.instance.channelBuffers.push(
               'smart_keys/hid',
               const StandardMethodCodec().encodeMethodCall(
-                const MethodCall('connectionSnapshotChanged', {
+                MethodCall('connectionSnapshotChanged', {
                   ...connected,
                   'error': secret,
                 }),
@@ -292,10 +285,8 @@ void main() {
           }
           return call.method == 'refreshPairedHosts' ? connected : null;
         });
-    await tester.pumpWidget(BluetoothLiteApp(diagnostics: diagnostics));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Q').last);
-    await tester.pumpAndSettle();
+    final controller = await inputController(diagnostics);
+    expect(await controller.executeShortcut(diagnosticTestKey), false);
     await diagnostics.settled;
     expect(diagnostics.journal.events.length, 1);
     expect(
@@ -303,8 +294,6 @@ void main() {
       DiagnosticCode.bluetoothInputFailed,
     );
     expect(diagnostics.journal.events.single.repeatCount, 1);
-    await tester.pumpWidget(const SizedBox());
-    diagnostics.dispose();
   });
   test(
     'startup persistence removes expired JSON without a new error',

@@ -1,7 +1,7 @@
 name: Standalone Bluetooth Lite verification
 on:
   push:
-    branches: [main, feature/app-icon-library]
+    branches: [main, feature/app-icon-library, codex/lite-bluetooth-full-interface]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -34,6 +34,7 @@ jobs:
         env:
           SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/build/ui_screenshots
         run: |
+          python3 -m unittest discover -s scripts -p "test_*.py"
           python3 scripts/check_isolation.py
           flutter pub get
           flutter analyze

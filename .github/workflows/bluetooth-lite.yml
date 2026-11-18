@@ -2,7 +2,7 @@ name: Bluetooth Lite Android build
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/lite-bluetooth-full-interface]
     paths:
       - 'apps/bluetooth/**'
       - '.github/workflows/bluetooth-lite.yml'
@@ -48,7 +48,8 @@ jobs:
             git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
             version="${tag#bluetooth-v}"
           else
-            version="${INPUT_VERSION:-1.1.0}"
+            pubspec_version="$(sed -n 's/^version: *\([0-9]*\.[0-9]*\.[0-9]*\)+.*/\1/p' apps/bluetooth/pubspec.yaml)"
+            version="${INPUT_VERSION:-$pubspec_version}"
             [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be MAJOR.MINOR.PATCH'; exit 1; }
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
@@ -78,6 +79,7 @@ jobs:
           SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/apps/bluetooth/build/ui_screenshots
         run: |
           flutter pub get
+          python3 -m unittest discover -s scripts -p "test_*.py"
           python3 scripts/check_isolation.py
           flutter analyze
           flutter test

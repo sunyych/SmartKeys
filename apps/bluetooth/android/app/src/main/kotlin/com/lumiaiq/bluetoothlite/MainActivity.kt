@@ -12,6 +12,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onStart() { super.onStart(); hidController?.onForeground() }
+    override fun onResume() { super.onResume(); hidController?.resumeInput() }
+    override fun onPause() { hidController?.releaseForBackground(); super.onPause() }
     override fun onStop() { hidController?.releaseForBackground(); super.onStop() }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

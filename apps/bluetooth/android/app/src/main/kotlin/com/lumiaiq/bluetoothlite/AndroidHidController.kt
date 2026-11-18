@@ -38,7 +38,10 @@ class AndroidHidController(
     private val encoder = HidReportEncoder()
     private val textBatchGate = HidTextBatchGate()
     private val handler = Handler(Looper.getMainLooper())
-    private val stepQueue = ArrayDeque<HidActionData>()
+    private data class QueuedStep(val action: HidActionData, val permit: HidInputPermit, val completion: HidStepCompletion)
+    private var activeStep: QueuedStep? = null
+    private val inputGuard = HidInputGuard()
+    private val stepQueue = ArrayDeque<QueuedStep>()
 
     private var hidDevice: BluetoothHidDevice? = null
     private var appRegistered = false
@@ -91,7 +94,8 @@ class AndroidHidController(
                         "Bluetooth text output was interrupted by a manual shortcut.",
                     )
                 }
-                sendSingle(encoder.press(HidActionData.from(call.arguments)), result)
+                val permit = requireInputPermit(call, result) ?: return
+                sendSingle(encoder.press(HidActionData.from(call.arguments)), result, permit)
             }
             "sendRelease" -> {
                 if (textBatchGate.isActive()) {
@@ -100,9 +104,10 @@ class AndroidHidController(
                         "Bluetooth text output was interrupted by a manual shortcut.",
                     )
                 }
-                sendSingle(encoder.release(HidActionData.from(call.arguments)), result)
+                val permit = requireInputPermit(call, result) ?: return
+                sendSingle(encoder.release(HidActionData.from(call.arguments)), result, permit)
             }
-            "sendStep" -> sendStep(HidActionData.from(call.arguments), result)
+            "sendStep" -> sendStep(HidActionData.from(call.arguments), call.argument<String>("expectedHostAddress"), result)
             "sendTextBatch" -> sendTextBatch(call.arguments, result)
             "cancelTextBatch" -> cancelTextBatch(call.argument<String>("sessionToken"), result)
             "releaseAllKeys" -> {
@@ -124,7 +129,10 @@ class AndroidHidController(
         }
     }
 
+    fun resumeInput() { inputGuard.resume() }
+
     fun releaseForBackground() {
+        inputGuard.pause()
         releaseAllInput()
     }
 
@@ -324,12 +332,23 @@ class AndroidHidController(
         result.success(null)
     }
 
-    private fun sendSingle(report: HidReport?, result: MethodChannel.Result) {
+    private fun requireInputPermit(call: MethodCall, result: MethodChannel.Result): HidInputPermit? {
+        val permit = inputGuard.capture(call.argument<String>("expectedHostAddress"), currentDevice?.address)
+        if (permit == null) result.error("INPUT_CONTEXT_CHANGED", "Resume the controls and reconnect the intended computer before sending input.", null)
+        return permit
+    }
+
+    private fun sendSingle(report: HidReport?, result: MethodChannel.Result, permit: HidInputPermit) {
         if (report == null) {
             result.error("INVALID_ACTION", "The configured HID action is not supported.", null)
             return
         }
-        if (!sendReport(report)) {
+        if (!inputGuard.accepts(permit, currentDevice?.address)) {
+            encoder.releaseAll()
+            result.error("INPUT_CONTEXT_CHANGED", "The input context changed.", null)
+            return
+        }
+        if (!sendReport(report, permit)) {
             handleSendFailure()
             result.error("NOT_CONNECTED", "Connect a paired computer before sending input.", null)
             return
@@ -337,7 +356,7 @@ class AndroidHidController(
         result.success(null)
     }
 
-    private fun sendStep(action: HidActionData, result: MethodChannel.Result) {
+    private fun sendStep(action: HidActionData, expectedAddress: String?, result: MethodChannel.Result) {
         if (textBatchGate.isActive()) {
             releaseAllInput(
                 "NAVIGATION_INTERRUPTED",
@@ -352,9 +371,25 @@ class AndroidHidController(
             result.error("NOT_CONNECTED", "Connect a paired computer before sending input.", null)
             return
         }
-        stepQueue.addLast(action)
+        val permit = inputGuard.capture(expectedAddress, currentDevice?.address)
+        if (permit == null) {
+            result.error("INPUT_CONTEXT_CHANGED", "Resume the controls and reconnect the intended computer before sending input.", null)
+            return
+        }
+        if (HidReportEncoder().press(action) == null) {
+            result.error("INVALID_ACTION", "The configured HID action is not supported.", null)
+            return
+        }
+        if (stepQueue.size >= 128) {
+            result.error("INPUT_BUSY", "Wait for the current Bluetooth input to finish.", null)
+            return
+        }
+        val completion = HidStepCompletion { success ->
+            if (success) result.success(null)
+            else result.error("INPUT_CONTEXT_CHANGED", "Bluetooth input did not complete on the intended computer.", null)
+        }
+        stepQueue.addLast(QueuedStep(action, permit, completion))
         processNextStep()
-        result.success(null)
     }
 
     private fun sendTextBatch(arguments: Any?, result: MethodChannel.Result) {
@@ -482,39 +517,61 @@ class AndroidHidController(
         return success
     }
 
-    private fun processNextStep() {
-        if (stepInFlight || stepQueue.isEmpty()) return
-        val action = stepQueue.removeFirst()
-        val pressed = encoder.press(action) ?: run {
-            processNextStep()
-            return
-        }
+    private fun processNextStep(): Boolean {
+        if (stepInFlight || stepQueue.isEmpty()) return true
+        val queued = stepQueue.removeFirst()
+        activeStep = queued
+        val action = queued.action
+        val permit = queued.permit
+        if (!inputGuard.accepts(permit, currentDevice?.address)) { discardStaleSteps(); return false }
+        val pressed = encoder.press(action) ?: run { discardStaleSteps(); return false }
         stepInFlight = true
         val generation = stepGeneration
-        if (!sendReport(pressed)) {
-            stepInFlight = false
-            stepQueue.clear()
+        if (!sendReport(pressed, permit)) {
+            discardStaleSteps()
             handleSendFailure()
-            return
+            return false
         }
         handler.postDelayed({
             if (generation != stepGeneration) return@postDelayed
-            encoder.release(action)?.let { released ->
-                if (!sendReport(released)) handleSendFailure()
+            if (!inputGuard.accepts(permit, currentDevice?.address)) { discardStaleSteps(); return@postDelayed }
+            // Finish only after release. A Dart launch may now safely switch its
+            // linked profile and release the previous input epoch.
+            activeStep = null
+            val accepted = queued.completion.completeAfterRelease {
+                encoder.release(action)?.let { sendReport(it, permit) } ?: true
             }
+            if (!accepted) { discardStaleSteps(); handleSendFailure(); return@postDelayed }
             handler.postDelayed({
                 if (generation != stepGeneration) return@postDelayed
                 stepInFlight = false
                 processNextStep()
             }, REPORT_GAP_MS)
         }, REPORT_RELEASE_DELAY_MS)
+        return true
+    }
+
+    private fun cancelPendingSteps() {
+        activeStep?.completion?.finish(false)
+        activeStep = null
+        stepQueue.forEach { it.completion.finish(false) }
+        stepQueue.clear()
+    }
+
+    private fun discardStaleSteps() {
+        cancelPendingSteps()
+        stepGeneration++
+        stepInFlight = false
+        inputGuard.invalidate()
+        encoder.releaseAll() // Never release a previous host's action on a new host.
     }
 
     private fun releaseAllInput(
         textBatchErrorCode: String = "CANCELLED",
         textBatchErrorMessage: String = "Bluetooth input was cancelled.",
     ) {
-        stepQueue.clear()
+        inputGuard.invalidate()
+        cancelPendingSteps()
         stepGeneration++
         stepInFlight = false
         textBatch?.let { active ->
@@ -527,14 +584,15 @@ class AndroidHidController(
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendReport(report: HidReport): Boolean {
+    private fun sendReport(report: HidReport, permit: HidInputPermit? = null): Boolean {
+        if (permit != null && !inputGuard.accepts(permit, currentDevice?.address)) return false
         if (!hasBluetoothPermissions() || status != STATUS_CONNECTED) return false
         val host = currentDevice ?: return false
         return runCatching { hidDevice?.sendReport(host, report.id, report.data) == true }.getOrDefault(false)
     }
 
     private fun sendReports(reports: List<HidReport>) {
-        reports.forEach(::sendReport)
+        reports.forEach { sendReport(it) }
     }
 
     private fun handleSendFailure() {
@@ -572,6 +630,7 @@ class AndroidHidController(
 
         override fun onServiceDisconnected(profile: Int) {
             if (profile != BluetoothProfile.HID_DEVICE) return
+            releaseAllInput()
             appRegistered = false
             hidDevice = null
             currentDevice = null
@@ -622,9 +681,11 @@ class AndroidHidController(
             }
             lastError = null
             if (switchingFromAddress == null) {
-                currentDevice = pluggedDevice?.takeIf { device ->
+                val nextDevice = pluggedDevice?.takeIf { device ->
                     hidDevice?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED
                 }
+                if (currentDevice?.address != nextDevice?.address) releaseAllInput()
+                currentDevice = nextDevice
             }
             if (switchingFromAddress != null) {
                 status = STATUS_CONNECTING
@@ -697,7 +758,7 @@ class AndroidHidController(
                         emitState()
                         return
                     }
-                    if (textBatch != null && currentDevice?.address != device.address) {
+                    if (currentDevice?.address != device.address) {
                         releaseAllInput()
                     }
                     currentDevice = device
