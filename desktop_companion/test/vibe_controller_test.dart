@@ -165,7 +165,7 @@ void main() {
     () async {
       if (!Platform.isWindows) return;
       final runner = _ProcessRunner();
-      final actions = DesktopActions(runner: runner);
+      final actions = DesktopActions(runner: runner, environment: const {});
       await actions.sendShortcut(const [
         'PRIMARY',
         'N',

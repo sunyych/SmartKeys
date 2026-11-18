@@ -243,6 +243,7 @@ void main() {
     final runner = _EdgeForegroundRunner();
     await DesktopActions(
       runner: runner,
+      environment: Platform.isWindows ? const {} : null,
     ).sendShortcut(const ['CTRL', 'R'], expectedAppId: 'edge');
 
     final script = Platform.isWindows
@@ -292,7 +293,10 @@ void main() {
 
   test('resolves browser navigation to the host shortcut', () async {
     final runner = _RecordingRunner();
-    final actions = DesktopActions(runner: runner);
+    final actions = DesktopActions(
+      runner: runner,
+      environment: Platform.isWindows ? const {} : null,
+    );
 
     await actions.sendShortcut(const ['BROWSER_BACK']);
 
@@ -321,6 +325,7 @@ void main() {
     final runner = _RecordingRunner();
     await DesktopActions(
       runner: runner,
+      environment: const {},
     ).sendShortcut(const ['PRIMARY', 'N'], expectedAppId: 'chatgpt');
     final script = runner.calls.single.$2[3];
     expect(script, contains('WS_EX_TOOLWINDOW'));

@@ -37,3 +37,18 @@ Run the Windows build and tray acceptance on Windows. Linux builds need
 `clang`, `cmake`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, and `liblzma-dev`.
 Shared protocol models
 are in `../packages/lumiakeys_protocol/`.
+
+Windows builds also need Rust and Cargo with the matching MSVC target
+(`x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`). To try the Rust
+shortcut backend, quit LumiaKey Desktop from the tray and launch the bundled
+executable from PowerShell with the backend selected:
+
+```powershell
+$env:LUMIAKEY_WINDOWS_SHORTCUT_BACKEND = 'rust'
+& '.\lumiakeys_companion.exe'
+```
+
+To switch back, quit LumiaKey Desktop, run
+`Remove-Item Env:LUMIAKEY_WINDOWS_SHORTCUT_BACKEND`, and launch again. The
+automated checks cover routing, key sequences and DLL loading. Use an
+interactive Windows desktop to verify real input and end-to-end latency.

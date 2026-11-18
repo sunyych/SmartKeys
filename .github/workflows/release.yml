@@ -337,6 +337,9 @@ jobs:
             throw "Inno Setup compiler was not installed at $compiler"
           }
           $buildRoot = Join-Path $PWD "desktop_companion\build\windows\x64\runner\Release"
+          if (!(Test-Path -LiteralPath (Join-Path $buildRoot "lumiakeys_windows_shortcuts.dll") -PathType Leaf)) {
+            throw "The Rust shortcut DLL is missing from the Windows release bundle."
+          }
           $outputDir = Join-Path $PWD "dist"
           New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
           & $compiler "/DAppVersion=$env:RELEASE_VERSION" "/DBuildRoot=$buildRoot" "/DOutputDir=$outputDir" "packaging\windows\lumiakeys.iss"

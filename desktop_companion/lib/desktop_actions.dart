@@ -6,6 +6,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'vibe_system_tools.dart';
 import 'app_icon_service.dart';
 import 'installed_app_launcher.dart';
+import 'windows_shortcut_backend.dart';
 
 abstract interface class MacSystemControl {
   Future<void> setDark(bool enabled);
@@ -85,9 +86,16 @@ class DesktopActions {
     DesktopPointerInput? pointerInput,
     VibeSystemTools? vibeSystemTools,
     NativeAppIconService? appIconService,
+    WindowsShortcutBackend Function()? loadWindowsShortcutBackend,
     this.mediaChannel = const MethodChannel('lumiakeys/system_control'),
   }) : _hasPointerOverride = pointerInput != null,
        environment = environment ?? Platform.environment,
+       _useRustWindowsShortcuts =
+           (environment ??
+               Platform.environment)[windowsShortcutBackendEnvironment] ==
+           'rust',
+       _loadWindowsShortcutBackend =
+           loadWindowsShortcutBackend ?? RustWindowsShortcutBackend.load,
        runner = runner ?? const SystemDesktopProcessRunner(),
        macSystemControl =
            macSystemControl ?? const MethodChannelMacSystemControl(),
@@ -98,6 +106,10 @@ class DesktopActions {
   final TargetPlatform? platformOverride;
   final Map<String, String> environment;
   final bool _hasPointerOverride;
+  final bool _useRustWindowsShortcuts;
+  final WindowsShortcutBackend Function() _loadWindowsShortcutBackend;
+  late final WindowsShortcutBackend _windowsShortcutBackend =
+      _loadWindowsShortcutBackend();
   bool get _isWindows =>
       platformOverride == TargetPlatform.windows ||
       (platformOverride == null && Platform.isWindows);
@@ -1067,18 +1079,18 @@ public static class LumiaWindowActivation {
     List<String> keys, {
     String? expectedAppId,
   }) async {
-    final modifiers = StringBuffer();
+    final modifiers = <WindowsShortcutModifier>[];
     final normal = <String>[];
     for (final key in keys) {
       switch (key) {
         case 'CTRL':
         case 'CONTROL':
-          modifiers.write('^');
+          modifiers.add(WindowsShortcutModifier.control);
         case 'ALT':
         case 'OPTION':
-          modifiers.write('%');
+          modifiers.add(WindowsShortcutModifier.alt);
         case 'SHIFT':
-          modifiers.write('+');
+          modifiers.add(WindowsShortcutModifier.shift);
         case 'META':
         case 'COMMAND':
         case 'WIN':
@@ -1086,13 +1098,40 @@ public static class LumiaWindowActivation {
             'Windows-key shortcuts are not supported yet',
           );
         default:
-          normal.add(_windowsSendKey(key));
+          normal.add(key);
       }
     }
     if (normal.length != 1) {
       throw const FormatException('shortcut needs one non-modifier key');
     }
     final targetNames = _foregroundProcessNames(expectedAppId);
+    if (_useRustWindowsShortcuts) {
+      if (expectedAppId != null && targetNames == null) {
+        throw StateError('Unsupported Windows shortcut target.');
+      }
+      final key = switch (normal.single) {
+        'RETURN' => 'ENTER',
+        'ESCAPE' => 'ESC',
+        final key => key,
+      };
+      await _windowsShortcutBackend.send(
+        WindowsShortcut(
+          key: key,
+          modifiers: modifiers,
+          allowedProcesses: targetNames ?? const [],
+        ),
+      );
+      return;
+    }
+    final legacyModifiers = modifiers
+        .map(
+          (modifier) => switch (modifier) {
+            WindowsShortcutModifier.control => '^',
+            WindowsShortcutModifier.alt => '%',
+            WindowsShortcutModifier.shift => '+',
+          },
+        )
+        .join();
     final script = r'''
 & {
 param($approvedProcesses, $keyStroke)
@@ -1125,7 +1164,7 @@ Add-Type -AssemblyName System.Windows.Forms
       '-Command',
       script.trimRight(),
       _powershellLiteral(targetNames?.join(',') ?? ''),
-      _powershellLiteral('$modifiers${normal.single}'),
+      _powershellLiteral('$legacyModifiers${_windowsSendKey(normal.single)}'),
     ]);
   }
 
