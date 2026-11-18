@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/ui/regular_home_screen.dart';
-import 'package:smart_keys/ui/settings_screen.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/icons/app_icon_catalog.dart';
 import 'package:diagnostics_core/diagnostics_core.dart';
@@ -22,8 +21,8 @@ void main() {
     final shots = ScreenshotSupport(tester);
     final diagnostics = DiagnosticsService(
       metadata: DiagnosticMetadata(
-        appVersion: '1.6.0',
-        appBuild: 8,
+        appVersion: '1.7.0',
+        appBuild: 9,
         edition: DiagnosticEdition.full,
         platform: DiagnosticPlatform.android,
       ),
@@ -63,9 +62,12 @@ void main() {
     });
     await shots.setViewport(const Size(844, 390));
     await tester.pumpWidget(
-      regularTestApp(
-        harness,
-        child: screenshotBoundary(key, const RegularHomeScreen()),
+      screenshotBoundary(
+        key,
+        DiagnosticsScope(
+          diagnostics: diagnostics,
+          child: regularTestApp(harness),
+        ),
       ),
     );
     final imageContext = tester.element(find.byType(RegularHomeScreen));
@@ -73,6 +75,12 @@ void main() {
       () => Future.wait([
         for (final asset in AppIconCatalog.assets.values.toSet())
           precacheImage(AssetImage(asset), imageContext),
+        precacheImage(
+          tester
+              .widget<Image>(find.byKey(const ValueKey('regular-brand-icon')))
+              .image,
+          imageContext,
+        ),
       ]),
     );
     await tester.pumpAndSettle();
@@ -144,6 +152,44 @@ void main() {
           'Production Launchpad with a simulated unknown application ID and bundled known-brand artwork; no native extraction or physical installation is claimed.',
       boundaryKey: key,
     );
+    const installedWord = RemoteApplication(
+      id: 'installed.0123456789abcdef0123456789abcdef',
+      name: 'Word',
+      icon: 'word',
+      executable: 'Desktop-managed',
+      layoutId: installedLaunchOnlyLayoutId,
+      detected: true,
+      launchOnly: true,
+    );
+    harness.companion.syncedManifest.value = configured.copyWith(
+      layouts: [...configured.layouts, installedLaunchOnlyLayout],
+      applications: [...configured.applications, installedWord],
+      launcherApplicationIds: [
+        installedWord.id,
+        'chrome',
+        'chatgpt',
+        ...List<String?>.filled(9, null),
+      ],
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(ValueKey('regular-launch-${installedWord.id}')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('regular-workspace-title')))
+          .data,
+      'Launchpad',
+    );
+    await shots.capture(
+      id: 'full-installed-launch-only',
+      title: 'Full installed application launcher',
+      orientation: 'landscape',
+      notes:
+          'Current production widgets with a Desktop manifest fixture for an installed Word launch-only entry. It launches and stays on Launchpad without creating a shortcut profile; no physical Word installation is claimed.',
+      boundaryKey: key,
+    );
     harness.companion.syncedManifest.value = configured.copyWith(
       launcherApplicationIds: List<String?>.filled(launcherSlotCount, null),
     );
@@ -166,18 +212,7 @@ void main() {
           'Disconnected Full exposes a pairing entry and disables shortcuts and pointer input.',
       boundaryKey: key,
     );
-    await tester.pumpWidget(
-      regularTestApp(
-        harness,
-        child: screenshotBoundary(
-          key,
-          DiagnosticsScope(
-            diagnostics: diagnostics,
-            child: const SettingsScreen(),
-          ),
-        ),
-      ),
-    );
+    await tester.tap(find.byKey(const ValueKey('regular-settings')));
     await tester.pumpAndSettle();
     await shots.capture(
       id: 'full-settings',
@@ -185,6 +220,17 @@ void main() {
       orientation: 'landscape',
       notes:
           'Regular/Full settings surface; local Bluetooth Lite profile editors are not this product’s configuration path.',
+      boundaryKey: key,
+    );
+    await tester.tap(find.byKey(const ValueKey('open-app-icon-library')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('app-icon-library')), findsOneWidget);
+    await shots.capture(
+      id: 'full-icon-library-from-settings',
+      title: 'Full icon library opened from Settings',
+      orientation: 'landscape',
+      notes:
+          'The actual Regular Settings button opens Settings, then the App icon library route. No direct synthetic shortcut to this page was used.',
       boundaryKey: key,
     );
   });

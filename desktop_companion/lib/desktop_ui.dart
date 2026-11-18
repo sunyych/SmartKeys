@@ -10,6 +10,8 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'companion_server.dart';
 import 'desktop_controller.dart';
 import 'desktop_application_artwork.dart';
+import 'installed_app_picker.dart';
+import 'app_icon_service.dart';
 import 'desktop_dictation.dart';
 import 'shortcut_transfer_service.dart';
 import 'tray_shell.dart' show desktopBrandAsset;
@@ -910,7 +912,7 @@ class _AppsPage extends StatelessWidget {
       ),
       const SizedBox(height: 8),
       const Text(
-        'Each app owns one shortcut layout. Executable paths and names are managed only on this desktop.',
+        'Manage shortcut-enabled applications here. Choose all installed launch-only applications in Launchpad.',
       ),
       const SizedBox(height: 18),
       ...controller.applicationsForCurrentPlatform.map(
@@ -1104,7 +1106,10 @@ class _LauncherPageState extends State<_LauncherPage> {
                   child: _LauncherKey(
                     index: index,
                     app: app,
-                    onTap: () => app == null ? _editKey(index) : _launch(index),
+                    iconService: widget.controller.actions.appIconService,
+                    onTap: app != null && !app.detected
+                        ? null
+                        : () => app == null ? _editKey(index) : _launch(index),
                     onEdit: () => _editKey(index),
                   ),
                 );
@@ -1240,67 +1245,10 @@ class _LauncherPageState extends State<_LauncherPage> {
   );
 
   Future<void> _editKey(int index) async {
-    final apps = widget.controller.manifest.applications;
-    final current = widget.controller.launcherAppIds[index] ?? '';
     final selected = await showDialog<String>(
       context: context,
-      builder: (context) {
-        var value = current;
-        return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            key: const ValueKey('launcher-editor-dialog'),
-            title: Text('编辑按键 ${index + 1}'),
-            content: SizedBox(
-              width: 430,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('选择一个已配置的桌面应用。保存后，点击卡片即可启动。'),
-                  const SizedBox(height: 18),
-                  DropdownButtonFormField<String>(
-                    key: const ValueKey('launcher-app-picker'),
-                    initialValue: value,
-                    decoration: const InputDecoration(labelText: '应用'),
-                    items: [
-                      const DropdownMenuItem(value: '', child: Text('不绑定应用')),
-                      ...apps.map(
-                        (app) => DropdownMenuItem(
-                          value: app.id,
-                          child: Row(
-                            children: [
-                              DesktopApplicationArtwork(app: app, size: 22),
-                              const SizedBox(width: 10),
-                              Text(app.name),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    onChanged: (next) =>
-                        setDialogState(() => value = next ?? ''),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '应用列表可在左侧“Apps”中管理。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, value),
-                child: const Text('保存'),
-              ),
-            ],
-          ),
-        );
-      },
+      builder: (_) =>
+          InstalledAppPicker(controller: widget.controller, index: index),
     );
     if (selected == null || !mounted) return;
     try {
@@ -1359,13 +1307,15 @@ class _LauncherKey extends StatelessWidget {
   const _LauncherKey({
     required this.index,
     required this.app,
+    required this.iconService,
     required this.onTap,
     required this.onEdit,
   });
 
   final int index;
   final RemoteApplication? app;
-  final VoidCallback onTap;
+  final NativeAppIconService iconService;
+  final VoidCallback? onTap;
   final VoidCallback onEdit;
 
   @override
@@ -1402,7 +1352,11 @@ class _LauncherKey extends StatelessWidget {
                             color: theme.colorScheme.onPrimaryContainer,
                             size: 23,
                           )
-                        : DesktopApplicationArtwork(app: app!, size: 34),
+                        : DesktopApplicationArtwork(
+                            app: app!,
+                            size: 34,
+                            iconService: iconService,
+                          ),
                   ),
                   const Spacer(),
                   Text(
@@ -1415,7 +1369,11 @@ class _LauncherKey extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    app == null ? '点击配置' : '点击启动',
+                    app == null
+                        ? '点击配置'
+                        : app!.detected
+                        ? '点击启动'
+                        : '应用不可用 · 绑定已保留',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),

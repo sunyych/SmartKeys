@@ -186,13 +186,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
           return;
         }
         await controller.launchRemoteApplication(application);
-        if (!await _confirmActivation(
-          controller,
-          application,
-          previousSequence,
-          session,
-          generation,
-        )) {
+        if (!application.launchOnly &&
+            !await _confirmActivation(
+              controller,
+              application,
+              previousSequence,
+              session,
+              generation,
+            )) {
           if (mounted &&
               generation == _generation &&
               session == _session(controller)) {
@@ -210,9 +211,13 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       }
       if (application != null && !_ready(controller)) return;
       setState(() {
-        _selection = selection;
-        _confirmedApplication = application?.id;
-        _confirmedSession = application == null ? null : session;
+        _selection = application?.launchOnly == true ? _launchpad : selection;
+        _confirmedApplication = application?.launchOnly == true
+            ? null
+            : application?.id;
+        _confirmedSession = application == null || application.launchOnly
+            ? null
+            : session;
         _page = 0;
       });
     } catch (error) {
@@ -371,9 +376,31 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                   ),
                   child: Column(
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Icon(Icons.keyboard_command_key, size: 24),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+                        child: Column(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.asset(
+                                'assets/app_icon/app_icon_source.png',
+                                key: const ValueKey('regular-brand-icon'),
+                                width: 32,
+                                height: 32,
+                                cacheWidth: 96,
+                                fit: BoxFit.contain,
+                                semanticLabel: 'LumiaKey app icon',
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'LumiaKey',
+                              key: const ValueKey('regular-brand-label'),
+                              maxLines: 1,
+                              style: theme.textTheme.labelSmall,
+                            ),
+                          ],
+                        ),
                       ),
                       Expanded(
                         child: ListView(
@@ -394,7 +421,9 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                               onTap: () => _select(controller, _general),
                             ),
                             const Divider(indent: 10, endIndent: 10),
-                            for (final app in applications)
+                            for (final app in applications.where(
+                              (app) => !app.launchOnly,
+                            ))
                               _NavigationItem(
                                 id: app.id,
                                 label: app.name,
@@ -412,240 +441,176 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                           ],
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 9),
-                        child: Text(
-                          'LumiaKey',
-                          style: theme.textTheme.labelSmall,
-                        ),
-                      ),
                     ],
                   ),
                 ),
                 Expanded(
-                  flex: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 5, 10, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: 43,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  title,
-                                  key: const ValueKey(
-                                    'regular-workspace-title',
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 5, 10, 0),
+                        child: _header(controller, title: title, ready: ready),
+                      ),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  0,
+                                  10,
+                                  12,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (pageCount > 1)
+                                      SizedBox(
+                                        height: 36,
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
+                                          children: [
+                                            IconButton(
+                                              key: const ValueKey(
+                                                'regular-previous-page',
+                                              ),
+                                              tooltip: 'Previous page',
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              onPressed: _page > 0
+                                                  ? () =>
+                                                        setState(() => _page--)
+                                                  : null,
+                                              icon: const Icon(
+                                                Icons.chevron_left,
+                                              ),
+                                            ),
+                                            Text(
+                                              '${_page + 1} / $pageCount',
+                                              style: theme.textTheme.labelSmall,
+                                            ),
+                                            IconButton(
+                                              key: const ValueKey(
+                                                'regular-next-page',
+                                              ),
+                                              tooltip: 'Next page',
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              onPressed: _page + 1 < pageCount
+                                                  ? () =>
+                                                        setState(() => _page++)
+                                                  : null,
+                                              icon: const Icon(
+                                                Icons.chevron_right,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    if (_error != null)
+                                      _StatusBanner(
+                                        message: _error!,
+                                        error: true,
+                                      ),
+                                    if (launcher &&
+                                        ready &&
+                                        manifest?.settings.enableAppsSync !=
+                                            true)
+                                      const _StatusBanner(
+                                        message:
+                                            'Enable Apps Sync in LumiaKey Desktop to display your saved launcher.',
+                                      ),
+                                    if (launcher &&
+                                        ready &&
+                                        launcherSlots.every(
+                                          (app) => app == null,
+                                        ))
+                                      TextButton.icon(
+                                        key: const ValueKey(
+                                          'regular-configure-launchpad',
+                                        ),
+                                        onPressed: () =>
+                                            _showLauncherSetup(controller),
+                                        icon: const Icon(
+                                          Icons.desktop_windows,
+                                          size: 17,
+                                        ),
+                                        label: const Text(
+                                          'Set up the twelve slots in Desktop',
+                                        ),
+                                      ),
+                                    if (!launcher &&
+                                        _selection != _general &&
+                                        !_applicationReady(controller) &&
+                                        _pendingApplication == null)
+                                      const _StatusBanner(
+                                        message:
+                                            'Select the application in the left menu to activate it before sending shortcuts.',
+                                      ),
+                                    Expanded(
+                                      child: !ready
+                                          ? _ConnectionPrompt(
+                                              onConnect: () =>
+                                                  _showConnection(controller),
+                                            )
+                                          : !launcher && layout == null
+                                          ? const _EmptySurface(
+                                              icon: Icons.keyboard_outlined,
+                                              title: 'No shortcuts configured',
+                                              message:
+                                                  'Add this application’s shortcut layout in LumiaKey Desktop.',
+                                            )
+                                          : _TwelveKeyGrid(
+                                              page: _page,
+                                              launcher: launcher,
+                                              applications: launcherSlots,
+                                              buttons:
+                                                  layout?.buttons ?? const [],
+                                              enabled:
+                                                  _pendingApplication == null &&
+                                                  (launcher ||
+                                                      _applicationReady(
+                                                        controller,
+                                                      )),
+                                              onConfigure: () =>
+                                                  _showLauncherSetup(
+                                                    controller,
+                                                  ),
+                                              onApplication: (app) => _select(
+                                                controller,
+                                                app.id,
+                                                application: app,
+                                              ),
+                                              onButton: (button) =>
+                                                  _execute(controller, button),
+                                            ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              if (pageCount > 1) ...[
-                                IconButton(
-                                  key: const ValueKey('regular-previous-page'),
-                                  tooltip: 'Previous page',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: _page > 0
-                                      ? () => setState(() => _page--)
-                                      : null,
-                                  icon: const Icon(Icons.chevron_left),
-                                ),
-                                Text(
-                                  '${_page + 1} / $pageCount',
-                                  style: theme.textTheme.labelSmall,
-                                ),
-                                IconButton(
-                                  key: const ValueKey('regular-next-page'),
-                                  tooltip: 'Next page',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: _page + 1 < pageCount
-                                      ? () => setState(() => _page++)
-                                      : null,
-                                  icon: const Icon(Icons.chevron_right),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (_error != null)
-                          _StatusBanner(message: _error!, error: true),
-                        if (launcher &&
-                            ready &&
-                            manifest?.settings.enableAppsSync != true)
-                          const _StatusBanner(
-                            message:
-                                'Enable Apps Sync in LumiaKey Desktop to display your saved launcher.',
-                          ),
-                        if (launcher &&
-                            ready &&
-                            launcherSlots.every((app) => app == null))
-                          TextButton.icon(
-                            key: const ValueKey('regular-configure-launchpad'),
-                            onPressed: () => _showLauncherSetup(controller),
-                            icon: const Icon(Icons.desktop_windows, size: 17),
-                            label: const Text(
-                              'Set up the twelve slots in Desktop',
                             ),
-                          ),
-                        if (!launcher &&
-                            _selection != _general &&
-                            !_applicationReady(controller) &&
-                            _pendingApplication == null)
-                          const _StatusBanner(
-                            message:
-                                'Select the application in the left menu to activate it before sending shortcuts.',
-                          ),
-                        Expanded(
-                          child: !ready
-                              ? _ConnectionPrompt(
-                                  onConnect: () => _showConnection(controller),
-                                )
-                              : !launcher && layout == null
-                              ? const _EmptySurface(
-                                  icon: Icons.keyboard_outlined,
-                                  title: 'No shortcuts configured',
-                                  message:
-                                      'Add this application’s shortcut layout in LumiaKey Desktop.',
-                                )
-                              : _TwelveKeyGrid(
-                                  page: _page,
-                                  launcher: launcher,
-                                  applications: launcherSlots,
-                                  buttons: layout?.buttons ?? const [],
-                                  enabled:
-                                      _pendingApplication == null &&
-                                      (launcher ||
-                                          _applicationReady(controller)),
-                                  onConfigure: () =>
-                                      _showLauncherSetup(controller),
-                                  onApplication: (app) => _select(
-                                    controller,
-                                    app.id,
-                                    application: app,
-                                  ),
-                                  onButton: (button) =>
-                                      _execute(controller, button),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  0,
+                                  0,
+                                  10,
+                                  12,
                                 ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 5, 10, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: 43,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              IconButton(
-                                key: const ValueKey(
-                                  'regular-desktop-connection',
-                                ),
-                                tooltip: ready
-                                    ? 'Desktop connected'
-                                    : 'Connect Desktop',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: () => _showConnection(controller),
-                                color: ready ? theme.colorScheme.primary : null,
-                                icon: Icon(
-                                  ready
-                                      ? Icons.desktop_windows
-                                      : Icons.desktop_access_disabled,
+                                child: _DesktopTouchpad(
+                                  controller: controller,
+                                  enabled: ready,
                                 ),
                               ),
-                              ComputerSwitcher(
-                                controller: controller,
-                                compact: true,
-                                iconOnly: true,
-                              ),
-                              const SizedBox(width: 42),
-                              IconButton(
-                                key: const ValueKey('regular-settings'),
-                                tooltip: 'Settings',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => const SettingsScreen(),
-                                  ),
-                                ),
-                                icon: const Icon(Icons.settings_outlined),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(10, 3, 8, 9),
-                          child: Text(
-                            ready
-                                ? controller.companion.activeHost.value!.name
-                                : 'Desktop not connected',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
                             ),
-                          ),
+                          ],
                         ),
-                        SizedBox(
-                          height: 38,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}:${_now.second.toString().padLeft(2, '0')}',
-                                  key: const ValueKey('regular-clock'),
-                                  maxLines: 1,
-                                  style: theme.textTheme.labelLarge,
-                                ),
-                              ),
-                              for (final control in const [
-                                (
-                                  'keyboard.playPause',
-                                  'Play / Pause',
-                                  Icons.play_arrow,
-                                ),
-                                ('keyboard.mute', 'Mute', Icons.volume_off),
-                              ])
-                                IconButton(
-                                  key: ValueKey('regular-system-${control.$1}'),
-                                  tooltip: control.$2,
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed:
-                                      ready &&
-                                          _pendingApplication == null &&
-                                          manifest
-                                                  ?.buttonById(control.$1)
-                                                  ?.enabled ==
-                                              true
-                                      ? () => _execute(
-                                          controller,
-                                          manifest!.buttonById(control.$1)!,
-                                        )
-                                      : null,
-                                  icon: Icon(control.$3, size: 21),
-                                ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: _DesktopTouchpad(
-                            controller: controller,
-                            enabled: ready,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -660,9 +625,130 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                     ready &&
                     _pendingApplication == null &&
                     _applicationReady(controller),
-                topOffset: 5,
-                rightInset: 49,
+                topOffset: 9,
+                rightInset: 52,
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header(
+    AppController controller, {
+    required String title,
+    required bool ready,
+  }) {
+    final theme = Theme.of(context), manifest = controller.desktopManifest;
+    return SizedBox(
+      height: 48,
+      child: LayoutBuilder(
+        builder: (context, bounds) => Row(
+          key: const ValueKey('regular-header'),
+          children: [
+            SizedBox(
+              width: (bounds.maxWidth * .20).clamp(92.0, 180.0),
+              child: Text(
+                title,
+                key: const ValueKey('regular-workspace-title'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Row(
+                key: const ValueKey('regular-header-controls'),
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: Text(
+                      ready
+                          ? controller.companion.activeHost.value!.name
+                          : 'Desktop not connected',
+                      key: const ValueKey('regular-host-name'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}:${_now.second.toString().padLeft(2, '0')}',
+                    key: const ValueKey('regular-clock'),
+                    maxLines: 1,
+                    style: theme.textTheme.labelLarge,
+                  ),
+                  for (final control in const [
+                    ('keyboard.playPause', 'Play / Pause', Icons.play_arrow),
+                    ('keyboard.mute', 'Mute', Icons.volume_off),
+                  ])
+                    IconButton(
+                      key: ValueKey('regular-system-${control.$1}'),
+                      tooltip: control.$2,
+                      visualDensity: VisualDensity.compact,
+                      onPressed:
+                          ready &&
+                              _pendingApplication == null &&
+                              manifest?.buttonById(control.$1)?.enabled == true
+                          ? () => _execute(
+                              controller,
+                              manifest!.buttonById(control.$1)!,
+                            )
+                          : null,
+                      icon: Icon(control.$3, size: 21),
+                    ),
+                ],
+              ),
+            ),
+            Row(
+              key: const ValueKey('regular-header-tools'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 40,
+                  child: IconButton(
+                    key: const ValueKey('regular-desktop-connection'),
+                    tooltip: ready ? 'Desktop connected' : 'Connect Desktop',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _showConnection(controller),
+                    color: ready ? theme.colorScheme.primary : null,
+                    icon: Icon(
+                      ready
+                          ? Icons.desktop_windows
+                          : Icons.desktop_access_disabled,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 40,
+                  child: ComputerSwitcher(
+                    controller: controller,
+                    compact: true,
+                    iconOnly: true,
+                  ),
+                ),
+                const SizedBox(width: 44),
+                SizedBox(
+                  width: 40,
+                  child: IconButton(
+                    key: const ValueKey('regular-settings'),
+                    tooltip: 'Settings',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SettingsScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.settings_outlined),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -936,7 +1022,9 @@ class _ApplicationIconState extends State<_ApplicationIcon> {
       key: ValueKey(key),
       future: _icon,
       builder: (_, snapshot) => AppArtwork(
-        appId: widget.app.id,
+        appId: widget.app.launchOnly && widget.app.icon.isNotEmpty
+            ? widget.app.icon
+            : widget.app.id,
         pngBytes: snapshot.data,
         size: widget.size,
         semanticLabel: '${widget.app.name} app icon',

@@ -9,6 +9,7 @@ class MainFlutterWindow: NSWindow {
   private var pointerChannel: FlutterMethodChannel?
   private var vibeSystemChannel: FlutterMethodChannel?
   private var appIconChannel: FlutterMethodChannel?
+  private var installedAppsChannel: FlutterMethodChannel?
   private var hotKey: EventHotKeyRef?
   private var eventHandler: EventHandlerRef?
 
@@ -21,6 +22,50 @@ class MainFlutterWindow: NSWindow {
     self.orderOut(nil)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    let installedApps = FlutterMethodChannel(
+      name: "lumiakeys/installed_apps",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    installedApps.setMethodCallHandler { call, result in
+      guard call.method == "launch" || call.method == "icon" else {
+        result(FlutterMethodNotImplemented); return
+      }
+      guard let args = call.arguments as? [String: Any], args.count == 2,
+            args["kind"] as? String == "macBundle",
+            let path = args["locator"] as? String,
+            !path.isEmpty, path.utf8.count <= 16384, path.hasPrefix("/"),
+            path.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
+        result(FlutterError(code: "registered_app_unavailable", message: "The registered application is unavailable.", details: nil)); return
+      }
+      let url = URL(fileURLWithPath: path)
+      guard url.pathExtension == "app", let bundle = Bundle(url: url),
+            let executable = bundle.executableURL,
+            FileManager.default.isExecutableFile(atPath: executable.path) else {
+        result(FlutterError(code: "registered_app_unavailable", message: "The registered application is unavailable.", details: nil)); return
+      }
+      if call.method == "icon" {
+        guard let image = NSWorkspace.shared.icon(forFile: url.path).copy() as? NSImage else { result(nil); return }
+        image.size = NSSize(width: 128, height: 128)
+        var rect = NSRect(origin: .zero, size: image.size)
+        guard let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil),
+              let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]),
+              data.count <= 64 * 1024 else { result(nil); return }
+        result(FlutterStandardTypedData(bytes: data)); return
+      }
+      if #available(macOS 10.15, *) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = []
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+          DispatchQueue.main.async {
+            if app != nil && error == nil { result(true) }
+            else { result(FlutterError(code: "registered_app_unavailable", message: "The operating system rejected this launch.", details: nil)) }
+          }
+        }
+      } else {
+        result(FlutterError(code: "registered_app_unavailable", message: "This macOS version does not support registered application launch.", details: nil))
+      }
+    }
+    installedAppsChannel = installedApps
     let channel = FlutterMethodChannel(
       name: "lumiakeys/system_control",
       binaryMessenger: flutterViewController.engine.binaryMessenger

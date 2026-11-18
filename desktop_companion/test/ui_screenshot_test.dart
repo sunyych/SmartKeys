@@ -21,7 +21,7 @@ import 'screenshot_support.dart';
 class _Discovery implements ApplicationDiscovery {
   @override
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async =>
-      apps;
+      apps.map((app) => app.copyWith(detected: true)).toList();
 }
 
 class _TextSink implements DictationTextSink {

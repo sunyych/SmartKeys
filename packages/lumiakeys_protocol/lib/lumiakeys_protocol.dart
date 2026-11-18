@@ -3,6 +3,17 @@ library;
 part 'src/compact_layouts.dart';
 
 const int launcherSlotCount = 12;
+const String installedLaunchOnlyLayoutId = 'installed.launch-only';
+
+bool isInstalledApplicationId(String id) =>
+    RegExp(r'^installed\.[a-f0-9]{32}$').hasMatch(id);
+
+const installedLaunchOnlyLayout = RemoteShortcutLayout(
+  id: installedLaunchOnlyLayoutId,
+  name: 'Installed applications',
+  kind: RemoteLayoutKind.application,
+  buttons: [],
+);
 
 /// IDs accepted by the optional authenticated native app-icon resource.
 const Set<String> remoteApplicationIconAppIds = <String>{
@@ -403,6 +414,7 @@ class RemoteApplication {
     this.detected = false,
     this.running = false,
     this.foreground = false,
+    this.launchOnly = false,
   });
 
   final String id;
@@ -417,6 +429,9 @@ class RemoteApplication {
   /// never grants the phone a new executable capability.
   final bool foreground;
 
+  /// A Desktop-registered launcher entry with no shortcut/voice capability.
+  final bool launchOnly;
+
   RemoteApplication copyWith({
     String? name,
     String? icon,
@@ -425,6 +440,7 @@ class RemoteApplication {
     bool? detected,
     bool? running,
     bool? foreground,
+    bool? launchOnly,
   }) => RemoteApplication(
     id: id,
     name: name ?? this.name,
@@ -434,30 +450,40 @@ class RemoteApplication {
     detected: detected ?? this.detected,
     running: running ?? this.running,
     foreground: foreground ?? this.foreground,
+    launchOnly: launchOnly ?? this.launchOnly,
   );
 
-  Map<String, Object?> toJson({bool includeIcon = true}) => {
+  Map<String, Object?> toJson({
+    bool includeIcon = true,
+    bool forSync = false,
+  }) => {
     'id': id,
     'name': name,
     'icon': includeIcon ? icon : '',
-    'executable': executable,
+    'executable': forSync && launchOnly ? 'Desktop-managed' : executable,
     'layoutId': layoutId,
     'detected': detected,
     'running': running,
     'foreground': foreground,
+    'launchOnly': launchOnly,
   };
 
-  factory RemoteApplication.fromJson(Map<String, Object?> json) =>
-      RemoteApplication(
-        id: _requiredString(json, 'id'),
-        name: _requiredString(json, 'name'),
-        icon: json['icon']?.toString() ?? '',
-        executable: _requiredString(json, 'executable'),
-        layoutId: _requiredString(json, 'layoutId'),
-        detected: json['detected'] == true,
-        running: json['running'] == true,
-        foreground: json['foreground'] == true,
-      );
+  factory RemoteApplication.fromJson(Map<String, Object?> json) {
+    if (json.containsKey('launchOnly') && json['launchOnly'] is! bool) {
+      throw const FormatException('Invalid launch-only application flag');
+    }
+    return RemoteApplication(
+      id: _requiredString(json, 'id'),
+      name: _requiredString(json, 'name'),
+      icon: json['icon']?.toString() ?? '',
+      executable: _requiredString(json, 'executable'),
+      layoutId: _requiredString(json, 'layoutId'),
+      detected: json['detected'] == true,
+      running: json['running'] == true,
+      foreground: json['foreground'] == true,
+      launchOnly: json['launchOnly'] == true,
+    );
+  }
 }
 
 class RemoteProfile {
@@ -649,6 +675,11 @@ class DesktopManifest {
                           application.detected ||
                           launcherApplicationIds.contains(application.id),
                     )
+                    .where(
+                      (application) =>
+                          !application.launchOnly ||
+                          launcherApplicationIds.contains(application.id),
+                    )
                     .toList(growable: false)
               : const <RemoteApplication>[]
         : applications;
@@ -667,7 +698,7 @@ class DesktopManifest {
           .map((layout) => layout.toJson(includeIcons: includeIcons))
           .toList(growable: false),
       'applications': syncedApplications
-          .map((app) => app.toJson(includeIcon: includeIcons))
+          .map((app) => app.toJson(includeIcon: includeIcons, forSync: forSync))
           .toList(growable: false),
       'profiles': profiles.map((profile) => profile.toJson()).toList(),
       'applicationActivationSequence': applicationActivationSequence,
@@ -723,6 +754,27 @@ class DesktopManifest {
       throw const FormatException('Manifest must contain layouts and profiles');
     }
     final layoutIds = layouts.map((layout) => layout.id).toSet();
+    final appIds = applications.map((app) => app.id).toSet();
+    if (appIds.length != applications.length ||
+        applications.any(
+          (app) =>
+              app.launchOnly &&
+                  (!isInstalledApplicationId(app.id) ||
+                      app.layoutId != installedLaunchOnlyLayoutId) ||
+              app.id.startsWith('installed.') && !app.launchOnly,
+        )) {
+      throw const FormatException(
+        'Manifest contains invalid application identities',
+      );
+    }
+    final installedLayout = layoutById(installedLaunchOnlyLayoutId);
+    if (installedLayout != null &&
+        (installedLayout.kind != RemoteLayoutKind.application ||
+            installedLayout.buttons.isNotEmpty)) {
+      throw const FormatException(
+        'Installed launcher layout must have no actions',
+      );
+    }
     if (layoutIds.length != layouts.length ||
         profiles.any((profile) => !layoutIds.contains(profile.layoutId)) ||
         applications.any((app) => !layoutIds.contains(app.layoutId)) ||
@@ -1459,10 +1511,29 @@ class RemoteActionRequest {
   };
 
   factory RemoteActionRequest.fromJson(Map<String, Object?> json) {
+    const allowed = {'kind', 'buttonId', 'applicationId', 'profileId'};
+    if (json.keys.any((key) => !allowed.contains(key))) {
+      throw const FormatException('Remote actions accept identifiers only');
+    }
     final kind = RemoteActionKind.values.firstWhere(
       (value) => value.name == json['kind'],
       orElse: () => throw const FormatException('Unsupported remote action'),
     );
+    final selected = switch (kind) {
+      RemoteActionKind.button => 'buttonId',
+      RemoteActionKind.launchApplication => 'applicationId',
+      RemoteActionKind.switchProfile => 'profileId',
+    };
+    final value = json[selected];
+    if (value is! String ||
+        value.trim().isEmpty ||
+        value.length > 256 ||
+        value.codeUnits.any((unit) => unit < 32 || unit == 127) ||
+        allowed
+            .where((key) => key != 'kind' && key != selected)
+            .any((key) => json[key] != null)) {
+      throw const FormatException('Invalid remote action identifier');
+    }
     return switch (kind) {
       RemoteActionKind.button => RemoteActionRequest.button(
         _requiredString(json, 'buttonId'),

@@ -1,4 +1,5 @@
 #include "flutter_window.h"
+#include "installed_apps.h"
 
 #include <algorithm>
 #include <optional>
@@ -298,6 +299,7 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  installed_apps_channel_ = CreateInstalledAppsChannel(flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
   system_control_channel_ = std::make_unique<flutter::MethodChannel<EncodableValue>>(
       flutter_controller_->engine()->messenger(), "lumiakeys/system_control",

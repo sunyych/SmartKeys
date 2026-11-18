@@ -53,8 +53,9 @@ class _DesktopApplicationArtworkState extends State<DesktopApplicationArtwork> {
   Widget _fallback() {
     final file =
         desktopAppIconAssets[canonicalBuiltinIconId(
-          legacyProtocolIconId(widget.app.id),
-        )];
+              legacyProtocolIconId(widget.app.id),
+            ) ??
+            canonicalBuiltinIconId(widget.app.icon)];
     final missing = Icon(Icons.apps, size: widget.size);
     return file == null
         ? missing

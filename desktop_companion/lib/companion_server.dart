@@ -51,6 +51,7 @@ class CompanionServer extends ChangeNotifier {
     'foreground-app',
     'app-activation',
     'launcher-pad-v1',
+    if (controller.actions.supportsInstalledLauncher) 'installed-launcher-v1',
     if (controller.actions.supportsNativeDictation || _hasProvidedDictationSink)
       'local-dictation-v1',
     if (_pointerReady) 'mouse-control-v1',
@@ -115,7 +116,8 @@ class CompanionServer extends ChangeNotifier {
         iconPath.length == 2 &&
         iconPath[0] == 'icons') {
       final appId = iconPath[1];
-      if (!remoteApplicationIconAppIds.contains(appId)) {
+      if (!remoteApplicationIconAppIds.contains(appId) &&
+          !isInstalledApplicationId(appId)) {
         await _reject(request, HttpStatus.notFound, 'icon not found');
         return;
       }
@@ -256,7 +258,20 @@ class CompanionServer extends ChangeNotifier {
       return;
     }
     try {
-      final raw = await utf8.decoder.bind(request).join();
+      final actionBytes = BytesBuilder(copy: false);
+      await for (final chunk in request.timeout(const Duration(seconds: 3))) {
+        if (actionBytes.length + chunk.length > 16 * 1024) {
+          request.response.persistentConnection = false;
+          await _reject(
+            request,
+            HttpStatus.requestEntityTooLarge,
+            'action too large',
+          );
+          return;
+        }
+        actionBytes.add(chunk);
+      }
+      final raw = utf8.decode(actionBytes.takeBytes());
       final decoded = jsonDecode(raw);
       if (decoded is! Map) throw const FormatException('invalid action');
       final action = decoded.map(

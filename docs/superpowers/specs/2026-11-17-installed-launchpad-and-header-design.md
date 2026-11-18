@@ -34,7 +34,8 @@ The shared contract is `InstalledAppRegistry.entries`, `resolve(id)`, `refresh`,
 optional `executablePath`/`startupWMClass`, and `available`/`manual` flags.
 Kinds are `windowsAppId`, `windowsShortcut`, `windowsExecutable`, `macBundle`,
 `linuxDesktopEntry`, and `linuxExecutable`. IDs use
-`installed.<first 32 SHA256 hex of platform + NUL + identity>`.
+`installed.<first 32 SHA256 hex of kind.name + NUL + identity>`; the kind includes
+the owning platform and target type.
 
 - Windows: retain Name/AppID from Start applications; supplement Start Menu
   shortcuts and registered App Paths. Do not infer executable apps from uninstall
