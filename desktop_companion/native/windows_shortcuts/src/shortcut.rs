@@ -7,6 +7,7 @@ const MODIFIERS: u8 = CTRL | ALT | SHIFT;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Delivered = 0,
+    #[cfg(windows)]
     Invalid = 1,
     WrongForeground = 2,
     NotMainChatGptWindow = 3,

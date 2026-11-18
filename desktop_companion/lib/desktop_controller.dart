@@ -14,6 +14,7 @@ import 'desktop_actions.dart';
 import 'app_icon_service.dart';
 import 'installed_app_registry.dart';
 import 'installed_app_discovery.dart';
+import 'desktop_native_backend.dart';
 import 'windows_desktop_backend.dart';
 import 'icons/builtin_icon_catalog.g.dart';
 
@@ -113,17 +114,30 @@ abstract interface class ApplicationDiscovery {
 
 class PlatformApplicationDiscovery implements ApplicationDiscovery {
   PlatformApplicationDiscovery({
+    NativeDesktopBackend? desktopBackend,
     WindowsDesktopBackend? windowsDesktopBackend,
     InstalledProcessRunner? runProcess,
-  }) : _windowsDesktopBackend =
+    Map<String, String>? environment,
+  }) : _environment = environment ?? Platform.environment,
+       _desktopBackendOverride = desktopBackend,
+       _windowsDesktopBackend =
            windowsDesktopBackend ??
            selectWindowsDesktopBackend(
              isWindows: Platform.isWindows,
-             environment: Platform.environment,
+             environment: environment ?? Platform.environment,
            ),
        _runProcess = runProcess ?? Process.run;
 
+  final Map<String, String> _environment;
+  final NativeDesktopBackend? _desktopBackendOverride;
   final WindowsDesktopBackend? _windowsDesktopBackend;
+  late final NativeDesktopBackend? _desktopBackend =
+      _desktopBackendOverride ??
+      _windowsDesktopBackend ??
+      selectNativeDesktopBackend(
+        platform: hostDesktopTargetPlatform(),
+        environment: _environment,
+      );
   final InstalledProcessRunner _runProcess;
   WindowsRegistryInventory? _windowsRegistry;
   DateTime? _installedChecked;
@@ -161,7 +175,7 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     }
     final installedMacApps = _cachedMacNames;
     final installedWindowsApps = _cachedWindowsNames;
-    final snapshot = await _readWindowsProcesses();
+    final snapshot = await _readDesktopProcesses();
     final runningProcesses =
         snapshot?.runningProcesses ?? await _runningProcessNames();
     final foregroundProcess = snapshot != null
@@ -391,9 +405,9 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
     }
   }
 
-  Future<WindowsProcessSnapshot?> _readWindowsProcesses() async {
-    final backend = _windowsDesktopBackend;
-    if (backend == null || !Platform.isWindows) return null;
+  Future<DesktopProcessSnapshot?> _readDesktopProcesses() async {
+    final backend = _desktopBackend;
+    if (backend == null) return null;
     try {
       return await backend.readProcesses().timeout(const Duration(seconds: 3));
     } catch (_) {
@@ -437,8 +451,9 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
   /// Desktop-owned application record. The value is never sent as a command or
   /// executable path to the phone.
   Future<String?> _foregroundProcessName() async {
-    final backend = _windowsDesktopBackend;
-    if (backend != null && Platform.isWindows) {
+    final backend = _desktopBackend;
+    if (backend != null) {
+      if (Platform.isLinux && !isLinuxX11Session(_environment)) return null;
       try {
         return await backend.readForegroundProcess().timeout(
           const Duration(seconds: 3),
@@ -476,6 +491,9 @@ class PlatformApplicationDiscovery implements ApplicationDiscovery {
             r'if ($name -ne "ChatGPT" -or ([LK]::IsWindowVisible($hwnd) -and ($style -band 0x80) -eq 0 -and ($style -band 0x08000000) -eq 0 -and $owner -eq [IntPtr]::Zero)) { $name } }',
       ]);
     } else {
+      if (_desktopBackend != null && !isLinuxX11Session(_environment)) {
+        return null;
+      }
       final window = await _runProcess('xdotool', const [
         'getactivewindow',
         'getwindowpid',

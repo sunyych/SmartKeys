@@ -70,6 +70,11 @@ jobs:
         with:
           flutter-version: '3.44.2'
           cache: true
+      - name: Test the Rust desktop library
+        working-directory: desktop_companion
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo test --locked --manifest-path native/windows_shortcuts/Cargo.toml --target-dir build/rust-desktop-tests
       - name: Build and package Desktop
         working-directory: desktop_companion
         run: |
@@ -78,6 +83,10 @@ jobs:
           build_name=${product_version%%+*}
           build_number=${product_version##*+}
           flutter build macos --release --build-name="$build_name" --build-number="$build_number"
+          export LUMIAKEY_TEST_DESKTOP_NATIVE_LIBRARY="$PWD/build/macos/Build/Products/Release/LumiaKey.app/Contents/Frameworks/liblumiakeys_desktop.dylib"
+          test -s "$LUMIAKEY_TEST_DESKTOP_NATIVE_LIBRARY"
+          codesign --verify "$LUMIAKEY_TEST_DESKTOP_NATIVE_LIBRARY"
+          flutter test --no-pub test/rust_macos_*_test.dart
           mkdir -p dist/dmg
           cp -R "build/macos/Build/Products/Release/LumiaKey.app" dist/dmg/
           ln -s /Applications dist/dmg/Applications

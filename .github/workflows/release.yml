@@ -274,10 +274,14 @@ jobs:
       - name: Build and package DMG
         working-directory: desktop_companion
         run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
           flutter pub get
           flutter build macos --release \
             --build-name="$RELEASE_VERSION" \
             --build-number="$BUILD_NUMBER"
+          library="build/macos/Build/Products/Release/LumiaKey.app/Contents/Frameworks/liblumiakeys_desktop.dylib"
+          test -s "$library"
+          codesign --verify "$library"
           mkdir -p dist/dmg
           cp -R "build/macos/Build/Products/Release/LumiaKey.app" dist/dmg/
           ln -s /Applications dist/dmg/Applications

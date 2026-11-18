@@ -27,6 +27,8 @@ pub enum PointerOutcome {
     Rejected = 2,
     Partial = 3,
     PartialReleaseFailed = 4,
+    Unsupported = 5,
+    PermissionDenied = 6,
 }
 
 pub fn prepare_pointer_batch(inputs: &[RawPointerInput]) -> Option<Vec<PointerEvent>> {
@@ -68,12 +70,19 @@ pub fn prepare_pointer_batch(inputs: &[RawPointerInput]) -> Option<Vec<PointerEv
 
 pub fn deliver_pointer(
     inputs: &[RawPointerInput],
-    mut send: impl FnMut(&[PointerEvent]) -> usize,
+    send: impl FnMut(&[PointerEvent]) -> usize,
 ) -> PointerOutcome {
     let Some(events) = prepare_pointer_batch(inputs) else {
         return PointerOutcome::Invalid;
     };
-    let inserted = send(&events);
+    deliver_pointer_events(&events, send)
+}
+
+pub(crate) fn deliver_pointer_events(
+    events: &[PointerEvent],
+    mut send: impl FnMut(&[PointerEvent]) -> usize,
+) -> PointerOutcome {
+    let inserted = send(events);
     if inserted == events.len() {
         return PointerOutcome::Delivered;
     }
@@ -94,6 +103,16 @@ pub fn deliver_pointer(
         return PointerOutcome::PartialReleaseFailed;
     }
     PointerOutcome::Partial
+}
+
+pub fn supports_linux_x11(
+    display: Option<&str>,
+    wayland_display: Option<&str>,
+    session_type: Option<&str>,
+) -> bool {
+    display.is_some_and(|value| !value.is_empty())
+        && !wayland_display.is_some_and(|value| !value.is_empty())
+        && !session_type.is_some_and(|value| value.trim().eq_ignore_ascii_case("wayland"))
 }
 
 fn valid_name(value: &str) -> bool {

@@ -57,6 +57,35 @@ pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Match Rust to the Flutter runner's target and install it with the bundle.
+find_program(CARGO_EXECUTABLE NAMES cargo HINTS "$ENV{HOME}/.cargo/bin")
+if(NOT CARGO_EXECUTABLE)
+  message(FATAL_ERROR "Cargo is required to build LumiaKey Desktop.")
+endif()
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" LUMIAKEY_LINUX_ARCH)
+if(LUMIAKEY_LINUX_ARCH MATCHES "^(x86_64|amd64)$")
+  set(LUMIAKEY_RUST_TARGET "x86_64-unknown-linux-gnu")
+elseif(LUMIAKEY_LINUX_ARCH MATCHES "^(aarch64|arm64)$")
+  set(LUMIAKEY_RUST_TARGET "aarch64-unknown-linux-gnu")
+else()
+  message(FATAL_ERROR "Unsupported LumiaKey Linux architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+set(LUMIAKEY_RUST_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rust-desktop")
+set(LUMIAKEY_RUST_LIBRARY
+  "${LUMIAKEY_RUST_OUTPUT}/${LUMIAKEY_RUST_TARGET}/release/liblumiakeys_windows_shortcuts.so")
+string(TOUPPER "${LUMIAKEY_RUST_TARGET}" LUMIAKEY_RUST_LINKER)
+string(REPLACE "-" "_" LUMIAKEY_RUST_LINKER "${LUMIAKEY_RUST_LINKER}")
+add_custom_target(lumiakeys_rust_desktop
+  COMMAND "${CMAKE_COMMAND}" -E env
+    "CARGO_TARGET_${LUMIAKEY_RUST_LINKER}_LINKER=${CMAKE_CXX_COMPILER}"
+    "${CARGO_EXECUTABLE}" build --locked --release
+    --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/../native/windows_shortcuts/Cargo.toml"
+    --target "${LUMIAKEY_RUST_TARGET}" --target-dir "${LUMIAKEY_RUST_OUTPUT}"
+  BYPRODUCTS "${LUMIAKEY_RUST_LIBRARY}"
+  COMMENT "Building the LumiaKey Rust desktop backend"
+  VERBATIM)
+add_dependencies(${BINARY_NAME} lumiakeys_rust_desktop)
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
@@ -109,6 +138,8 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
+install(FILES "${LUMIAKEY_RUST_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  RENAME "liblumiakeys_desktop.so" COMPONENT Runtime)
 
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
   install(FILES "${bundled_library}"

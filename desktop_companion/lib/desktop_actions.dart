@@ -5,6 +5,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'vibe_system_tools.dart';
 import 'app_icon_service.dart';
+import 'desktop_native_backend.dart';
 import 'installed_app_launcher.dart';
 import 'windows_desktop_backend.dart';
 import 'windows_shortcut_backend.dart';
@@ -87,6 +88,7 @@ class DesktopActions {
     DesktopPointerInput? pointerInput,
     VibeSystemTools? vibeSystemTools,
     NativeAppIconService? appIconService,
+    NativeDesktopBackend? desktopBackend,
     WindowsDesktopBackend? windowsDesktopBackend,
     WindowsShortcutBackend Function()? loadWindowsShortcutBackend,
     this.mediaChannel = const MethodChannel('lumiakeys/system_control'),
@@ -98,13 +100,21 @@ class DesktopActions {
                'rust' ||
            (environment ??
                    Platform.environment)[windowsDesktopBackendEnvironment] ==
+               'rust' ||
+           (environment ?? Platform.environment)[desktopBackendEnvironment] ==
                'rust',
-       _windowsDesktopBackend =
-           windowsDesktopBackend ??
-           selectWindowsDesktopBackend(
-             isWindows:
-                 platformOverride == TargetPlatform.windows ||
-                 (platformOverride == null && Platform.isWindows),
+       _desktopBackend =
+           desktopBackend ??
+           ((platformOverride ?? hostDesktopTargetPlatform()) ==
+                   TargetPlatform.windows
+               ? windowsDesktopBackend ??
+                     selectWindowsDesktopBackend(
+                       isWindows: true,
+                       environment: environment ?? Platform.environment,
+                     )
+               : null) ??
+           selectNativeDesktopBackend(
+             platform: platformOverride ?? hostDesktopTargetPlatform(),
              environment: environment ?? Platform.environment,
            ),
        _loadWindowsShortcutBackend =
@@ -125,7 +135,7 @@ class DesktopActions {
   final Map<String, String> environment;
   final bool _hasPointerOverride;
   final bool _useRustWindowsShortcuts;
-  final WindowsDesktopBackend? _windowsDesktopBackend;
+  final NativeDesktopBackend? _desktopBackend;
   final WindowsShortcutBackend Function() _loadWindowsShortcutBackend;
   late final WindowsShortcutBackend _windowsShortcutBackend =
       _loadWindowsShortcutBackend();
@@ -173,12 +183,14 @@ class DesktopActions {
   Future<Uint8List?> getApplicationIcon(RemoteApplication app) =>
       appIconService.getNativeIcon(app);
 
-  Future<void> applyPointerInputs(List<PointerInput> inputs) {
+  Future<void> applyPointerInputs(List<PointerInput> inputs) async {
     if (_hasPointerOverride) return pointerInput.apply(inputs);
-    if (_isLinux) return _applyLinuxPointerInputs(inputs);
-    if (_windowsDesktopBackend case final backend? when _isWindows) {
+    if (_isLinux) _requireLinuxX11();
+    if (_desktopBackend case final backend?
+        when _isWindows || _isMacOS || _isLinux) {
       return backend.applyPointerInputs(inputs);
     }
+    if (_isLinux) return _applyLinuxPointerInputs(inputs);
     return pointerInput.apply(inputs);
   }
 
@@ -340,12 +352,15 @@ class DesktopActions {
 
   Future<bool> probePointerSupport() async {
     if (_hasPointerOverride) return true;
-    if (_windowsDesktopBackend case final backend? when _isWindows) {
-      return backend.supportsPointer();
-    }
-    if (_isWindows || _isMacOS) return true;
     try {
       _requireLinuxX11();
+      if (_desktopBackend case final backend?
+          when _isWindows || _isMacOS || _isLinux) {
+        return await backend.supportsPointer().timeout(
+          const Duration(seconds: 3),
+        );
+      }
+      if (_isWindows || _isMacOS) return true;
       final result = await runner
           .run('xdotool', const ['getmouselocation', '--shell'])
           .timeout(const Duration(seconds: 3));
@@ -503,7 +518,7 @@ class DesktopActions {
 
   void _requireLinuxX11() {
     if (!_isLinux) return;
-    if ((environment['WAYLAND_DISPLAY'] ?? '').isNotEmpty) {
+    if (isLinuxWaylandSession(environment)) {
       throw UnsupportedError(
         'Desktop input automation is not available in this Wayland session. Switch to an X11 session to use shortcuts and pointer control.',
       );
