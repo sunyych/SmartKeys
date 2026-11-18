@@ -99,6 +99,7 @@ class DesktopSettingsHome extends StatelessWidget {
       controller: controller,
       server: server,
       displayHost: displayHost,
+      dictation: dictation,
     ),
     1 => _BluetoothPage(
       controller: controller,
@@ -283,11 +284,13 @@ class _GeneralPage extends StatelessWidget {
     required this.controller,
     required this.server,
     required this.displayHost,
+    required this.dictation,
   });
 
   final DesktopController controller;
   final CompanionServer server;
   final String? displayHost;
+  final DesktopDictationService dictation;
 
   @override
   Widget build(BuildContext context) {
@@ -300,6 +303,10 @@ class _GeneralPage extends StatelessWidget {
           server: server,
           displayHost: displayHost,
         ),
+        if (Platform.isMacOS) ...[
+          const SizedBox(height: 16),
+          _MacPointerPermissionCard(service: dictation),
+        ],
         const SizedBox(height: 24),
         Text('Synchronization', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
@@ -368,6 +375,52 @@ class _GeneralPage extends StatelessWidget {
       ],
     );
   }
+}
+
+class _MacPointerPermissionCard extends StatelessWidget {
+  const _MacPointerPermissionCard({required this.service});
+
+  final DesktopDictationService service;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: service,
+    builder: (context, _) => Card(
+      key: const ValueKey('mac-pointer-permission-card'),
+      child: ListTile(
+        leading: Icon(
+          service.accessibilityGranted
+              ? Icons.check_circle_outline
+              : Icons.accessibility_new,
+        ),
+        title: Text(
+          service.accessibilityGranted
+              ? 'Mouse and keyboard permissions are ready'
+              : 'Allow Mac mouse and keyboard control',
+        ),
+        subtitle: const Text(
+          'In System Settings → Privacy & Security → Accessibility, allow LumiaKey Desktop. This permission also enables event posting. If it is already enabled but input still fails, remove the old LumiaKey Desktop entry and add the current app again.',
+        ),
+        trailing: Wrap(
+          children: [
+            TextButton(
+              onPressed: service.requestAccessibility,
+              child: const Text('Request'),
+            ),
+            TextButton(
+              onPressed: service.openAccessibilitySettings,
+              child: const Text('Settings'),
+            ),
+            IconButton(
+              tooltip: 'Refresh permission status',
+              onPressed: service.refreshAccessibility,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _StatusCard extends StatelessWidget {

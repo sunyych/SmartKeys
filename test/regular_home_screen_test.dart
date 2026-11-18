@@ -588,6 +588,24 @@ void main() {
     );
   });
 
+  testWidgets('native pointer errors are visible beside the regular touchpad', (
+    tester,
+  ) async {
+    final harness = await mountRegular(tester);
+    harness.companion.pointerErrors.value =
+        'Desktop mouse input failed: pointer_permission_missing';
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('regular-desktop-pointer-error')),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Accessibility and event posting'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'late launch completion cannot select an app on another computer',
     (tester) async {

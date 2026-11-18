@@ -3,6 +3,47 @@ import FlutterMacOS
 import ApplicationServices
 import Carbon
 
+struct PointerEventFactory {
+  static func move(
+    from location: CGPoint,
+    deltaX: Int,
+    deltaY: Int,
+    displayBounds: [CGRect]
+  ) -> (event: CGEvent, location: CGPoint)? {
+    let destination = clampedDestination(
+      CGPoint(x: location.x + CGFloat(deltaX), y: location.y + CGFloat(deltaY)),
+      displayBounds: displayBounds
+    )
+    guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                              mouseCursorPosition: destination, mouseButton: .left) else {
+      return nil
+    }
+    event.setIntegerValueField(.mouseEventDeltaX, value: Int64(deltaX))
+    event.setIntegerValueField(.mouseEventDeltaY, value: Int64(deltaY))
+    return (event, destination)
+  }
+
+  static func clampedDestination(_ target: CGPoint, displayBounds: [CGRect]) -> CGPoint {
+    let displays = displayBounds.filter { !$0.isNull && !$0.isEmpty }
+    guard !displays.isEmpty else { return target }
+    if displays.contains(where: { $0.contains(target) }) { return target }
+
+    let candidates = displays.map { bounds in
+      CGPoint(
+        x: min(max(target.x, bounds.minX), bounds.maxX.nextDown),
+        y: min(max(target.y, bounds.minY), bounds.maxY.nextDown)
+      )
+    }
+    return candidates.min { first, second in
+      let firstX = first.x - target.x
+      let firstY = first.y - target.y
+      let secondX = second.x - target.x
+      let secondY = second.y - target.y
+      return firstX * firstX + firstY * firstY < secondX * secondX + secondY * secondY
+    } ?? target
+  }
+}
+
 class MainFlutterWindow: NSWindow {
   private var systemControlChannel: FlutterMethodChannel?
   private var dictationChannel: FlutterMethodChannel?
@@ -219,6 +260,12 @@ class MainFlutterWindow: NSWindow {
         result(FlutterError(code: "pointer_permission_missing", message: "Allow LumiaKey Desktop in macOS Accessibility settings", details: nil))
         return
       }
+      var pointerLocation = CGEvent(source: nil)?.location ?? .zero
+      var displayCount: UInt32 = 0
+      _ = CGGetActiveDisplayList(0, nil, &displayCount)
+      var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+      _ = CGGetActiveDisplayList(displayCount, &displayIDs, &displayCount)
+      let displayBounds = displayIDs.map { CGDisplayBounds($0) }
       for input in inputs {
         guard let kind = input["kind"] as? String else {
           result(FlutterError(code: "pointer_rejected", message: "Invalid pointer input", details: nil))
@@ -228,15 +275,15 @@ class MainFlutterWindow: NSWindow {
         case "move":
           guard let x = input["x"] as? Int, let y = input["y"] as? Int,
                 (-127...127).contains(x), (-127...127).contains(y),
-                let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
-                                    mouseCursorPosition: CGEvent(source: nil)?.location ?? .zero,
-                                    mouseButton: .left) else {
+                let movement = PointerEventFactory.move(
+                  from: pointerLocation, deltaX: x, deltaY: y,
+                  displayBounds: displayBounds
+                ) else {
             result(FlutterError(code: "pointer_rejected", message: "Invalid movement", details: nil))
             return
           }
-          event.setIntegerValueField(.mouseEventDeltaX, value: Int64(x))
-          event.setIntegerValueField(.mouseEventDeltaY, value: Int64(y))
-          event.post(tap: .cghidEventTap)
+          movement.event.post(tap: .cghidEventTap)
+          pointerLocation = movement.location
         case "scroll":
           guard let y = input["y"] as? Int, y != 0, (-127...127).contains(y),
                 let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
@@ -245,6 +292,7 @@ class MainFlutterWindow: NSWindow {
             result(FlutterError(code: "pointer_rejected", message: "Invalid scroll", details: nil))
             return
           }
+          event.location = pointerLocation
           event.post(tap: .cghidEventTap)
         case "button":
           guard let secondary = input["secondary"] as? Bool else {
@@ -254,7 +302,7 @@ class MainFlutterWindow: NSWindow {
           let button: CGMouseButton = secondary ? .right : .left
           let down: CGEventType = secondary ? .rightMouseDown : .leftMouseDown
           let up: CGEventType = secondary ? .rightMouseUp : .leftMouseUp
-          let location = CGEvent(source: nil)?.location ?? .zero
+          let location = pointerLocation
           guard let downEvent = CGEvent(mouseEventSource: nil, mouseType: down,
                                         mouseCursorPosition: location, mouseButton: button),
                 let upEvent = CGEvent(mouseEventSource: nil, mouseType: up,
