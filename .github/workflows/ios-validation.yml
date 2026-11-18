@@ -2,7 +2,7 @@ name: Apple build checks
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library, codex/host-switch-pointer-and-sidebar]
     paths:
       - 'ios/**'
       - 'desktop_companion/**'
@@ -19,13 +19,22 @@ on:
       - 'scripts/sync_diagnostics_core.py'
       - '.github/workflows/ios-validation.yml'
   workflow_dispatch:
+    inputs:
+      apple_runner:
+        description: Apple runner for manual validation
+        type: choice
+        default: macos-26-intel
+        options:
+          - macos-latest
+          - macos-15-intel
+          - macos-26-intel
 
 permissions:
   contents: read
 
 jobs:
   ios-debug:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.apple_runner || 'macos-latest' }}
     steps:
       - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
@@ -55,7 +64,7 @@ jobs:
 
   macos-desktop:
     name: macOS Desktop release package
-    runs-on: macos-26-intel
+    runs-on: ${{ inputs.apple_runner || 'macos-26-intel' }}
     steps:
       - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2

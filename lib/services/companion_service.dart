@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:diagnostics_core/diagnostics_core.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import '../icons/app_icon_validation.dart';
+import 'pointer_diagnostics.dart';
 
 class _CompanionAuthenticationFailure implements Exception {}
 
@@ -1008,6 +1009,7 @@ class LanCompanionService
   @override
   Future<void> sendPointerInputs(List<PointerInput> inputs) async {
     if (_disposed || inputs.isEmpty) return;
+    PointerDiagnostics.record(PointerDiagnosticEvent.queued);
     final host = _host.value;
     if (host == null || !host.capabilities.contains('mouse-control-v1')) {
       throw StateError('Selected Desktop does not support mouse control.');
@@ -1040,6 +1042,7 @@ class LanCompanionService
 
   @override
   void discardPendingPointerInputs() {
+    PointerDiagnostics.record(PointerDiagnosticEvent.discarded);
     _pointerFlushTimer?.cancel();
     _pointerFlushTimer = null;
     _pointerQueue.clear();
@@ -1057,7 +1060,11 @@ class LanCompanionService
   }
 
   Future<void> _flushPointerQueue() async {
-    if (_pointerQueue.isEmpty || _disposed || _pointerFlushing) return;
+    if (_pointerQueue.isEmpty || _disposed) return;
+    if (_pointerFlushing) {
+      PointerDiagnostics.record(PointerDiagnosticEvent.flushBusy);
+      return;
+    }
     final queuedHost = _pointerQueueHost;
     if (queuedHost == null) return;
     if (!_sameDesktopSession(_host.value, queuedHost) ||
@@ -1067,6 +1074,7 @@ class LanCompanionService
       return;
     }
     _pointerFlushing = true;
+    PointerDiagnostics.record(PointerDiagnosticEvent.flushStarted);
     final batch = _pointerQueue.take(32).toList(growable: false);
     _pointerQueue.removeRange(0, batch.length);
     try {
@@ -1086,6 +1094,11 @@ class LanCompanionService
       final response = await request.close().timeout(
         const Duration(seconds: 3),
       );
+      PointerDiagnostics.record(
+        PointerDiagnosticEvent.httpResponse,
+        httpStatus: response.statusCode,
+        acceptedHost: _sameDesktopSession(_host.value, queuedHost),
+      );
       final body = await _readBoundedResponse(
         response,
         const Duration(seconds: 3),
@@ -1095,6 +1108,17 @@ class LanCompanionService
       if (response.statusCode != HttpStatus.ok) throw HttpException(body);
       _pointerError.value = null;
     } catch (error) {
+      PointerDiagnostics.record(
+        PointerDiagnosticEvent.deliveryFailed,
+        acceptedHost: _sameDesktopSession(_host.value, queuedHost),
+        failure: error is TimeoutException
+            ? PointerDiagnosticFailure.timeout
+            : error is SocketException
+            ? PointerDiagnosticFailure.socket
+            : error is HttpException
+            ? PointerDiagnosticFailure.http
+            : PointerDiagnosticFailure.other,
+      );
       if (!_disposed &&
           _sameDesktopSession(_host.value, queuedHost) &&
           _sameDesktopSession(_pointerQueueHost, queuedHost)) {

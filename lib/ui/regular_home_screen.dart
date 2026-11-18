@@ -35,6 +35,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
 
   final _dictation = GlobalKey<LocalDictationEntryButtonState>();
   String _selection = _launchpad;
+  Set<String>? _previousSidebarSelections;
   String? _sessionKey;
   String? _pendingApplication;
   String? _error;
@@ -340,12 +341,63 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       );
     }
     final ready = _ready(controller);
+    // A pointer route can outlive its rendered surface until the next frame.
+    // Do not let an old key/app tap acquire authority from a newly ready host.
+    final renderedSession = _session(controller);
+    final renderedInputEpoch = controller.inputEpoch;
+    bool acceptsRenderedInput() =>
+        mounted &&
+        renderedSession == _session(controller) &&
+        renderedInputEpoch == controller.inputEpoch;
+    final manifest = controller.desktopManifest;
     final applications = _applications(controller);
+    final sidebarApps = {
+      for (final app in applications.where((app) => !app.launchOnly))
+        app.id: app,
+    };
+    final sidebarProfiles = {
+      for (final profile in manifest?.profiles ?? const <RemoteProfile>[])
+        if (profile.isLibraryProfile &&
+            profile.platform == controller.companion.activeHost.value?.platform)
+          profile.id: profile,
+    };
+    final sidebarItems =
+        (manifest?.effectiveSidebarItems ?? const <RemoteSidebarItem>[])
+            .where(
+              (item) => item.kind == RemoteSidebarKind.application
+                  ? sidebarApps.containsKey(item.id)
+                  : sidebarProfiles.containsKey(item.id),
+            )
+            .toList();
+    final visibleSelections = {
+      for (final item in sidebarItems)
+        item.kind == RemoteSidebarKind.application
+            ? item.id
+            : '$_libraryPrefix${item.id}',
+    };
+    final removedSelections =
+        _previousSidebarSelections?.difference(visibleSelections) ??
+        const <String>{};
+    _previousSidebarSelections = visibleSelections;
+    if (removedSelections.contains(_selection) ||
+        removedSelections.contains(_pendingApplication)) {
+      _selection = _launchpad;
+      _page = 0;
+      _pendingApplication = null;
+      _confirmedApplication = null;
+      _confirmedSession = null;
+      ++_generation;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_dictation.currentState?.stopQuickDictation());
+          unawaited(controller.prepareForContextChange());
+        }
+      });
+    }
     final application = applications.cast<RemoteApplication?>().firstWhere(
       (app) => app?.id == _selection,
       orElse: () => null,
     );
-    final manifest = controller.desktopManifest;
     final launcherSlots = List<RemoteApplication?>.generate(launcherSlotCount, (
       index,
     ) {
@@ -442,56 +494,53 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                               onTap: () => _select(controller, _general),
                             ),
                             const Divider(indent: 10, endIndent: 10),
-                            for (final app in applications.where(
-                              (app) => !app.launchOnly,
-                            ))
-                              _NavigationItem(
-                                id: app.id,
-                                label: app.name,
-                                icon: _ApplicationIcon(app: app, size: 24),
-                                selected: app.id == _selection,
-                                busy: app.id == _pendingApplication,
-                                onTap: ready
-                                    ? () => _select(
-                                        controller,
-                                        app.id,
-                                        application: app,
-                                      )
-                                    : null,
-                              ),
-                            for (final profile
-                                in manifest?.profiles.where(
-                                      (p) =>
-                                          p.isLibraryProfile &&
-                                          p.platform ==
-                                              controller
-                                                  .companion
-                                                  .activeHost
-                                                  .value
-                                                  ?.platform,
-                                    ) ??
-                                    const <RemoteProfile>[])
-                              _NavigationItem(
-                                id: 'library-profile-${profile.id}',
-                                label: profile.name,
-                                icon: AppArtwork(
-                                  appId:
-                                      profile.sourceIconId ??
-                                      profile.sourceAppId ??
-                                      '',
-                                  pngBytes: sourceProfileIcon(profile),
-                                  size: 24,
+                            for (final item in sidebarItems)
+                              if (item.kind == RemoteSidebarKind.application)
+                                _NavigationItem(
+                                  id: item.id,
+                                  label: sidebarApps[item.id]!.name,
+                                  icon: _ApplicationIcon(
+                                    app: sidebarApps[item.id]!,
+                                    size: 24,
+                                  ),
+                                  selected: item.id == _selection,
+                                  busy: item.id == _pendingApplication,
+                                  onTap: ready
+                                      ? () {
+                                          if (acceptsRenderedInput()) {
+                                            _select(
+                                              controller,
+                                              item.id,
+                                              application: sidebarApps[item.id],
+                                            );
+                                          }
+                                        }
+                                      : null,
+                                )
+                              else
+                                _NavigationItem(
+                                  id: 'library-profile-${item.id}',
+                                  label: sidebarProfiles[item.id]!.name,
+                                  icon: AppArtwork(
+                                    appId:
+                                        sidebarProfiles[item.id]!
+                                            .sourceIconId ??
+                                        sidebarProfiles[item.id]!.sourceAppId ??
+                                        '',
+                                    pngBytes: sourceProfileIcon(
+                                      sidebarProfiles[item.id]!,
+                                    ),
+                                    size: 24,
+                                  ),
+                                  selected:
+                                      _selection == '$_libraryPrefix${item.id}',
+                                  onTap: ready
+                                      ? () => _select(
+                                          controller,
+                                          '$_libraryPrefix${item.id}',
+                                        )
+                                      : null,
                                 ),
-                                selected:
-                                    _selection ==
-                                    '$_libraryPrefix${profile.id}',
-                                onTap: ready
-                                    ? () => _select(
-                                        controller,
-                                        '$_libraryPrefix${profile.id}',
-                                      )
-                                    : null,
-                              ),
                           ],
                         ),
                       ),
@@ -503,7 +552,12 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 5, 10, 0),
-                        child: _header(controller, title: title, ready: ready),
+                        child: _header(
+                          controller,
+                          title: title,
+                          ready: ready,
+                          acceptsRenderedInput: acceptsRenderedInput,
+                        ),
                       ),
                       Expanded(
                         child: Row(
@@ -637,17 +691,27 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                                       _applicationReady(
                                                         controller,
                                                       )),
-                                              onConfigure: () =>
+                                              onConfigure: () {
+                                                if (acceptsRenderedInput()) {
                                                   _showLauncherSetup(
                                                     controller,
-                                                  ),
-                                              onApplication: (app) => _select(
-                                                controller,
-                                                app.id,
-                                                application: app,
-                                              ),
-                                              onButton: (button) =>
-                                                  _execute(controller, button),
+                                                  );
+                                                }
+                                              },
+                                              onApplication: (app) {
+                                                if (acceptsRenderedInput()) {
+                                                  _select(
+                                                    controller,
+                                                    app.id,
+                                                    application: app,
+                                                  );
+                                                }
+                                              },
+                                              onButton: (button) {
+                                                if (acceptsRenderedInput()) {
+                                                  _execute(controller, button);
+                                                }
+                                              },
                                             ),
                                     ),
                                   ],
@@ -665,6 +729,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                 child: _DesktopTouchpad(
                                   controller: controller,
                                   enabled: ready,
+                                  acceptsRenderedInput: acceptsRenderedInput,
                                 ),
                               ),
                             ),
@@ -701,6 +766,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     AppController controller, {
     required String title,
     required bool ready,
+    required bool Function() acceptsRenderedInput,
   }) {
     final theme = Theme.of(context), manifest = controller.desktopManifest;
     return SizedBox(
@@ -758,10 +824,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                           ready &&
                               _pendingApplication == null &&
                               manifest?.buttonById(control.$1)?.enabled == true
-                          ? () => _execute(
-                              controller,
-                              manifest!.buttonById(control.$1)!,
-                            )
+                          ? () {
+                              if (acceptsRenderedInput()) {
+                                _execute(
+                                  controller,
+                                  manifest!.buttonById(control.$1)!,
+                                );
+                              }
+                            }
                           : null,
                       icon: Icon(control.$3, size: 21),
                     ),
@@ -1096,12 +1166,18 @@ class _ApplicationIconState extends State<_ApplicationIcon> {
 }
 
 class _DesktopTouchpad extends StatelessWidget {
-  const _DesktopTouchpad({required this.controller, required this.enabled});
+  const _DesktopTouchpad({
+    required this.controller,
+    required this.enabled,
+    required this.acceptsRenderedInput,
+  });
   final AppController controller;
   final bool enabled;
+  final bool Function() acceptsRenderedInput;
 
   bool get _canSend =>
       enabled &&
+      acceptsRenderedInput() &&
       controller.isDesktopSynced &&
       controller.computerSwitchPendingId == null &&
       controller.selectedDesktopSupportsMouse;

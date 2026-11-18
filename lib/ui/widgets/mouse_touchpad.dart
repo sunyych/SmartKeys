@@ -40,6 +40,15 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
   double? _lastScrollStripY;
 
   @override
+  void dispose() {
+    // Raw pointer routes can deliver their final events after the host-switch
+    // pending surface has removed this widget. Those gestures are no longer input.
+    _resetGesture(notify: false);
+    _resetScrollStrip(notify: false);
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(covariant MouseTouchpad oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.inputEpoch != widget.inputEpoch) {
@@ -143,6 +152,7 @@ class _MouseTouchpadState extends State<MouseTouchpad> {
   }
 
   void _handlePointerCancel(PointerCancelEvent event) {
+    if (!_pointers.containsKey(event.pointer)) return;
     _pointers.remove(event.pointer);
     _startPositions.remove(event.pointer);
     _movedBeyondTapSlop = true;

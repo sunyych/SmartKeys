@@ -1067,6 +1067,60 @@ class DesktopController extends ChangeNotifier {
   static String _libraryActionHash(RemoteShortcutButton button) =>
       sha256.convert(utf8.encode(jsonEncode(button.toJson()))).toString();
 
+  List<RemoteSidebarItem> get sidebarItems =>
+      List.unmodifiable(_manifest.effectiveSidebarItems);
+  List<RemoteSidebarItem> get sidebarCandidates => List.unmodifiable([
+    for (final app in applicationsForCurrentPlatform)
+      RemoteSidebarItem.application(app.id),
+    for (final profile in _manifest.profiles.where(
+      (p) => p.isLibraryProfile && p.platform == libraryOperatingSystem,
+    ))
+      RemoteSidebarItem.profile(profile.id),
+  ]);
+  String sidebarItemName(RemoteSidebarItem item) =>
+      item.kind == RemoteSidebarKind.application
+      ? _manifest.applicationById(item.id)?.name ?? item.id
+      : _manifest.profiles.where((p) => p.id == item.id).firstOrNull?.name ??
+            item.id;
+
+  Future<void> setSidebarVisible(RemoteSidebarItem item, bool visible) =>
+      _commit((current) {
+        if (visible &&
+            !sidebarCandidates.any((candidate) => candidate.key == item.key)) {
+          throw const FormatException(
+            'Choose a configured shortcut App or installed library profile.',
+          );
+        }
+        final next = current.effectiveSidebarItems
+            .where((candidate) => candidate.key != item.key)
+            .toList();
+        if (visible &&
+            !current.effectiveSidebarItems.any(
+              (candidate) => candidate.key == item.key,
+            )) {
+          next.add(item);
+        } else if (visible) {
+          return current;
+        }
+        return current.copyWith(sidebarItems: List.unmodifiable(next));
+      });
+  Future<void> moveSidebarItem(RemoteSidebarItem item, int delta) =>
+      _commit((current) {
+        if (delta != -1 && delta != 1) {
+          throw const FormatException('Invalid sidebar move');
+        }
+        final next = current.effectiveSidebarItems.toList();
+        final index = next.indexWhere((candidate) => candidate.key == item.key);
+        if (index < 0 || index + delta < 0 || index + delta >= next.length) {
+          return current;
+        }
+        final moving = next.removeAt(index);
+        next.insert(index + delta, moving);
+        return current.copyWith(sidebarItems: List.unmodifiable(next));
+      });
+  Future<void> restoreSidebarDefaults() =>
+      _commit((current) => current.copyWith(clearSidebarConfiguration: true));
+
   Future<void> importShortcutLayouts(
     List<RemoteShortcutLayout> imported,
   ) async {
@@ -2037,9 +2091,30 @@ class DesktopController extends ChangeNotifier {
       );
     }
     final operation = _manifestSaveQueue.then((_) async {
-      final revised = update(
-        _manifest,
-      ).copyWith(revision: _manifest.revision + 1);
+      final proposed = update(_manifest);
+      bool referenceExists(DesktopManifest manifest, RemoteSidebarItem item) =>
+          item.kind == RemoteSidebarKind.application
+          ? manifest.applications.any(
+              (app) => app.id == item.id && !app.launchOnly,
+            )
+          : manifest.profiles.any(
+              (profile) => profile.id == item.id && profile.isLibraryProfile,
+            );
+      // Delete a previously valid target and its reference in one atomic record.
+      // Newly supplied invalid references still fail strict validation.
+      final revised =
+          (proposed.sidebarItems == null
+                  ? proposed
+                  : proposed.copyWith(
+                      sidebarItems: proposed.sidebarItems!
+                          .where(
+                            (item) =>
+                                referenceExists(proposed, item) ||
+                                !referenceExists(_manifest, item),
+                          )
+                          .toList(growable: false),
+                    ))
+              .copyWith(revision: _manifest.revision + 1);
       revised.validate();
       try {
         // Slots and revision are one atomic durable record. The old separate

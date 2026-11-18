@@ -665,6 +665,32 @@ class RemoteSettings {
   );
 }
 
+enum RemoteSidebarKind { application, profile }
+
+/// A navigation reference only; it never authorizes launching or input.
+class RemoteSidebarItem {
+  const RemoteSidebarItem.application(this.id)
+    : kind = RemoteSidebarKind.application;
+  const RemoteSidebarItem.profile(this.id) : kind = RemoteSidebarKind.profile;
+  final RemoteSidebarKind kind;
+  final String id;
+  String get key => '${kind.name}:$id';
+  Map<String, Object?> toJson() => {'kind': kind.name, 'id': id};
+  factory RemoteSidebarItem.fromJson(Map<String, Object?> json) {
+    final id = json['id'];
+    if (json.length != 2 ||
+        id is! String ||
+        !RegExp(r'^[A-Za-z0-9_.-]{1,128}$').hasMatch(id)) {
+      throw const FormatException('Invalid sidebar item');
+    }
+    return switch (json['kind']) {
+      'application' => RemoteSidebarItem.application(id),
+      'profile' => RemoteSidebarItem.profile(id),
+      _ => throw const FormatException('Unknown sidebar item kind'),
+    };
+  }
+}
+
 class DesktopManifest {
   const DesktopManifest({
     required this.revision,
@@ -679,6 +705,7 @@ class DesktopManifest {
     this.activatedApplicationId,
     List<String?>? launcherApplicationIds,
     bool? hasLauncherConfiguration,
+    this.sidebarItems,
   }) : launcherApplicationIds =
            launcherApplicationIds ??
            const <String?>[
@@ -718,6 +745,31 @@ class DesktopManifest {
   /// Distinguishes a legacy manifest from an intentionally empty launcher.
   final bool hasLauncherConfiguration;
 
+  /// Null retains the historical automatic sidebar; empty hides optional items.
+  final List<RemoteSidebarItem>? sidebarItems;
+  List<RemoteSidebarItem> get defaultSidebarItems {
+    final apps = applications.where((app) => !app.launchOnly).toList();
+    int rank(String id) => id == 'chatgpt'
+        ? 0
+        : id == 'chrome'
+        ? 1
+        : 2;
+    apps.sort((a, b) {
+      final order = rank(a.id).compareTo(rank(b.id));
+      return order != 0
+          ? order
+          : a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return List.unmodifiable([
+      for (final app in apps) RemoteSidebarItem.application(app.id),
+      for (final profile in profiles.where((p) => p.isLibraryProfile))
+        RemoteSidebarItem.profile(profile.id),
+    ]);
+  }
+
+  List<RemoteSidebarItem> get effectiveSidebarItems =>
+      sidebarItems ?? defaultSidebarItems;
+
   RemoteProfile? get currentProfile =>
       profiles.cast<RemoteProfile?>().firstWhere(
         (profile) => profile?.id == currentProfileId,
@@ -755,6 +807,8 @@ class DesktopManifest {
     int? applicationActivationSequence,
     String? activatedApplicationId,
     List<String?>? launcherApplicationIds,
+    List<RemoteSidebarItem>? sidebarItems,
+    bool clearSidebarConfiguration = false,
   }) => DesktopManifest(
     schemaVersion: schemaVersion,
     revision: revision ?? this.revision,
@@ -772,6 +826,9 @@ class DesktopManifest {
         launcherApplicationIds ?? this.launcherApplicationIds,
     hasLauncherConfiguration:
         launcherApplicationIds != null || hasLauncherConfiguration,
+    sidebarItems: clearSidebarConfiguration
+        ? null
+        : sidebarItems ?? this.sidebarItems,
   );
 
   Map<String, Object?> toJson({bool forSync = false}) {
@@ -800,6 +857,22 @@ class DesktopManifest {
     return {
       'schemaVersion': schemaVersion,
       'revision': revision,
+      if (sidebarItems != null)
+        'sidebarItems': sidebarItems!
+            .where(
+              (item) =>
+                  !forSync ||
+                  (item.kind == RemoteSidebarKind.application
+                      ? syncedApplications.any(
+                          (app) => app.id == item.id && !app.launchOnly,
+                        )
+                      : profiles.any(
+                          (profile) =>
+                              profile.id == item.id && profile.isLibraryProfile,
+                        )),
+            )
+            .map((item) => item.toJson())
+            .toList(growable: false),
       'currentProfileId': currentProfileId,
       'computerId': computerId,
       'settings': settings.toJson(),
@@ -852,12 +925,31 @@ class DesktopManifest {
           ? json['applicationActivationSequence']! as int
           : 0,
       activatedApplicationId: _nullableString(json['activatedApplicationId']),
+      sidebarItems: json.containsKey('sidebarItems')
+          ? _sidebarItemsFromJson(json['sidebarItems'])
+          : null,
       launcherApplicationIds: json.containsKey('launcherApplicationIds')
           ? _launcherSlotsFromJson(json['launcherApplicationIds'])
           : null,
     );
     manifest.validate();
     return manifest;
+  }
+
+  static List<RemoteSidebarItem> _sidebarItemsFromJson(Object? raw) {
+    if (raw is! List ||
+        raw.length > 100 ||
+        raw.any(
+          (item) => item is! Map || item.keys.any((key) => key is! String),
+        )) {
+      throw const FormatException('Invalid sidebar navigation');
+    }
+    return List.unmodifiable(
+      raw.map(
+        (item) =>
+            RemoteSidebarItem.fromJson(Map<String, Object?>.from(item as Map)),
+      ),
+    );
   }
 
   void validate() {
@@ -878,6 +970,26 @@ class DesktopManifest {
     if (profiles.map((profile) => profile.id).toSet().length !=
         profiles.length) {
       throw const FormatException('Profile ids must be unique');
+    }
+    final items = sidebarItems;
+    if (items != null &&
+        (items.length > 100 ||
+            items.map((item) => item.key).toSet().length != items.length ||
+            items.any(
+              (item) =>
+                  !RegExp(r'^[A-Za-z0-9_.-]{1,128}$').hasMatch(item.id) ||
+                  (item.kind == RemoteSidebarKind.application
+                      ? !applications.any(
+                          (app) => app.id == item.id && !app.launchOnly,
+                        )
+                      : !profiles.any(
+                          (profile) =>
+                              profile.id == item.id && profile.isLibraryProfile,
+                        )),
+            ))) {
+      throw const FormatException(
+        'Sidebar contains invalid or launch-only references',
+      );
     }
     final layoutIds = layouts.map((layout) => layout.id).toSet();
     final appIds = applications.map((app) => app.id).toSet();

@@ -2,7 +2,7 @@ name: Full Android and Windows build checks
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/unified-app-library, codex/host-switch-pointer-and-sidebar]
     paths:
       - 'android/**'
       - 'lib/**'
@@ -59,11 +59,23 @@ jobs:
       - name: Analyze and test Full mobile
         run: |
           flutter analyze --no-pub
-          flutter test --no-pub
+          flutter test --no-pub --coverage
+          flutter test --no-pub --dart-define=LUMIAKEY_POINTER_DIAGNOSTICS=true test/pointer_diagnostics_test.dart
           (cd packages/diagnostics_core && dart test)
           (cd packages/lumiakeys_protocol && dart test)
           (cd packages/local_dictation && flutter test --no-pub)
-          (cd desktop_companion && xvfb-run -a flutter test --no-pub)
+          (cd desktop_companion && xvfb-run -a flutter test --no-pub --coverage)
+      - name: Verify coverage reports
+        run: |
+          test -s coverage/lcov.info
+          test -s desktop_companion/coverage/lcov.info
+      - uses: actions/upload-artifact@v7
+        with:
+          name: full-and-desktop-coverage
+          path: |
+            coverage/lcov.info
+            desktop_companion/coverage/lcov.info
+          if-no-files-found: error
       - name: Build Full Android
         run: flutter build apk --debug --flavor regular --target lib/main.dart --dart-define=LUMIAKEY_EDITION=regular
       - name: Run Android unit tests
