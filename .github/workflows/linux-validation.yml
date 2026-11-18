@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install Flutter Linux build libraries
-        timeout-minutes: 8
+        timeout-minutes: 15
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
