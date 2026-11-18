@@ -45,6 +45,8 @@ The [earlier 1.5 / Lite 1.0 handoff validation](handoffs/2026-11-17-completion-v
 records those prior artifacts and installations. Current artifact sizes,
 signatures and platform results are in the
 [1.6 / Lite 1.1 completion validation](handoffs/app-icon-library/COMPLETION.md).
+The subsequent [1.7 installed-application and header validation](handoffs/2026-11-17-installed-launchpad-and-header-validation.md)
+records the current Full/Desktop increment and installation scope.
 
 ## Build
 
