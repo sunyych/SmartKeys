@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -7,6 +8,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import '../app.dart';
 import '../controllers/app_controller.dart';
 import '../models/config.dart';
+import '../icons/app_icon_catalog.dart';
 import 'computer_switcher.dart';
 import 'desktop_connection_panel.dart';
 import 'dictation_entry_consent.dart';
@@ -37,6 +39,24 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
   int _generation = 0;
   int _page = 0;
   bool _wasReady = false;
+  String? _confirmedApplication;
+  String? _confirmedSession;
+  late final Timer _clock;
+  DateTime _now = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _clock.cancel();
+    super.dispose();
+  }
 
   bool _ready(AppController controller) =>
       controller.isDesktopSynced && controller.computerSwitchPendingId == null;
@@ -58,6 +78,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     _selection = _launchpad;
     _page = 0;
     _pendingApplication = null;
+    _confirmedApplication = null;
+    _confirmedSession = null;
     _error = null;
     ++_generation;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -81,6 +103,58 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     return applications;
   }
 
+  bool _applicationReady(AppController controller) {
+    if (_selection == _launchpad || _selection == _general) return true;
+    return _confirmedApplication == _selection &&
+        _confirmedSession == _session(controller) &&
+        controller.desktopManifest?.applicationById(_selection)?.foreground ==
+            true;
+  }
+
+  Future<bool> _confirmActivation(
+    AppController controller,
+    RemoteApplication app,
+    int previousSequence,
+    String? session,
+    int generation,
+  ) async {
+    final completion = Completer<bool>();
+    void check() {
+      if (completion.isCompleted) return;
+      if (!mounted ||
+          !_ready(controller) ||
+          generation != _generation ||
+          session != _session(controller)) {
+        completion.complete(false);
+        return;
+      }
+      final manifest = controller.desktopManifest;
+      if (manifest != null &&
+          manifest.applicationActivationSequence > previousSequence &&
+          manifest.activatedApplicationId == app.id &&
+          manifest.applicationById(app.id)?.foreground == true) {
+        completion.complete(true);
+      }
+    }
+
+    controller.addListener(check);
+    final timeout = Timer(const Duration(seconds: 5), () {
+      if (!completion.isCompleted) completion.complete(false);
+    });
+    try {
+      check();
+      if (!completion.isCompleted) {
+        unawaited(
+          controller.companion.refreshManifest().catchError((Object _) {}),
+        );
+      }
+      return await completion.future;
+    } finally {
+      timeout.cancel();
+      controller.removeListener(check);
+    }
+  }
+
   Future<void> _select(
     AppController controller,
     String selection, {
@@ -88,8 +162,12 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
   }) async {
     final generation = ++_generation;
     final session = _session(controller);
+    final previousSequence =
+        controller.desktopManifest?.applicationActivationSequence ?? 0;
     setState(() {
       _pendingApplication = application?.id;
+      _confirmedApplication = null;
+      _confirmedSession = null;
       _error = null;
     });
     try {
@@ -108,6 +186,22 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
           return;
         }
         await controller.launchRemoteApplication(application);
+        if (!await _confirmActivation(
+          controller,
+          application,
+          previousSequence,
+          session,
+          generation,
+        )) {
+          if (mounted &&
+              generation == _generation &&
+              session == _session(controller)) {
+            throw StateError(
+              'Desktop has not confirmed ${application.name} is active. Select it again to retry.',
+            );
+          }
+          return;
+        }
       }
       if (!mounted ||
           generation != _generation ||
@@ -117,6 +211,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       if (application != null && !_ready(controller)) return;
       setState(() {
         _selection = selection;
+        _confirmedApplication = application?.id;
+        _confirmedSession = application == null ? null : session;
         _page = 0;
       });
     } catch (error) {
@@ -136,7 +232,13 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     AppController controller,
     RemoteShortcutButton button,
   ) async {
-    if (!_ready(controller) || !button.enabled || _pendingApplication != null) {
+    final systemControl =
+        button.id.startsWith('keyboard.') &&
+        button.targetType == RemoteTargetType.system;
+    if (!_ready(controller) ||
+        !button.enabled ||
+        _pendingApplication != null ||
+        (!systemControl && !_applicationReady(controller))) {
       return;
     }
     final session = _session(controller);
@@ -149,6 +251,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
         !_ready(controller) ||
         generation != _generation ||
         session != _session(controller) ||
+        (!systemControl && !_applicationReady(controller)) ||
         controller.desktopManifest?.buttonById(button.id)?.enabled != true) {
       return;
     }
@@ -174,6 +277,34 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
           ),
         ),
       );
+
+  void _showLauncherSetup(AppController controller) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Configure Launchpad in Desktop',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Open LumiaKey Desktop → Launchpad on your computer. Assign applications to the twelve slots; this phone displays that configuration automatically.',
+              ),
+              const SizedBox(height: 16),
+              DesktopConnectionPanel(companion: controller.companion),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +332,17 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       orElse: () => null,
     );
     final manifest = controller.desktopManifest;
+    final launcherSlots = List<RemoteApplication?>.generate(launcherSlotCount, (
+      index,
+    ) {
+      if (manifest == null ||
+          !manifest.settings.enableAppsSync ||
+          index >= manifest.launcherApplicationIds.length) {
+        return null;
+      }
+      final id = manifest.launcherApplicationIds[index];
+      return id == null ? null : manifest.applicationById(id);
+    });
     final layout = _selection == _general
         ? manifest?.layoutById('keyboard') ??
               manifest?.layouts.cast<RemoteShortcutLayout?>().firstWhere(
@@ -211,7 +353,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
         ? null
         : controller.layoutForApplication(application);
     final launcher = _selection == _launchpad;
-    final count = launcher ? applications.length : layout?.buttons.length ?? 0;
+    final count = launcher ? launcherSlotCount : layout?.buttons.length ?? 0;
     final pageCount = math.max(1, (count / _pageSize).ceil());
     if (_page >= pageCount) _page = 0;
     final title = launcher
@@ -342,17 +484,36 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                         ),
                         if (_error != null)
                           _StatusBanner(message: _error!, error: true),
+                        if (launcher &&
+                            ready &&
+                            manifest?.settings.enableAppsSync != true)
+                          const _StatusBanner(
+                            message:
+                                'Enable Apps Sync in LumiaKey Desktop to display your saved launcher.',
+                          ),
+                        if (launcher &&
+                            ready &&
+                            launcherSlots.every((app) => app == null))
+                          TextButton.icon(
+                            key: const ValueKey('regular-configure-launchpad'),
+                            onPressed: () => _showLauncherSetup(controller),
+                            icon: const Icon(Icons.desktop_windows, size: 17),
+                            label: const Text(
+                              'Set up the twelve slots in Desktop',
+                            ),
+                          ),
+                        if (!launcher &&
+                            _selection != _general &&
+                            !_applicationReady(controller) &&
+                            _pendingApplication == null)
+                          const _StatusBanner(
+                            message:
+                                'Select the application in the left menu to activate it before sending shortcuts.',
+                          ),
                         Expanded(
                           child: !ready
                               ? _ConnectionPrompt(
                                   onConnect: () => _showConnection(controller),
-                                )
-                              : launcher && applications.isEmpty
-                              ? const _EmptySurface(
-                                  icon: Icons.apps,
-                                  title: 'Choose your applications in Desktop',
-                                  message:
-                                      'Enable Apps Sync and select installed applications in LumiaKey Desktop.',
                                 )
                               : !launcher && layout == null
                               ? const _EmptySurface(
@@ -364,9 +525,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                               : _TwelveKeyGrid(
                                   page: _page,
                                   launcher: launcher,
-                                  applications: applications,
+                                  applications: launcherSlots,
                                   buttons: layout?.buttons ?? const [],
-                                  enabled: _pendingApplication == null,
+                                  enabled:
+                                      _pendingApplication == null &&
+                                      (launcher ||
+                                          _applicationReady(controller)),
+                                  onConfigure: () =>
+                                      _showLauncherSetup(controller),
                                   onApplication: (app) => _select(
                                     controller,
                                     app.id,
@@ -440,6 +606,47 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                             ),
                           ),
                         ),
+                        SizedBox(
+                          height: 38,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}:${_now.second.toString().padLeft(2, '0')}',
+                                  key: const ValueKey('regular-clock'),
+                                  maxLines: 1,
+                                  style: theme.textTheme.labelLarge,
+                                ),
+                              ),
+                              for (final control in const [
+                                (
+                                  'keyboard.playPause',
+                                  'Play / Pause',
+                                  Icons.play_arrow,
+                                ),
+                                ('keyboard.mute', 'Mute', Icons.volume_off),
+                              ])
+                                IconButton(
+                                  key: ValueKey('regular-system-${control.$1}'),
+                                  tooltip: control.$2,
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed:
+                                      ready &&
+                                          _pendingApplication == null &&
+                                          manifest
+                                                  ?.buttonById(control.$1)
+                                                  ?.enabled ==
+                                              true
+                                      ? () => _execute(
+                                          controller,
+                                          manifest!.buttonById(control.$1)!,
+                                        )
+                                      : null,
+                                  icon: Icon(control.$3, size: 21),
+                                ),
+                            ],
+                          ),
+                        ),
                         Expanded(
                           child: _DesktopTouchpad(
                             controller: controller,
@@ -458,7 +665,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                 hid: controller.hid,
                 companion: controller.companion,
                 forceDesktopOutput: true,
-                entryEnabled: ready && _pendingApplication == null,
+                entryEnabled:
+                    ready &&
+                    _pendingApplication == null &&
+                    _applicationReady(controller),
                 topOffset: 5,
                 rightInset: 49,
               ),
@@ -536,14 +746,16 @@ class _TwelveKeyGrid extends StatelessWidget {
     required this.enabled,
     required this.onApplication,
     required this.onButton,
+    required this.onConfigure,
   });
   final int page;
   final bool launcher;
-  final List<RemoteApplication> applications;
+  final List<RemoteApplication?> applications;
   final List<RemoteShortcutButton> buttons;
   final bool enabled;
   final ValueChanged<RemoteApplication> onApplication;
   final ValueChanged<RemoteShortcutButton> onButton;
+  final VoidCallback onConfigure;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -571,8 +783,15 @@ class _TwelveKeyGrid extends StatelessWidget {
               ? buttons[position]
               : null;
           final label =
-              app?.name ?? (button == null ? '' : _shortcutLabel(button));
-          final available = enabled && (app != null || button?.enabled == true);
+              app?.name ??
+              (launcher
+                  ? 'Slot ${index + 1}'
+                  : button == null
+                  ? ''
+                  : _shortcutLabel(button));
+          final available =
+              enabled &&
+              (app?.detected == true || !launcher && button?.enabled == true);
           return Material(
             key: ValueKey('regular-cell-$index'),
             color: app == null && button == null
@@ -588,11 +807,15 @@ class _TwelveKeyGrid extends StatelessWidget {
                   : null,
               onTap: available
                   ? () => app != null ? onApplication(app) : onButton(button!)
+                  : launcher && (app == null || !app.detected)
+                  ? onConfigure
                   : null,
               child: label.isEmpty
                   ? const SizedBox.expand()
                   : Tooltip(
-                      message: button?.description.isNotEmpty == true
+                      message: launcher && (app == null || !app.detected)
+                          ? 'Configure this slot in LumiaKey Desktop'
+                          : button?.description.isNotEmpty == true
                           ? button!.description
                           : label,
                       child: LayoutBuilder(
@@ -612,7 +835,9 @@ class _TwelveKeyGrid extends StatelessWidget {
                                             size: compact ? 24 : 35,
                                           )
                                         : Icon(
-                                            _shortcutIcon(button!.icon),
+                                            button == null
+                                                ? Icons.add
+                                                : _shortcutIcon(button.icon),
                                             size: compact ? 23 : 31,
                                             color: Theme.of(
                                               context,
@@ -692,35 +917,40 @@ IconData _shortcutIcon(String id) => switch (id) {
   _ => remoteIcon(id),
 };
 
-class _ApplicationIcon extends StatelessWidget {
+class _ApplicationIcon extends StatefulWidget {
   const _ApplicationIcon({required this.app, required this.size});
   final RemoteApplication app;
   final double size;
 
   @override
+  State<_ApplicationIcon> createState() => _ApplicationIconState();
+}
+
+class _ApplicationIconState extends State<_ApplicationIcon> {
+  String? _requestKey;
+  Future<Uint8List?>? _icon;
+
+  @override
   Widget build(BuildContext context) {
-    final asset = switch (app.id.toLowerCase()) {
-      'chatgpt' || 'codex' => 'openai',
-      'chrome' ||
-      'photoshop' ||
-      'illustrator' ||
-      'premiere' ||
-      'vscode' ||
-      'solidworks' => app.id.toLowerCase(),
-      _ => null,
-    };
-    return asset == null
-        ? Icon(remoteIcon(app.icon), size: size)
-        : Image.asset(
-            'assets/app_icons/$asset.png',
-            width: size,
-            height: size,
-            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
-                wasSynchronouslyLoaded || frame != null
-                ? child
-                : Icon(remoteIcon(app.icon), size: size),
-            errorBuilder: (_, _, _) => Icon(remoteIcon(app.icon), size: size),
-          );
+    final controller = SmartKeysScope.of(context);
+    final scope = controller.desktopIconRequestScope;
+    final key = '$scope:${widget.app.id}';
+    if (_requestKey != key) {
+      _requestKey = key;
+      _icon = scope == null
+          ? null
+          : controller.loadDesktopApplicationIcon(widget.app.id);
+    }
+    return FutureBuilder<Uint8List?>(
+      key: ValueKey(key),
+      future: _icon,
+      builder: (_, snapshot) => AppArtwork(
+        appId: widget.app.id,
+        pngBytes: snapshot.data,
+        size: widget.size,
+        semanticLabel: '${widget.app.name} app icon',
+      ),
+    );
   }
 }
 

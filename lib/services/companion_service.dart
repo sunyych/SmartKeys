@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import '../icons/app_icon_validation.dart';
 
 void _validateDictationPayload(String sessionId, int sequence, String text) {
   if (sessionId.isEmpty ||
@@ -127,6 +129,10 @@ abstract interface class CompanionService {
   void dispose();
 }
 
+abstract interface class CompanionIconConnection {
+  Future<Uint8List?> fetchApplicationIcon(String appId);
+}
+
 abstract interface class ManualCompanionConnection {
   Future<void> connectManually(String code);
   Future<void> disconnect();
@@ -143,6 +149,7 @@ class LanCompanionService
         CompanionService,
         ManualCompanionConnection,
         CompanionPointerConnection,
+        CompanionIconConnection,
         SwitchableCompanionConnection {
   LanCompanionService({
     this.discoveryPort = 45832,
@@ -545,6 +552,72 @@ class LanCompanionService
         ? CompanionSyncStatus.discovering
         : CompanionSyncStatus.disconnected;
     _error.value = null;
+  }
+
+  @override
+  Future<Uint8List?> fetchApplicationIcon(String appId) async {
+    if (!remoteApplicationIconAppIds.contains(appId)) return null;
+    final host = _host.value;
+    if (host == null ||
+        !host.capabilities.contains('app-icons-v1') ||
+        _manifest.value?.settings.syncIcons != true ||
+        _manifest.value?.applicationById(appId) == null ||
+        !_sameDesktopSession(_host.value, host)) {
+      return null;
+    }
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    try {
+      final request = await client
+          .get(host.address, host.port, '/icons/${Uri.encodeComponent(appId)}')
+          .timeout(const Duration(seconds: 4));
+      request.followRedirects = false;
+      request.headers.set('x-lumiakeys-token', host.token);
+      request.headers.set(HttpHeaders.acceptHeader, 'image/png');
+      final response = await request.close().timeout(
+        const Duration(seconds: 4),
+      );
+      if (response.statusCode != HttpStatus.ok ||
+          response.headers.contentType?.mimeType.toLowerCase() != 'image/png') {
+        return null;
+      }
+      final bytes = await _readBoundedBytes(
+        response,
+        const Duration(seconds: 4),
+        64 * 1024,
+      ).timeout(const Duration(seconds: 4));
+      if (_disposed ||
+          !_sameDesktopSession(_host.value, host) ||
+          _manifest.value?.settings.syncIcons != true ||
+          !AppIconValidation.isValidPng(bytes)) {
+        return null;
+      }
+      return bytes;
+    } on TimeoutException {
+      return null;
+    } on SocketException {
+      return null;
+    } on HttpException {
+      return null;
+    } on FormatException {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Future<Uint8List> _readBoundedBytes(
+    Stream<List<int>> stream,
+    Duration timeout,
+    int maxBytes,
+  ) async {
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in stream.timeout(timeout)) {
+      if (bytes.length + chunk.length > maxBytes) {
+        throw const FormatException('Desktop app icon exceeds 64 KiB.');
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
   }
 
   Future<Map<String, dynamic>> _getJson(

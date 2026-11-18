@@ -1,0 +1,106 @@
+name: Full LumiaKey Linux build
+
+on:
+  push:
+    branches: [main, feature/mobile-launcher-and-editions]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+    paths:
+      - "desktop_companion/**"
+      - "packages/lumiakeys_protocol/**"
+      - ".github/workflows/linux-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Flutter Linux build libraries
+        timeout-minutes: 8
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install --no-install-recommends -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev libasound2-dev libpulse-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-good pulseaudio pulseaudio-utils xdotool playerctl brightnessctl xvfb xauth fonts-noto-cjk
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          cache: true
+      - name: Resolve and analyze Full Linux desktop app
+        working-directory: desktop_companion
+        run: |
+          flutter precache --linux
+          flutter pub get
+          flutter analyze
+      - name: Test with an isolated virtual PulseAudio sink
+        working-directory: desktop_companion
+        env:
+          SMARTKEYS_LINUX_AUDIO_TEST: '1'
+          SMARTKEYS_SCREENSHOT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+        run: |
+          set -euo pipefail
+          material_icon_font="${FLUTTER_ROOT:?}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+          test -s "$material_icon_font"
+          test -s "$SMARTKEYS_SCREENSHOT_FONT"
+          ls -l "$material_icon_font" "$SMARTKEYS_SCREENSHOT_FONT"
+          audio_dir="$(mktemp -d "$RUNNER_TEMP/lumiakey-pulse.XXXXXX")"
+          export PULSE_RUNTIME_PATH="$audio_dir"
+          export PULSE_STATE_PATH="$audio_dir/state"
+          export PULSE_SERVER="unix:$audio_dir/native"
+          pulseaudio --daemonize=no --use-pid-file=no --exit-idle-time=-1 --disable-shm=yes -n \
+            -L "module-native-protocol-unix socket=$audio_dir/native auth-anonymous=1" \
+            > "$audio_dir/server.log" 2>&1 &
+          pulse_pid=$!
+          cleanup_audio() {
+            result=$?
+            trap - EXIT
+            kill "$pulse_pid" 2>/dev/null || true
+            wait "$pulse_pid" 2>/dev/null || true
+            cat "$audio_dir/server.log"
+            exit "$result"
+          }
+          trap cleanup_audio EXIT
+          ready=0
+          for attempt in {1..50}; do
+            if pactl info > "$audio_dir/info.log" 2>/dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$pulse_pid" 2>/dev/null; then
+              echo 'The isolated CI PulseAudio server exited before becoming ready.' >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'The isolated CI PulseAudio server did not become ready.' >&2
+            exit 1
+          fi
+          pactl load-module module-null-sink sink_name=lumiakey_ci_null channels=2 rate=48000
+          pactl set-default-sink lumiakey_ci_null
+          pactl set-sink-mute lumiakey_ci_null 0
+          LC_ALL=C pactl info
+          LC_ALL=C pactl list short sinks | tee "$audio_dir/sinks.log"
+          grep -q 'lumiakey_ci_null' "$audio_dir/sinks.log"
+          xvfb-run -a flutter test
+      - name: Build Full Linux desktop app
+        working-directory: desktop_companion
+        run: |
+          flutter build linux --release
+          mkdir -p dist
+          tar -czf dist/LumiaKey-Linux-x86_64.tar.gz -C build/linux/x64/release bundle
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lumiakey-full-linux-x86_64
+          path: desktop_companion/dist/LumiaKey-Linux-x86_64.tar.gz
+          if-no-files-found: error

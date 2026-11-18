@@ -1,5 +1,9 @@
 # LumiaKey 1.4.0 validation
 
+> Historical validation for the 1.4 shared Flutter/flavor implementation.
+> These results do not establish independent Lite dependency or permission
+> isolation. Current product boundaries are described in [EDITIONS.md](EDITIONS.md).
+
 Validation date: 2026-11-17. Mobile and Desktop version: `1.4.0+6`.
 
 ## Automated checks

@@ -254,7 +254,7 @@ void main() {
       expect(runner.calls.single.$2[4], contains('msedge'));
     } else {
       expect(runner.calls.first.$2, ['getactivewindow', 'getwindowpid']);
-      expect(runner.calls.last.$2, ['key', 'CTRL+R']);
+      expect(runner.calls.last.$2, ['key', '--clearmodifiers', 'ctrl+r']);
     }
   });
 
@@ -312,7 +312,7 @@ void main() {
       expect(call.$2.last, "'%{LEFT}'");
     } else {
       expect(call.$1, 'xdotool');
-      expect(call.$2, ['key', 'ALT+LEFT']);
+      expect(call.$2, ['key', '--clearmodifiers', 'alt+Left']);
     }
   });
 
@@ -332,35 +332,46 @@ void main() {
   test(
     'accepts the fixed dark action without arbitrary command input',
     () async {
-      final runner = _RecordingRunner();
-      final macSystemControl = _RecordingMacSystemControl();
-      final actions = DesktopActions(
-        runner: runner,
-        macSystemControl: macSystemControl,
-      );
-
-      await actions.executeLegacy({
-        'kind': 'dark',
-        'enabled': true,
-        'command': 'ignored',
-      });
-      await actions.executeLegacy({'kind': 'dark', 'enabled': false});
-
-      if (Platform.isMacOS) {
-        expect(macSystemControl.values, [true, false]);
-        expect(runner.calls, isEmpty);
-      } else if (Platform.isWindows) {
-        expect(runner.calls, hasLength(3));
-        expect(
-          runner.calls.every((call) => call.$1 == 'powershell.exe'),
-          isTrue,
+      for (final platform in [
+        TargetPlatform.windows,
+        TargetPlatform.macOS,
+        TargetPlatform.linux,
+      ]) {
+        final runner = _RecordingRunner();
+        final macSystemControl = _RecordingMacSystemControl();
+        final actions = DesktopActions(
+          runner: runner,
+          platformOverride: platform,
+          macSystemControl: macSystemControl,
         );
-      } else {
-        expect(runner.calls, hasLength(2));
-        expect(
-          runner.calls.every((call) => call.$1 == 'brightnessctl'),
-          isTrue,
-        );
+
+        await actions.executeLegacy({
+          'kind': 'dark',
+          'enabled': true,
+          'command': 'ignored',
+        });
+        await actions.executeLegacy({'kind': 'dark', 'enabled': false});
+
+        if (platform == TargetPlatform.macOS) {
+          expect(macSystemControl.values, [true, false]);
+          expect(runner.calls, isEmpty);
+        } else if (platform == TargetPlatform.windows) {
+          expect(runner.calls, hasLength(3));
+          expect(
+            runner.calls.every((call) => call.$1 == 'powershell.exe'),
+            isTrue,
+          );
+        } else {
+          expect(runner.calls, hasLength(2));
+          expect(
+            runner.calls.every((call) => call.$1 == 'brightnessctl'),
+            isTrue,
+          );
+          expect(runner.calls.map((call) => call.$2), [
+            ['set', '1%'],
+            ['set', '100%'],
+          ]);
+        }
       }
     },
   );

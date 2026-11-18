@@ -2,11 +2,12 @@ name: Apple build checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/mobile-launcher-and-editions]
     paths:
       - 'ios/**'
       - 'desktop_companion/**'
       - 'lib/**'
+      - 'assets/**'
       - 'pubspec.*'
       - 'packages/local_dictation/**'
       - 'packages/lumiakeys_protocol/**'
@@ -54,11 +55,14 @@ jobs:
         working-directory: desktop_companion
         run: |
           flutter pub get
-          flutter build macos --release --build-name=1.4.0 --build-number=6
+          product_version=$(awk '/^version:/ {print $2; exit}' pubspec.yaml)
+          build_name=${product_version%%+*}
+          build_number=${product_version##*+}
+          flutter build macos --release --build-name="$build_name" --build-number="$build_number"
           mkdir -p dist/dmg
           cp -R "build/macos/Build/Products/Release/LumiaKey.app" dist/dmg/
           ln -s /Applications dist/dmg/Applications
-          hdiutil create -volname "LumiaKey 1.4.0" -srcfolder dist/dmg -ov -format UDZO "dist/LumiaKey-macOS-v1.4.0.dmg"
+          hdiutil create -volname "LumiaKey $build_name" -srcfolder dist/dmg -ov -format UDZO "dist/LumiaKey-macOS-v$build_name.dmg"
       - uses: actions/upload-artifact@v7
         with:
           name: macos-desktop-dmg

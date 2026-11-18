@@ -40,3 +40,33 @@ jobs:
         run: cargo clippy --manifest-path community_server/Cargo.toml --locked --all-targets -- -D warnings
       - name: Unit and PostgreSQL HTTP integration tests
         run: cargo test --manifest-path community_server/Cargo.toml --locked --all-targets -- --include-ignored
+      - name: Verify self-contained Docker context
+        run: docker build --tag lumiakey-community-icons:ci community_server
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare browser verification tools
+        run: |
+          npm install --prefix build/web-review --no-save --ignore-scripts playwright@1.62.1
+          ./build/web-review/node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify icon downloads, mobile layout, and error recovery
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/build/web-review/node_modules/playwright
+          SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/build/current-product-screenshots
+          ICON_BASE_URL: http://127.0.0.1:18741
+          LISTEN_ADDR: 127.0.0.1:18741
+        run: |
+          cargo build --manifest-path community_server/Cargo.toml --locked
+          community_server/target/debug/smartkeys-community-server --icons-preview &
+          preview_pid=$!
+          trap 'kill "$preview_pid"' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$ICON_BASE_URL/v1/icons/catalog" >/dev/null; then break; fi
+            sleep 1
+          done
+          node community_server/tests/browser_icons.cjs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: current-icon-web-screenshots
+          path: build/current-product-screenshots/
+          if-no-files-found: error

@@ -1,6 +1,8 @@
 # LumiaKey
 
-LumiaKey 1.4 has two separate mobile editions:
+The current integration keeps LumiaKey Full and a genuinely independent
+Android Bluetooth Lite project. Use [current editions and build entry points](docs/EDITIONS.md).
+The 1.4 flavor architecture below is historical compatibility documentation.
 
 - **LumiaKey Lite** is Android-only and sends keyboard and mouse input directly
   over Bluetooth. General, ChatGPT, and Chrome are local profiles, edited on
@@ -14,8 +16,8 @@ LumiaKey 1.4 has two separate mobile editions:
 
 Both Android editions require Android 9 (API 28) or later and can be installed
 together. LumiaKey Desktop runs on Windows and macOS. See
-[edition behavior, builds, and installation](docs/MOBILE_EDITIONS.md) for the
-current product boundaries. The V1.1/V1.2 sections below record earlier behavior
+[historical 1.4 behavior, builds, and installation](docs/MOBILE_EDITIONS.md).
+Current product boundaries are in [EDITIONS.md](docs/EDITIONS.md). The V1.1/V1.2 sections below record earlier behavior
 and do not override those edition boundaries.
 
 Earlier illustrated functional guides for the mobile/tablet app and LumiaKey Desktop:
@@ -24,7 +26,7 @@ Earlier illustrated functional guides for the mobile/tablet app and LumiaKey Des
 [Screenshot provenance and rebuilding](docs/manuals/README.md) describe the
 widget-rendered screenshots and the device-validation boundary.
 
-## Lite tablet controls and earlier profile layouts
+## Historical 1.4 Lite tablet controls and earlier profile layouts
 
 Lite automatic layout uses the current window size: it shows the shortcut
 board when the shortest side is at least 600 logical pixels and keeps the

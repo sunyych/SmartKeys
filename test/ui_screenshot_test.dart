@@ -56,7 +56,8 @@ void main() {
       id: 'phone-home-portrait',
       title: 'Home control surface · portrait',
       orientation: 'portrait',
-      notes: 'Full home screen at 390×844 logical pixels.',
+      notes:
+          'Legacy phone-control component at 390×844 logical pixels; the production Full root is covered by regular_home_screenshot_test.dart.',
       boundaryKey: key,
     );
 
@@ -65,7 +66,7 @@ void main() {
     expect(find.byKey(const ValueKey('landscape-layout')), findsOneWidget);
     await shots.capture(
       id: 'phone-home-landscape',
-      title: 'Home control surface · landscape',
+      title: 'Legacy home control component · landscape',
       orientation: 'landscape',
       notes: 'Responsive home layout at 844×390 logical pixels.',
       boundaryKey: key,

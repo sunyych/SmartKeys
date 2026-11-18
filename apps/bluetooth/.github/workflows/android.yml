@@ -1,0 +1,75 @@
+name: Bluetooth Lite Android build
+on:
+  push:
+    tags: ["bluetooth-v*.*.*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          cache: true
+      - name: Determine version from build tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^bluetooth-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected bluetooth-vMAJOR.MINOR.PATCH'; exit 1; }
+            echo "value=${GITHUB_REF_NAME#bluetooth-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=1.0.0" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check isolated dependencies and permissions
+        run: ./scripts/check-isolation.sh
+      - name: Analyze and test Lite
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Generate Lite screenshot index
+        env:
+          SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/build/ui_screenshots
+        run: dart run scripts/generate_screenshot_index.dart --root "$SMARTKEYS_SCREENSHOT_DIR"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-ui-screenshots
+          path: build/ui_screenshots/
+          if-no-files-found: error
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Build Lite APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            for secret in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD; do
+              [[ -n "${!secret}" ]] || { echo "Missing signing secret: $secret" >&2; exit 1; }
+            done
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lite-release.jks"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/lite-release.jks"
+            flutter build apk --release --build-name="${{ steps.version.outputs.value }}" --build-number="${{ github.run_number }}"
+            mkdir -p dist
+            cp build/app/outputs/flutter-apk/app-release.apk dist/LumiaKey-Bluetooth-Lite.apk
+          else
+            flutter build apk --debug --build-name="${{ steps.version.outputs.value }}" --build-number="${{ github.run_number }}"
+            mkdir -p dist
+            cp build/app/outputs/flutter-apk/app-debug.apk dist/LumiaKey-Bluetooth-Lite-Validation.apk
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-android
+          path: dist/*.apk
+          if-no-files-found: error
