@@ -4,6 +4,10 @@
 
 Implementation: `6894bbedfcbab6e5f46d39bf2671935ce7309a3a` on
 `codex/unified-app-library`, based on main `2288c78`.
+Authorized integration merge into main:
+`4d298011405806a5cb45085ad1d295a7e7d8d141`. The implementation's executable
+sources are unchanged by the subsequent acceptance/documentation commits.
+Final main-head CI receipts are recorded in the generated delivery manifest.
 Full / Desktop are **1.8.0+10**; independent Android Bluetooth Lite is **1.3.0+4**.
 See [App library usage](../APP_LIBRARY.md) and the
 [design](../superpowers/specs/2026-11-18-unified-app-library-design.md).
