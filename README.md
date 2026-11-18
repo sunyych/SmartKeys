@@ -1,13 +1,15 @@
 # LumiaKey
 
 Current versions are **Full / Desktop 1.7.0+9** and the independent
-**Android Bluetooth Lite 1.1.0+2**. Use [current editions and build entry points](docs/EDITIONS.md).
+**Android Bluetooth Lite 1.2.0+3**. Use [current editions and build entry points](docs/EDITIONS.md).
 The 1.4 flavor architecture below is historical compatibility documentation.
 
 - **LumiaKey Lite** is Android-only and sends keyboard and mouse input directly
   over Bluetooth. General, ChatGPT, and Chrome are local profiles, edited on
-  the phone. Lite does not discover Desktop, launch applications, or follow
-  the computer's foreground application.
+  the phone. Its landscape interface matches Full's rail, header, twelve-key
+  grid and right touchpad. Launchpad sends a user-configured Bluetooth keyboard
+  combination to the computer; a saved launch binding is required. Profiles,
+  media and pointer input use Bluetooth. Lite has no KVM or voice input.
 - **LumiaKey Full (Regular)** runs on Android, iPhone, and iPad and requires
   LumiaKey Desktop on the same local network. Its landscape control surface
   has left navigation, a twelve-key Launchpad/shortcut grid, and a persistent

@@ -1,50 +1,374 @@
 import 'package:flutter/material.dart';
 import 'local_diagnostics.dart';
+import 'lite_controller.dart';
+import 'lite_editors.dart';
+import 'local_profiles.dart';
 import 'icons/builtin_icon_catalog.g.dart';
 
 class LiteSettingsScreen extends StatelessWidget {
-  const LiteSettingsScreen({super.key, required this.diagnostics});
-  final LiteDiagnostics diagnostics;
+  const LiteSettingsScreen({super.key, this.controller, this.diagnostics})
+    : assert(controller != null || diagnostics != null);
+  final LiteController? controller;
+  final LiteDiagnostics? diagnostics;
+  LiteDiagnostics get localDiagnostics =>
+      diagnostics ?? controller!.diagnostics;
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Local settings')),
-    body: ListView(
-      children: [
-        const ListTile(
-          title: Text('Bluetooth and offline only'),
-          subtitle: Text(
-            'This edition never uploads error logs or downloads icons.',
+    body: controller == null
+        ? entries(context)
+        : AnimatedBuilder(
+            animation: controller!,
+            builder: (context, _) => entries(context),
           ),
+  );
+  Widget entries(BuildContext context) => ListView(
+    children: [
+      const ListTile(
+        title: Text('Bluetooth and offline only'),
+        subtitle: Text(
+          'Configure keys on this phone. Nothing is uploaded or downloaded.',
+        ),
+      ),
+      if (controller != null) ...[
+        ListTile(
+          key: const ValueKey('lite-profiles-entry'),
+          leading: const Icon(Icons.grid_view),
+          title: const Text('Profiles and shortcuts'),
+          subtitle: Text('${controller!.profiles.length} local profiles'),
+          onTap: controller!.loading
+              ? null
+              : () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => LiteProfilesScreen(controller: controller!),
+                  ),
+                ),
         ),
         ListTile(
-          key: const ValueKey('lite-icon-library-entry'),
+          key: const ValueKey('lite-launchpad-entry'),
           leading: const Icon(Icons.apps),
-          title: const Text('App icon library'),
-          subtitle: const Text('50 bundled icons · available offline'),
+          title: const Text('Launchpad'),
+          subtitle: const Text('12 local slots · keyboard launch combinations'),
+          onTap: controller!.loading
+              ? null
+              : () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        LiteLaunchpadSettingsScreen(controller: controller!),
+                  ),
+                ),
+        ),
+        ListTile(
+          key: const ValueKey('lite-bluetooth-entry'),
+          leading: const Icon(Icons.bluetooth),
+          title: const Text('Bluetooth devices'),
+          subtitle: Text(
+            controller!.connected
+                ? 'Connected to ${controller!.activeHost?.name ?? "computer"}'
+                : 'Connect one paired computer',
+          ),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute<void>(
-              builder: (_) => const LiteIconLibraryScreen(),
+              builder: (_) => LiteBluetoothScreen(controller: controller!),
             ),
           ),
         ),
-        ListTile(
-          key: const ValueKey('lite-error-logs-entry'),
-          leading: const Icon(Icons.error_outline),
-          title: const Text('Error logs'),
-          subtitle: const Text('Saved on this phone only'),
-          onTap: () async {
-            await diagnostics.pruneExpired();
-            if (!context.mounted) return;
+      ],
+      ListTile(
+        key: const ValueKey('lite-icon-library-entry'),
+        leading: const Icon(Icons.apps),
+        title: const Text('App icon library'),
+        subtitle: const Text('50 bundled icons · available offline'),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => const LiteIconLibraryScreen(),
+          ),
+        ),
+      ),
+      ListTile(
+        key: const ValueKey('lite-error-logs-entry'),
+        leading: const Icon(Icons.error_outline),
+        title: const Text('Error logs'),
+        subtitle: const Text('Saved on this phone only'),
+        onTap: () async {
+          await localDiagnostics.pruneExpired();
+          if (context.mounted) {
             Navigator.push(
               context,
               MaterialPageRoute<void>(
-                builder: (_) => LiteErrorLogScreen(diagnostics: diagnostics),
+                builder: (_) =>
+                    LiteErrorLogScreen(diagnostics: localDiagnostics),
               ),
             );
-          },
+          }
+        },
+      ),
+    ],
+  );
+}
+
+class LiteProfilesScreen extends StatefulWidget {
+  const LiteProfilesScreen({super.key, required this.controller});
+  final LiteController controller;
+  @override
+  State<LiteProfilesScreen> createState() => _LiteProfilesScreenState();
+}
+
+class _LiteProfilesScreenState extends State<LiteProfilesScreen> {
+  String? error;
+  bool deleting = false;
+  Future<void> remove(LocalProfile profile) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${profile.name}?'),
+        content: const Text(
+          'Its shortcuts will be removed from this phone. Linked launch slots will no longer select this profile.',
         ),
-      ],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      deleting = true;
+      error = null;
+    });
+    try {
+      await widget.controller.deleteProfile(profile.id);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error =
+              'Could not delete this profile. The saved configuration is unchanged.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => deleting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) => Scaffold(
+      appBar: AppBar(
+        title: const Text('Profiles and shortcuts'),
+        actions: [
+          IconButton(
+            key: const ValueKey('lite-new-profile'),
+            tooltip: 'New profile',
+            icon: const Icon(Icons.add),
+            onPressed: deleting
+                ? null
+                : () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          LiteProfileEditor(controller: widget.controller),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+      body: ListView(
+        children: [
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(error!, key: const ValueKey('lite-settings-error')),
+            ),
+          for (final profile in widget.controller.profiles)
+            ListTile(
+              key: ValueKey('lite-profile-${profile.id}'),
+              title: Text(profile.name),
+              subtitle: Text('${profile.shortcuts.length} shortcuts'),
+              onTap: deleting
+                  ? null
+                  : () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => LiteProfileEditor(
+                          controller: widget.controller,
+                          profile: profile,
+                        ),
+                      ),
+                    ),
+              trailing: IconButton(
+                tooltip: 'Delete ${profile.name}',
+                onPressed: deleting ? null : () => remove(profile),
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class LiteLaunchpadSettingsScreen extends StatelessWidget {
+  const LiteLaunchpadSettingsScreen({super.key, required this.controller});
+  final LiteController controller;
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) => Scaffold(
+      appBar: AppBar(title: const Text('Launchpad')),
+      body: ListView(
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Each slot sends only its saved keyboard combination to the connected computer. Set up that combination on the computer first.',
+            ),
+          ),
+          for (var index = 0; index < controller.launcherSlots.length; index++)
+            ListTile(
+              key: ValueKey('lite-configure-slot-$index'),
+              leading: Text('${index + 1}'),
+              title: Text(
+                controller.launcherSlots[index].title.isEmpty
+                    ? 'Empty slot'
+                    : controller.launcherSlots[index].title,
+              ),
+              subtitle: Text(
+                controller.launcherSlots[index].launchShortcut == null
+                    ? 'Launch not configured'
+                    : shortcutDescription(
+                        controller.launcherSlots[index].launchShortcut!,
+                      ),
+              ),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => LiteLaunchSlotEditor(
+                    controller: controller,
+                    index: index,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class LiteBluetoothScreen extends StatefulWidget {
+  const LiteBluetoothScreen({super.key, required this.controller});
+  final LiteController controller;
+  @override
+  State<LiteBluetoothScreen> createState() => _LiteBluetoothScreenState();
+}
+
+class _LiteBluetoothScreenState extends State<LiteBluetoothScreen> {
+  bool busy = false;
+  String? error;
+  Future<void> act(Future<bool> Function() action) async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      if (!await action() && mounted) {
+        setState(
+          () => error =
+              'Bluetooth did not complete this request. Check the connection and retry.',
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error =
+              'Bluetooth is unavailable. Retry after checking Android permissions.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) => Scaffold(
+      appBar: AppBar(
+        title: const Text('Bluetooth devices'),
+        actions: [
+          IconButton(
+            key: const ValueKey('lite-refresh-hosts'),
+            tooltip: 'Refresh paired devices',
+            onPressed: busy
+                ? null
+                : () => act(widget.controller.refreshPairedHosts),
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            'Connect one paired computer. Pair LumiaKey in the computer’s Bluetooth settings before connecting here.',
+          ),
+          const SizedBox(height: 12),
+          Text(
+            widget.controller.connected
+                ? 'Connected to ${widget.controller.activeHost?.name ?? "computer"}'
+                : 'Status: ${widget.controller.status}',
+          ),
+          if (error != null)
+            Text(error!, key: const ValueKey('lite-bluetooth-error')),
+          if (widget.controller.connected)
+            OutlinedButton(
+              onPressed: busy ? null : () => act(widget.controller.disconnect),
+              child: const Text('Disconnect'),
+            ),
+          for (final host in widget.controller.pairedHosts)
+            ListTile(
+              title: Text(host.name),
+              trailing: TextButton(
+                onPressed:
+                    busy ||
+                        widget.controller.activeHost?.address == host.address
+                    ? null
+                    : () => act(() => widget.controller.connect(host.address)),
+                child: const Text('Connect'),
+              ),
+            ),
+          if (widget.controller.pairedHosts.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'No paired computers found. Allow Bluetooth access, then pair this phone from the computer.',
+              ),
+            ),
+          OutlinedButton(
+            onPressed: busy
+                ? null
+                : () => act(widget.controller.requestBluetoothAccess),
+            child: const Text('Allow Bluetooth access'),
+          ),
+          OutlinedButton(
+            onPressed: busy
+                ? null
+                : () => act(widget.controller.makeDiscoverable),
+            child: const Text('Make phone discoverable'),
+          ),
+        ],
+      ),
     ),
   );
 }

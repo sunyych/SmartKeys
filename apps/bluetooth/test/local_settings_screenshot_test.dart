@@ -5,6 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lumiakey_bluetooth_lite/local_diagnostics.dart';
 import 'package:lumiakey_bluetooth_lite/local_settings.dart';
 import 'screenshot_support.dart';
+import 'package:flutter/services.dart';
+import 'package:lumiakey_bluetooth_lite/lite_controller.dart';
+import 'package:lumiakey_bluetooth_lite/lite_editors.dart';
 
 void main() {
   testWidgets(
@@ -13,11 +16,21 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       await tester.runAsync(ScreenshotSupport.prepareFonts);
       final shots = ScreenshotSupport(tester);
-      await shots.setViewport(const Size(390, 844));
+      await shots.setViewport(const Size(960, 540));
       final diagnostics = LiteDiagnostics(
-        metadataLoader: () async => {'appVersion': '1.1.0', 'appBuild': 2},
+        metadataLoader: () async => {'appVersion': '1.2.0', 'appBuild': 3},
       );
       await diagnostics.initialize();
+      const channel = MethodChannel('smart_keys/hid');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (_) async => {'status': 'disconnected', 'pairedHosts': []},
+          );
+      final controller = LiteController(diagnostics: diagnostics);
+      await controller.initialize();
+      controller.setLandscape(true);
+      controller.setControlsVisible(false);
       final boundary = GlobalKey();
       Widget view(Widget screen) => RepaintBoundary(
         key: boundary,
@@ -40,15 +53,42 @@ void main() {
         await shots.capture(
           id: id,
           title: title,
-          orientation: 'portrait',
+          orientation: 'landscape',
           notes:
-              'Bluetooth Lite 1.1.0 local-only fixture at 390px. No real diagnostics were uploaded.',
+              'Bluetooth Lite 1.2.0 local-only fixture at 960×540. No real diagnostics were uploaded.',
           boundaryKey: boundary,
         );
       }
 
-      await show(LiteSettingsScreen(diagnostics: diagnostics));
+      await show(LiteSettingsScreen(controller: controller));
       await capture('lite-local-settings', 'Lite local settings');
+      await show(LiteProfilesScreen(controller: controller));
+      await capture('lite-local-profiles', 'Lite local profile configuration');
+      await show(
+        LiteProfileEditor(
+          controller: controller,
+          profile: controller.profiles.first,
+        ),
+      );
+      await capture(
+        'lite-profile-editor',
+        'Lite keyboard and media profile editor',
+      );
+      await show(LiteLaunchpadSettingsScreen(controller: controller));
+      await capture(
+        'lite-launchpad-settings',
+        'Lite twelve local launch slots',
+      );
+      await show(LiteLaunchSlotEditor(controller: controller, index: 0));
+      await capture(
+        'lite-launch-slot-unconfigured',
+        'Lite launch binding disabled until configured',
+      );
+      await show(LiteBluetoothScreen(controller: controller));
+      await capture(
+        'lite-bluetooth-devices',
+        'Lite manual single-host Bluetooth management',
+      );
       await show(LiteErrorLogScreen(diagnostics: diagnostics));
       expect(find.byKey(const ValueKey('lite-empty-errors')), findsOneWidget);
       await capture('lite-error-logs-empty', 'Lite empty error log');
@@ -79,7 +119,7 @@ void main() {
         'Lite seven-day local retention',
       );
       final failing = LiteDiagnostics(
-        metadataLoader: () async => {'appVersion': '1.1.0', 'appBuild': 2},
+        metadataLoader: () async => {'appVersion': '1.2.0', 'appBuild': 3},
         preferences: () async =>
             throw StateError('fixture local storage unavailable'),
       );
@@ -121,6 +161,9 @@ void main() {
       expect(find.byKey(const ValueKey('lite-icon-empty')), findsOneWidget);
       await capture('lite-icon-library-empty', 'Lite no matching icons');
       await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
       diagnostics.dispose();
       failing.dispose();
     },

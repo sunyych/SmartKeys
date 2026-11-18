@@ -7,10 +7,33 @@ class LocalShortcut {
     required this.title,
     required this.keyCode,
     required this.modifiers,
-  });
+  }) : consumerUsage = null;
+  const LocalShortcut.consumer({required this.title, required String usage})
+    : consumerUsage = usage,
+      keyCode = '',
+      modifiers = const [];
   final String title;
   final String keyCode;
   final List<String> modifiers;
+  final String? consumerUsage;
+  bool get isConsumer => consumerUsage != null;
+  bool get isKeyboard => consumerUsage == null;
+  static const consumerUsages = {
+    'PLAY_PAUSE',
+    'MUTE',
+    'VOLUME_UP',
+    'VOLUME_DOWN',
+    'NEXT_TRACK',
+    'PREVIOUS_TRACK',
+    'STOP',
+  };
+  Map<String, Object> toHidAction() => isConsumer
+      ? {'type': 'consumerControl', 'value': consumerUsage!}
+      : {
+          'type': 'keyboard',
+          'keyCode': keyCode,
+          'modifiers': List<String>.of(modifiers),
+        };
 
   static const modifierNames = {
     'LEFT_CTRL',
@@ -24,11 +47,28 @@ class LocalShortcut {
 
   Map<String, Object> toJson() => {
     'title': title,
-    'keyCode': keyCode,
-    'modifiers': modifiers,
+    if (isConsumer)
+      'consumerUsage': consumerUsage!
+    else ...{
+      'keyCode': keyCode,
+      'modifiers': modifiers,
+    },
   };
   factory LocalShortcut.fromJson(Map<String, dynamic> json) {
     final title = json['title'];
+    if (json.containsKey('consumerUsage')) {
+      final usage = json['consumerUsage'];
+      if (title is! String ||
+          title.trim().isEmpty ||
+          title.length > 40 ||
+          usage is! String ||
+          !consumerUsages.contains(usage) ||
+          json.containsKey('keyCode') ||
+          json.containsKey('modifiers')) {
+        throw const FormatException('Invalid local Bluetooth media shortcut.');
+      }
+      return LocalShortcut.consumer(title: title.trim(), usage: usage);
+    }
     final keyCode = json['keyCode'];
     final modifiers = json['modifiers'];
     if (title is! String ||
@@ -46,7 +86,7 @@ class LocalShortcut {
     return LocalShortcut(
       title: title.trim(),
       keyCode: keyCode,
-      modifiers: modifiers.cast<String>(),
+      modifiers: List<String>.unmodifiable(modifiers.cast<String>()),
     );
   }
 }
@@ -56,17 +96,31 @@ class LocalProfile {
     required this.id,
     required this.name,
     required this.shortcuts,
+    this.iconId,
   });
   final String id;
   final String name;
   final List<LocalShortcut> shortcuts;
+  final String? iconId;
 
   LocalProfile withShortcuts(List<LocalShortcut> values) =>
-      LocalProfile(id: id, name: name, shortcuts: values);
+      LocalProfile(id: id, name: name, shortcuts: values, iconId: iconId);
+  LocalProfile copyWith({
+    String? name,
+    String? iconId,
+    List<LocalShortcut>? shortcuts,
+    bool clearIcon = false,
+  }) => LocalProfile(
+    id: id,
+    name: name ?? this.name,
+    iconId: clearIcon ? null : iconId ?? this.iconId,
+    shortcuts: shortcuts ?? this.shortcuts,
+  );
   Map<String, Object> toJson() => {
     'id': id,
     'name': name,
     'shortcuts': shortcuts.map((value) => value.toJson()).toList(),
+    'iconId': ?iconId,
   };
   factory LocalProfile.fromJson(Map<String, dynamic> json) {
     if (json['id'] is! String ||
@@ -74,18 +128,27 @@ class LocalProfile {
         json['name'] is! String ||
         (json['name'] as String).trim().isEmpty ||
         (json['name'] as String).length > 40 ||
-        json['shortcuts'] is! List) {
+        json['shortcuts'] is! List ||
+        (json['iconId'] != null &&
+            (json['iconId'] is! String ||
+                !RegExp(
+                  r'^[a-zA-Z0-9_-]{1,80}$',
+                ).hasMatch(json['iconId'] as String)))) {
       throw const FormatException('Invalid local shortcut profile.');
     }
     return LocalProfile(
       id: json['id'] as String,
       name: json['name'] as String,
-      shortcuts: (json['shortcuts'] as List)
-          .map(
-            (value) =>
-                LocalShortcut.fromJson((value as Map).cast<String, dynamic>()),
-          )
-          .toList(),
+      iconId: json['iconId'] as String?,
+      shortcuts: List<LocalShortcut>.unmodifiable(
+        (json['shortcuts'] as List)
+            .map(
+              (value) => LocalShortcut.fromJson(
+                (value as Map).cast<String, dynamic>(),
+              ),
+            )
+            .toList(),
+      ),
     );
   }
 }
@@ -135,6 +198,13 @@ class SharedPreferencesProfileStore implements LocalProfileStore {
 
   @override
   Future<void> save(List<LocalProfile> profiles) async {
+    if (profiles.isEmpty ||
+        profiles.map((p) => p.id).toSet().length != profiles.length) {
+      throw const FormatException('Invalid local profile list.');
+    }
+    for (final profile in profiles) {
+      LocalProfile.fromJson(profile.toJson());
+    }
     final prefs = await SharedPreferences.getInstance();
     final saved = await prefs.setString(
       storageKey,
@@ -165,20 +235,27 @@ List<LocalProfile> defaultLocalProfiles() {
         key('Undo', 'Z', ctrl),
         key('Redo', 'Y', ctrl),
         key('Select all', 'A', ctrl),
-        key('Find', 'F', ctrl),
-        key('Save', 'S', ctrl),
-        key('Open', 'O', ctrl),
-        key('Close', 'W', ctrl),
-        key('Delete', 'DELETE'),
-        key('Escape', 'ESC'),
-        key('Enter', 'ENTER'),
-        key('Tab', 'TAB'),
-        key('Backspace', 'BACKSPACE'),
+        const LocalShortcut.consumer(
+          title: 'Play / pause',
+          usage: 'PLAY_PAUSE',
+        ),
+        const LocalShortcut.consumer(title: 'Mute', usage: 'MUTE'),
+        const LocalShortcut.consumer(
+          title: 'Volume down',
+          usage: 'VOLUME_DOWN',
+        ),
+        const LocalShortcut.consumer(title: 'Volume up', usage: 'VOLUME_UP'),
+        const LocalShortcut.consumer(
+          title: 'Previous track',
+          usage: 'PREVIOUS_TRACK',
+        ),
+        const LocalShortcut.consumer(title: 'Next track', usage: 'NEXT_TRACK'),
       ],
     ),
     LocalProfile(
       id: 'chatgpt',
       name: 'ChatGPT',
+      iconId: 'chatgpt',
       shortcuts: [
         key('New chat', 'N', ctrl),
         key('Previous chat', 'TAB', ctrlShift),
@@ -192,14 +269,12 @@ List<LocalProfile> defaultLocalProfiles() {
         key('Select all', 'A', ctrl),
         key('Send', 'ENTER'),
         key('New line', 'ENTER', ['LEFT_SHIFT']),
-        key('Backspace', 'BACKSPACE'),
-        key('Escape', 'ESC'),
-        key('Delete', 'DELETE'),
       ],
     ),
     LocalProfile(
       id: 'chrome',
       name: 'Chrome',
+      iconId: 'chrome',
       shortcuts: [
         key('New tab', 'T', ctrl),
         key('Close tab', 'W', ctrl),
@@ -213,9 +288,6 @@ List<LocalProfile> defaultLocalProfiles() {
         key('Find', 'F', ctrl),
         key('Copy', 'C', ctrl),
         key('Paste', 'V', ctrl),
-        key('Bookmark', 'D', ctrl),
-        key('Page top', 'HOME'),
-        key('Page bottom', 'END'),
       ],
     ),
   ];

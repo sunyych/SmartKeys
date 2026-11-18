@@ -18,14 +18,14 @@ void main() {
         'Chrome',
       ]);
       expect(
-        profiles.every((profile) => profile.shortcuts.length == 15),
+        profiles.every((profile) => profile.shortcuts.length == 12),
         isTrue,
       );
       for (final profile in profiles) {
         for (final shortcut in profile.shortcuts) {
           expect(
-            LocalShortcut.fromJson(shortcut.toJson()).keyCode,
-            shortcut.keyCode,
+            LocalShortcut.fromJson(shortcut.toJson()).toHidAction(),
+            shortcut.toHidAction(),
           );
         }
       }
