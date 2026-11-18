@@ -1,0 +1,173 @@
+{
+  "accepted": [
+    {
+      "id": "portable primary is Control with normalized input",
+      "keys": [" primary ", " n "],
+      "key": "N",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^n"
+    },
+    {
+      "id": "Control and Option aliases with Shift",
+      "keys": ["control", "option", "shift", "7"],
+      "key": "7",
+      "modifiers": ["CTRL", "ALT", "SHIFT"],
+      "legacyStroke": "^%+7"
+    },
+    {
+      "id": "browser back is Alt Left",
+      "keys": ["BROWSER_BACK"],
+      "key": "LEFT",
+      "modifiers": ["ALT"],
+      "legacyStroke": "%{LEFT}"
+    },
+    {
+      "id": "browser forward is Alt Right",
+      "keys": ["BROWSER_FORWARD"],
+      "key": "RIGHT",
+      "modifiers": ["ALT"],
+      "legacyStroke": "%{RIGHT}"
+    },
+    {
+      "id": "Return alias",
+      "keys": ["SHIFT", "RETURN"],
+      "key": "ENTER",
+      "modifiers": ["SHIFT"],
+      "legacyStroke": "+{ENTER}"
+    },
+    {
+      "id": "Escape alias",
+      "keys": ["ESCAPE"],
+      "key": "ESC",
+      "modifiers": [],
+      "legacyStroke": "{ESC}"
+    },
+    {
+      "id": "Space",
+      "keys": ["SPACE"],
+      "key": "SPACE",
+      "modifiers": [],
+      "legacyStroke": " "
+    },
+    {
+      "id": "Page Up",
+      "keys": ["PAGEUP"],
+      "key": "PAGEUP",
+      "modifiers": [],
+      "legacyStroke": "{PGUP}"
+    },
+    {
+      "id": "Page Down",
+      "keys": ["PAGEDOWN"],
+      "key": "PAGEDOWN",
+      "modifiers": [],
+      "legacyStroke": "{PGDN}"
+    },
+    {
+      "id": "function keys through F12",
+      "keys": ["CTRL", "F12"],
+      "key": "F12",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^{F12}"
+    },
+    {
+      "id": "left bracket",
+      "keys": ["CTRL", "["],
+      "key": "[",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^["
+    },
+    {
+      "id": "right bracket",
+      "keys": ["CTRL", "]"],
+      "key": "]",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^]"
+    },
+    {
+      "id": "backtick",
+      "keys": ["CTRL", "`"],
+      "key": "`",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^`"
+    },
+    {
+      "id": "slash",
+      "keys": ["CTRL", "/"],
+      "key": "/",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^/"
+    },
+    {
+      "id": "backslash",
+      "keys": ["CTRL", "\\"],
+      "key": "\\",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^\\"
+    },
+    {
+      "id": "minus",
+      "keys": ["CTRL", "-"],
+      "key": "-",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^-"
+    },
+    {
+      "id": "equals",
+      "keys": ["CTRL", "="],
+      "key": "=",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^="
+    },
+    {
+      "id": "Cursor requires matching live process",
+      "keys": ["PRIMARY", "N"],
+      "key": "N",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^n",
+      "target": "cursor",
+      "allowedProcesses": ["cursor"]
+    },
+    {
+      "id": "ChatGPT requires matching main window",
+      "keys": ["PRIMARY", "N"],
+      "key": "N",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^n",
+      "target": "chatgpt",
+      "allowedProcesses": ["chatgpt"],
+      "requireMainWindow": true
+    },
+    {
+      "id": "Codex recognizes the ChatGPT desktop process",
+      "keys": ["PRIMARY", "N"],
+      "key": "N",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^n",
+      "target": "codex",
+      "allowedProcesses": ["codex", "chatgpt"],
+      "requireMainWindow": true
+    },
+    {
+      "id": "Chrome resolves configured executable aliases",
+      "keys": ["PRIMARY", "T"],
+      "key": "T",
+      "modifiers": ["CTRL"],
+      "legacyStroke": "^t",
+      "target": "chrome",
+      "allowedProcesses": ["chrome", "google chrome"]
+    }
+  ],
+  "rejected": [
+    { "id": "empty shortcut", "keys": [] },
+    { "id": "blank key", "keys": ["CTRL", " "] },
+    { "id": "modifiers only", "keys": ["CTRL", "ALT"] },
+    { "id": "more than one non-modifier key", "keys": ["CTRL", "A", "B"] },
+    { "id": "unsupported function key", "keys": ["F13"] },
+    { "id": "Windows key", "keys": ["WIN", "D"] },
+    { "id": "Command key on Windows", "keys": ["COMMAND", "D"] },
+    { "id": "Meta key on Windows", "keys": ["META", "D"] },
+    { "id": "browser action with extra modifier", "keys": ["CTRL", "BROWSER_BACK"] },
+    { "id": "raw SendKeys sequence", "keys": ["{ENTER}"] }
+  ]
+}
