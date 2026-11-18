@@ -220,19 +220,13 @@ class AppArtwork extends StatelessWidget {
     }
     final library = IconLibraryScope.maybeOf(context);
     if (library != null && library.byId(appId) != null) {
-      return FutureBuilder<Uint8List?>(
+      return _LibraryArtwork(
         key: ValueKey((library, appId, library.byId(appId)?.sha256)),
-        future: library.loadCached(appId),
-        builder: (_, snapshot) => snapshot.data == null
-            ? _fallback(context)
-            : Image.memory(
-                snapshot.data!,
-                width: size,
-                height: size,
-                fit: BoxFit.contain,
-                semanticLabel: semanticLabel ?? '$appId app icon',
-                errorBuilder: (_, _, _) => _fallback(context),
-              ),
+        library: library,
+        appId: appId,
+        size: size,
+        semanticLabel: semanticLabel ?? '$appId app icon',
+        fallback: _fallback(context),
       );
     }
     return _fallback(context);
@@ -250,4 +244,66 @@ class AppArtwork extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Retain both cache hits and misses while unrelated workspace/clock updates
+/// rebuild the parent. A completed download or eviction changes availability;
+/// the parent key separately isolates catalog hashes and library scopes.
+class _LibraryArtwork extends StatefulWidget {
+  const _LibraryArtwork({
+    super.key,
+    required this.library,
+    required this.appId,
+    required this.size,
+    required this.semanticLabel,
+    required this.fallback,
+  });
+
+  final IconLibrary library;
+  final String appId;
+  final double size;
+  final String semanticLabel;
+  final Widget fallback;
+
+  @override
+  State<_LibraryArtwork> createState() => _LibraryArtworkState();
+}
+
+class _LibraryArtworkState extends State<_LibraryArtwork> {
+  Future<Uint8List?>? _image;
+  bool? _downloaded;
+  int _generation = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final downloaded = widget.library.isDownloaded(widget.appId);
+    if (_image == null || downloaded != _downloaded) {
+      _downloaded = downloaded;
+      final generation = ++_generation;
+      _image = widget.library.loadCached(widget.appId).then((bytes) {
+        if (mounted && generation == _generation && bytes != null) {
+          // A cold disk read itself populates the library's RAM cache without
+          // notifying listeners. Do not read it again on the next clock tick.
+          _downloaded = true;
+        }
+        return bytes;
+      });
+    }
+    return FutureBuilder<Uint8List?>(
+      key: ValueKey(_generation),
+      future: _image,
+      builder: (_, snapshot) => snapshot.data == null
+          ? widget.fallback
+          : Image.memory(
+              snapshot.data!,
+              width: widget.size,
+              height: widget.size,
+              fit: BoxFit.contain,
+              semanticLabel: widget.semanticLabel,
+              frameBuilder: (_, child, frame, synchronous) =>
+                  synchronous || frame != null ? child : widget.fallback,
+              errorBuilder: (_, _, _) => widget.fallback,
+            ),
+    );
+  }
 }

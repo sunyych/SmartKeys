@@ -1142,16 +1142,15 @@ class _ApplicationIconState extends State<_ApplicationIcon> {
   @override
   Widget build(BuildContext context) {
     final controller = SmartKeysScope.of(context);
-    final scope = controller.desktopIconRequestScope;
-    final key = '$scope:${widget.app.id}';
+    final key = controller.desktopApplicationIconRequestKey(widget.app.id);
     if (_requestKey != key) {
       _requestKey = key;
-      _icon = scope == null
+      _icon = key == null
           ? null
           : controller.loadDesktopApplicationIcon(widget.app.id);
     }
     return FutureBuilder<Uint8List?>(
-      key: ValueKey(key),
+      key: ValueKey(key ?? 'unavailable:${widget.app.id}'),
       future: _icon,
       builder: (_, snapshot) => AppArtwork(
         appId: widget.app.launchOnly && widget.app.icon.isNotEmpty

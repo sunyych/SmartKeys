@@ -146,8 +146,27 @@ class AppController extends ChangeNotifier {
     final host = companion.activeHost.value;
     return scope == null || host == null
         ? null
-        : '$scope:${md5.convert(utf8.encode(_companionSessionId(host)))}:${desktopManifest?.revision}';
+        : '$scope:${md5.convert(utf8.encode(_companionSessionId(host)))}';
   }
+
+  /// Unrelated runtime/profile revisions must not replace a loaded image.
+  /// Actual artwork identity and permission/session changes still invalidate it.
+  String? desktopApplicationIconRequestKey(String appId) {
+    final scope = desktopIconRequestScope;
+    final app = desktopManifest?.applicationById(appId);
+    if (scope == null || app == null || !_allowsDesktopApplicationIcon(appId)) {
+      return null;
+    }
+    final native =
+        companion is CompanionIconConnection &&
+        companion.activeHost.value!.capabilities.contains('app-icons-v1');
+    return '$scope:$appId:${_desktopAppIconIdentity(app)}:$native';
+  }
+
+  static String _desktopAppIconIdentity(RemoteApplication app) => md5
+      .convert(utf8.encode('${app.executable}|${app.icon}'))
+      .toString()
+      .substring(0, 12);
 
   Future<Uint8List?> loadDesktopApplicationIcon(String appId) {
     final scope = desktopIconScope;
@@ -166,10 +185,7 @@ class AppController extends ChangeNotifier {
         _companionSessionId(companion.activeHost.value!) == session &&
         desktopManifest?.applicationById(appId)?.executable == app.executable &&
         desktopManifest?.applicationById(appId)?.icon == app.icon;
-    final identity = md5
-        .convert(utf8.encode('${app.executable}|${app.icon}'))
-        .toString()
-        .substring(0, 12);
+    final identity = _desktopAppIconIdentity(app);
     final cacheAppId = '${appId}_$identity';
     final key = '$scope:$cacheAppId';
     final cached = _desktopAppIconBytes[key];
