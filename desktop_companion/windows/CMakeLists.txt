@@ -52,6 +52,34 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Build the optional shortcut backend for the same architecture as the runner.
+find_program(CARGO_EXECUTABLE cargo)
+if(NOT CARGO_EXECUTABLE)
+  message(FATAL_ERROR "Cargo is required to build LumiaKey Desktop for Windows.")
+endif()
+if(CMAKE_VS_PLATFORM_NAME)
+  string(TOLOWER "${CMAKE_VS_PLATFORM_NAME}" LUMIAKEY_WINDOWS_ARCH)
+else()
+  string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" LUMIAKEY_WINDOWS_ARCH)
+endif()
+if(LUMIAKEY_WINDOWS_ARCH MATCHES "^(arm64|aarch64)$")
+  set(LUMIAKEY_RUST_TARGET "aarch64-pc-windows-msvc")
+elseif(LUMIAKEY_WINDOWS_ARCH MATCHES "^(x64|amd64|x86_64)$")
+  set(LUMIAKEY_RUST_TARGET "x86_64-pc-windows-msvc")
+else()
+  message(FATAL_ERROR "Unsupported LumiaKey Windows architecture: ${LUMIAKEY_WINDOWS_ARCH}")
+endif()
+set(LUMIAKEY_RUST_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rust-shortcuts")
+set(LUMIAKEY_RUST_DLL
+  "${LUMIAKEY_RUST_OUTPUT}/${LUMIAKEY_RUST_TARGET}/release/lumiakeys_windows_shortcuts.dll")
+add_custom_target(lumiakeys_rust_shortcuts
+  COMMAND "${CARGO_EXECUTABLE}" build --locked --release
+    --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/../native/windows_shortcuts/Cargo.toml"
+    --target "${LUMIAKEY_RUST_TARGET}" --target-dir "${LUMIAKEY_RUST_OUTPUT}"
+  BYPRODUCTS "${LUMIAKEY_RUST_DLL}"
+  COMMENT "Building the LumiaKey Rust shortcut backend"
+  VERBATIM)
+add_dependencies(${BINARY_NAME} lumiakeys_rust_shortcuts)
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
@@ -79,6 +107,8 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+install(FILES "${LUMIAKEY_RUST_DLL}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 if(PLUGIN_BUNDLED_LIBRARIES)

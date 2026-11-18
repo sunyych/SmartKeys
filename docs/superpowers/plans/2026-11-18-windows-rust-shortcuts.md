@@ -17,10 +17,10 @@
 
 ## 2. 接入可选 Rust 后端
 
-- [ ] 用同一契约验证 Flutter 路由到候选后端的键与目标信息。覆盖 ABI 失败、前台拒绝、物理按键冲突和部分投递结果。用替身复核每个请求只交给一个后端。
-- [ ] 在 `desktop_companion/native/windows_shortcuts/` 实现 Rust `cdylib`。为键转换、前台窗口规则和事件序列设置可注入的 Win32 测试替身。输入前复验窗口。保持已有目标进程与 ChatGPT 主窗口门槛。出现部分投递时，仅尝试释放本次调用已插入的按下事件，向调用方报告失败。
-- [ ] 在 Windows CMake 发行目录布置库，将 Rust 模式设为显式启用。库缺失、版本异常和原生拒绝均向调用端报告。处于默认模式时使用现有 PowerShell 实现。将较重的本机调用放在 Flutter 主界面线程之外。
-- [ ] 运行 `cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 和 Flutter 回归。构建 Windows Release，检查 DLL 导出、发行目录和测试安装包。复核新增文件和 CI 路径，再提交并推送候选实现。
+- [x] 用同一契约验证 Flutter 路由到候选后端的键与目标信息。覆盖 ABI 失败、前台拒绝、物理按键冲突和部分投递结果。用替身复核每个请求只交给一个后端。
+- [x] 在 `desktop_companion/native/windows_shortcuts/` 实现 Rust `cdylib`。为键转换、前台窗口规则和事件序列设置可注入的 Win32 测试替身。输入前复验窗口。保持已有目标进程与 ChatGPT 主窗口门槛。出现部分投递时，仅尝试释放本次调用已插入的按下事件，向调用方报告失败。
+- [x] 在 Windows CMake 发行目录布置库，将 Rust 模式设为显式启用。库缺失、版本异常和原生拒绝均向调用端报告。处于默认模式时使用现有 PowerShell 实现。将本机调用放在 Flutter 主界面线程之外。
+- [x] Windows x64 的 Rust 格式、Clippy 与 7 项测试通过，Desktop 静态分析无问题，216 项回归通过、1 项 Linux 专项跳过。构建 Windows Release，用包内 DLL 验证 ABI，并通过 `scripts/install_windows.ps1` 在独立临时路径验收 EXE 和 DLL 的哈希。
 
 ## 切换默认后端的验收
 

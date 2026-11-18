@@ -31,7 +31,11 @@ class _RecordingProcessRunner implements DesktopProcessRunner {
 }
 
 DesktopActions _windowsActions(_RecordingProcessRunner runner) =>
-    DesktopActions(platformOverride: TargetPlatform.windows, runner: runner);
+    DesktopActions(
+      platformOverride: TargetPlatform.windows,
+      runner: runner,
+      environment: const {},
+    );
 
 void main() {
   final fixture =
