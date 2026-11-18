@@ -15,6 +15,9 @@ import 'usage_dashboard_screen.dart';
 import 'account_backup_screen.dart';
 import 'community_setup_screen.dart';
 import 'lite_shortcut_settings_screen.dart';
+import '../diagnostics/diagnostics_service.dart';
+import 'error_log_screen.dart';
+import 'app_icon_library_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -30,6 +33,39 @@ class SettingsScreen extends StatelessWidget {
     final content = ListView(
       key: ValueKey(embedded ? 'embedded-settings' : 'settings-list'),
       children: [
+        if (!isLite) ...[
+          ListTile(
+            key: const ValueKey('open-app-icon-library'),
+            leading: const Icon(Icons.apps),
+            title: const Text('App icon library'),
+            subtitle: const Text(
+              '50 built-in icons and downloadable additions',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AppIconLibraryScreen(),
+              ),
+            ),
+          ),
+          if (DiagnosticsScope.maybeOf(context) case final diagnostics?)
+            ListTile(
+              key: const ValueKey('open-error-logs'),
+              leading: const Icon(Icons.bug_report_outlined),
+              title: const Text('Error logs'),
+              subtitle: Text(
+                diagnostics.sharing
+                    ? 'Error sharing allowed'
+                    : 'Saved only on this device',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ErrorLogScreen(diagnostics: diagnostics),
+                ),
+              ),
+            ),
+        ],
         if (isLite) ...[
           const _SectionLabel('BLUETOOTH HID'),
           ValueListenableBuilder(

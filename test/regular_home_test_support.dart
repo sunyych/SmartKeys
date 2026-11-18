@@ -17,13 +17,57 @@ const regularTestHost = CompanionHost(
   capabilities: {'manifest', 'apps', 'mouse-control-v1', 'local-dictation-v1'},
 );
 
+class ActivatingRegularCompanion extends RecordingCompanionService {
+  @override
+  Future<void> executeRemote(RemoteActionRequest request) async {
+    await super.executeRemote(request);
+    final manifest = syncedManifest.value;
+    if (request.kind == RemoteActionKind.launchApplication &&
+        manifest != null) {
+      syncedManifest.value = manifest.copyWith(
+        applicationActivationSequence:
+            manifest.applicationActivationSequence + 1,
+        activatedApplicationId: request.applicationId,
+        applications: [
+          for (final app in manifest.applications)
+            app.copyWith(foreground: app.id == request.applicationId),
+        ],
+      );
+    }
+  }
+}
+
 void connectRegularHarness(
   TestHarness harness, {
   DesktopManifest? manifest,
   Set<String>? installed,
+  List<String?>? launcherSlots,
 }) {
   final starter = manifest ?? DesktopManifest.starter();
   harness.companion.syncedManifest.value = starter.copyWith(
+    launcherApplicationIds:
+        launcherSlots ??
+        [
+          for (final id
+              in [
+                    'chatgpt',
+                    'chrome',
+                    ...starter.applications
+                        .map((app) => app.id)
+                        .where((id) => id != 'chatgpt' && id != 'chrome'),
+                  ]
+                  .where((id) => installed?.contains(id) ?? true)
+                  .take(launcherSlotCount))
+            id,
+          for (
+            var index = starter.applications
+                .where((app) => installed?.contains(app.id) ?? true)
+                .length;
+            index < launcherSlotCount;
+            index++
+          )
+            null,
+        ],
     applications: starter.applications
         .map(
           (app) => app.copyWith(detected: installed?.contains(app.id) ?? true),

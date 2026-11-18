@@ -1,0 +1,743 @@
+{
+  "schemaVersion": 1,
+  "kind": "handoff-plan-not-runtime-catalog",
+  "status": "planned-not-downloaded",
+  "builtInCount": 50,
+  "apps": [
+    {
+      "id": "chrome",
+      "displayName": "Google Chrome",
+      "aliases": [
+        "googlechrome",
+        "google-chrome"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/chrome.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "cursor",
+      "displayName": "Cursor",
+      "aliases": [
+        "cursor-editor"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/cursor.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "firefox",
+      "displayName": "Mozilla Firefox",
+      "aliases": [
+        "mozilla-firefox"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/firefox.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "teams",
+      "displayName": "Microsoft Teams",
+      "aliases": [
+        "microsoft-teams",
+        "ms-teams"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/teams.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "microsoft365",
+      "displayName": "Microsoft 365 / Office",
+      "aliases": [
+        "office",
+        "microsoft-office",
+        "office365"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/microsoft365.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "word",
+      "displayName": "Microsoft Word",
+      "aliases": [
+        "ms-word",
+        "microsoft-word"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/word.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "excel",
+      "displayName": "Microsoft Excel",
+      "aliases": [
+        "ms-excel",
+        "microsoft-excel"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/excel.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "powerpoint",
+      "displayName": "Microsoft PowerPoint",
+      "aliases": [
+        "ppt",
+        "microsoft-powerpoint"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/powerpoint.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "edge",
+      "displayName": "Microsoft Edge",
+      "aliases": [
+        "microsoft-edge",
+        "msedge"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/edge.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "zoom",
+      "displayName": "Zoom",
+      "aliases": [
+        "zoom-meetings"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/zoom.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "photoshop",
+      "displayName": "Adobe Photoshop",
+      "aliases": [
+        "adobe-photoshop",
+        "ps"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/photoshop.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "vscode",
+      "displayName": "Visual Studio Code",
+      "aliases": [
+        "visual-studio-code",
+        "vs-code"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/vscode.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "chatgpt",
+      "displayName": "ChatGPT",
+      "aliases": [
+        "openai-chatgpt"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/openai.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "claude",
+      "displayName": "Claude",
+      "aliases": [
+        "anthropic-claude"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/claude.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "safari",
+      "displayName": "Safari",
+      "aliases": [
+        "apple-safari"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/safari.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "finder",
+      "displayName": "Finder",
+      "aliases": [
+        "apple-finder"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/finder.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "appleMusic",
+      "displayName": "Apple Music",
+      "aliases": [
+        "apple-music"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/appleMusic.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "illustrator",
+      "displayName": "Adobe Illustrator",
+      "aliases": [
+        "adobe-illustrator"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/illustrator.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "premiere",
+      "displayName": "Adobe Premiere Pro",
+      "aliases": [
+        "adobe-premiere",
+        "premiere-pro"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/premiere.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "solidworks",
+      "displayName": "SOLIDWORKS",
+      "aliases": [
+        "dassault-solidworks"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/solidworks.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "aftereffects",
+      "displayName": "Adobe After Effects",
+      "aliases": [
+        "after-effects",
+        "adobe-after-effects"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/aftereffects.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "acrobat",
+      "displayName": "Adobe Acrobat",
+      "aliases": [
+        "adobe-acrobat",
+        "acrobat-reader"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/acrobat.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "lightroom",
+      "displayName": "Adobe Lightroom",
+      "aliases": [
+        "adobe-lightroom"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/lightroom.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "slack",
+      "displayName": "Slack",
+      "aliases": [
+        "slack-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/slack.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "discord",
+      "displayName": "Discord",
+      "aliases": [
+        "discord-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/discord.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "telegram",
+      "displayName": "Telegram",
+      "aliases": [
+        "telegram-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/telegram.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "whatsapp",
+      "displayName": "WhatsApp",
+      "aliases": [
+        "whatsapp-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/whatsapp.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "signal",
+      "displayName": "Signal",
+      "aliases": [
+        "signal-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/signal.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "notion",
+      "displayName": "Notion",
+      "aliases": [
+        "notion-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/notion.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "obsidian",
+      "displayName": "Obsidian",
+      "aliases": [
+        "obsidian-notes"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/obsidian.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "evernote",
+      "displayName": "Evernote",
+      "aliases": [
+        "evernote-notes"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/evernote.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "onenote",
+      "displayName": "Microsoft OneNote",
+      "aliases": [
+        "microsoft-onenote",
+        "one-note"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/onenote.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "outlook",
+      "displayName": "Microsoft Outlook",
+      "aliases": [
+        "microsoft-outlook"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/outlook.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "thunderbird",
+      "displayName": "Mozilla Thunderbird",
+      "aliases": [
+        "mozilla-thunderbird"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/thunderbird.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "spotify",
+      "displayName": "Spotify",
+      "aliases": [
+        "spotify-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/spotify.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "vlc",
+      "displayName": "VLC media player",
+      "aliases": [
+        "videolan",
+        "vlc-player"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/vlc.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "obs",
+      "displayName": "OBS Studio",
+      "aliases": [
+        "obs-studio"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/obs.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "blender",
+      "displayName": "Blender",
+      "aliases": [
+        "blender-3d"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/blender.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "figma",
+      "displayName": "Figma",
+      "aliases": [
+        "figma-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/figma.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "sketch",
+      "displayName": "Sketch",
+      "aliases": [
+        "sketch-design"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/sketch.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "canva",
+      "displayName": "Canva",
+      "aliases": [
+        "canva-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/canva.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "github-desktop",
+      "displayName": "GitHub Desktop",
+      "aliases": [
+        "githubdesktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/github-desktop.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "android-studio",
+      "displayName": "Android Studio",
+      "aliases": [
+        "androidstudio"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/android-studio.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "intellij-idea",
+      "displayName": "IntelliJ IDEA",
+      "aliases": [
+        "intellij",
+        "idea"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/intellij-idea.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "pycharm",
+      "displayName": "PyCharm",
+      "aliases": [
+        "jetbrains-pycharm"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/pycharm.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "docker",
+      "displayName": "Docker Desktop",
+      "aliases": [
+        "docker-desktop"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/docker.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "postman",
+      "displayName": "Postman",
+      "aliases": [
+        "postman-api"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/postman.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "windows-terminal",
+      "displayName": "Windows Terminal",
+      "aliases": [
+        "wt",
+        "microsoft-terminal"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/windows-terminal.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "powershell",
+      "displayName": "PowerShell",
+      "aliases": [
+        "pwsh"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/powershell.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    },
+    {
+      "id": "windows-explorer",
+      "displayName": "Windows File Explorer",
+      "aliases": [
+        "file-explorer",
+        "explorer"
+      ],
+      "bundled": true,
+      "targetAssetPath": "assets/app_icons/windows-explorer.png",
+      "sourceUrl": null,
+      "licenseOrUsageTermsUrl": null,
+      "sha256": null,
+      "status": "planned-needs-source-verification"
+    }
+  ],
+  "webOnlyExamples": [
+    {
+      "id": "gimp",
+      "displayName": "GIMP",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "inkscape",
+      "displayName": "Inkscape",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "audacity",
+      "displayName": "Audacity",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "bitwarden",
+      "displayName": "Bitwarden",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "1password",
+      "displayName": "1Password",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "filezilla",
+      "displayName": "FileZilla",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "notepadplusplus",
+      "displayName": "Notepad++",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "sublimetext",
+      "displayName": "Sublime Text",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "7zip",
+      "displayName": "7-Zip",
+      "bundled": false,
+      "status": "planned-web-only"
+    },
+    {
+      "id": "winrar",
+      "displayName": "WinRAR",
+      "bundled": false,
+      "status": "planned-web-only"
+    }
+  ],
+  "notes": [
+    "This is the required initial scope, not proof that assets exist.",
+    "Verify current official app artwork and source terms before populating assets.",
+    "Preserve existing protocol codex/chatgpt compatibility without confusing distinct product identities."
+  ]
+}

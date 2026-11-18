@@ -21,6 +21,8 @@ use tokio::net::TcpListener;
 mod account_backup;
 mod auth;
 mod contributions;
+mod diagnostics;
+mod icons;
 mod ranking;
 mod web;
 
@@ -144,6 +146,9 @@ async fn initialize_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../migrations/002_experience.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../migrations/003_diagnostics.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -168,7 +173,17 @@ fn app(state: AppState) -> Router {
         .route("/dashboard", get(web::index))
         .route("/assets/dashboard.css", get(web::css))
         .route("/assets/dashboard.js", get(web::js))
+        .route("/icons", get(web::icons_index))
+        .route("/assets/icons.css", get(web::icons_css))
+        .route("/assets/icons.js", get(web::icons_js))
+        .route("/v1/icons/catalog", get(icons::catalog))
+        .route("/v1/icons/:app_id", get(icons::get))
         .route("/healthz", get(health))
+        .route(
+            "/v1/diagnostics/errors",
+            post(diagnostics::post)
+                .layer(axum::extract::DefaultBodyLimit::max(diagnostics::MAX_BODY)),
+        )
         .route(
             "/v1/contributions",
             post(contributions::post).layer(axum::extract::DefaultBodyLimit::max(
@@ -182,6 +197,16 @@ fn app(state: AppState) -> Router {
         .with_state(state)
 }
 
+fn icons_preview_app() -> Router {
+    Router::new()
+        .route("/", get(web::icons_index))
+        .route("/icons", get(web::icons_index))
+        .route("/assets/icons.css", get(web::icons_css))
+        .route("/assets/icons.js", get(web::icons_js))
+        .route("/v1/icons/catalog", get(icons::catalog))
+        .route("/v1/icons/:app_id", get(icons::get))
+}
+
 fn env_limit(name: &str, default: u32, max: u32) -> u32 {
     env::var(name)
         .ok()
@@ -192,8 +217,17 @@ fn env_limit(name: &str, default: u32, max: u32) -> u32 {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if env::args().any(|arg| arg == "--icons-preview") {
+        let addr: SocketAddr = env::var("LISTEN_ADDR")
+            .unwrap_or_else(|_| "127.0.0.1:8080".into())
+            .parse()?;
+        let listener = TcpListener::bind(addr).await?;
+        axum::serve(listener, icons_preview_app()).await?;
+        return Ok(());
+    }
     let database_url = env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
     let pool = open_pool(&database_url).await?;
+    diagnostics::start_retention(pool.clone());
     let trust_proxy = env::var("TRUST_PROXY").map(|v| v == "1").unwrap_or(false);
     let state = AppState {
         pool,

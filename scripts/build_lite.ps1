@@ -3,8 +3,8 @@ param(
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$FlutterArguments
 )
 $ErrorActionPreference = 'Stop'
-Push-Location (Split-Path $PSScriptRoot -Parent)
+Push-Location (Join-Path (Split-Path $PSScriptRoot -Parent) 'apps\bluetooth')
 try {
-    & flutter build apk "--$Configuration" --flavor lite --target lib/main_lite.dart --dart-define=LUMIAKEY_EDITION=lite @FlutterArguments
+    & flutter build apk "--$Configuration" --android-project-arg=kotlin.incremental=false --android-project-arg=kotlin.compiler.execution.strategy=in-process @FlutterArguments
     if ($LASTEXITCODE -ne 0) { throw "Lite Android build failed ($LASTEXITCODE)." }
 } finally { Pop-Location }

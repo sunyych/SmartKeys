@@ -30,10 +30,21 @@ The proxy is the only route to the API in this Compose setup. `TRUST_PROXY=1` th
 
 ## Local development and checks
 
-Install Rust 1.98 or newer and a PostgreSQL instance. Set `DATABASE_URL` to a database the server may use, then run `cargo run --manifest-path Cargo.toml` from this directory. The server applies idempotent migrations 001 and 002 at startup; migration 002 adds experience aggregates while retaining the legacy SQL entry point and existing data. The server listens on `0.0.0.0:8080` by default; override `LISTEN_ADDR` as needed.
+Install Rust 1.98 or newer and a PostgreSQL instance. Set `DATABASE_URL` to a database the server may use, then run `cargo run --manifest-path Cargo.toml` from this directory. The server applies idempotent migrations 001, 002 and 003 at startup; migration 002 adds experience aggregates while retaining the legacy SQL entry point and existing data. The server listens on `0.0.0.0:8080` by default; override `LISTEN_ADDR` as needed.
 
 Run unit tests with `cargo test --locked --all-targets`. The real HTTP integration tests use a disposable PostgreSQL database and create uniquely named temporary schemas. Set `TEST_DATABASE_URL` to a test database and run `cargo test --locked --all-targets -- --include-ignored`. They check concurrent idempotency, conflict, withdrawal and replay, legacy-data migration/retry, combined tag/experience period filters, ranking threshold/order, dashboard routes and headers, and signed Google-token backup isolation. Do not reuse a production database for tests.
 
 For a loopback-only async load run against an isolated server instance, set `RATE_LIMIT_PER_MINUTE=1000000` and `RATE_LIMIT_MAX_CLIENTS=100000`, then run `cargo run --release --example loadgen -- http://127.0.0.1:8080 32 2000`. The generator refuses non-loopback URLs, measures ranking GET and unique POST plus receipt DELETE latency, and reports throughput and p50/p95. Use only a disposable database because it writes and deletes test batches.
 
 This is account-free aggregate sharing, not anonymous transport. A lost app receipt cannot be recovered through an account, and the operator cannot establish that separate batches represent separate people.
+
+
+## Optional error diagnostics
+
+Full mobile diagnostics use an independent explicit consent and the compile-time `SMARTKEYS_DIAGNOSTICS_URL`. This value must be the complete HTTPS endpoint, for example `https://<your-controlled-domain>/v1/diagnostics/errors`, not just an origin. No default center is invented or deployed by this code. Lite has local logs only and never uploads.
+
+`POST /v1/diagnostics/errors` accepts schema 1, at most 20 fixed-code events and 16 KiB. Unknown fields, raw messages/stacks/input, identities, Lite editions, invalid versions/UUIDs/timestamps and arbitrary codes are rejected. Responses contain accepted random event IDs or fixed error codes. There is no diagnostics read/list/dashboard route. Network infrastructure still sees requests; transport is not promised to be anonymous.
+
+Migration 003 creates only bounded fixed metadata/code/count fields. Transactions share a diagnostics-specific advisory lock for conflict checking, idempotent maximum counts and global capacity enforcement. Storage retains at most 100000 events globally and 30 days, with hourly background cleanup and cleanup on each batch. It stores no IP, user/device identifiers, credentials or event content. Existing transient in-memory rate limiting applies.
+
+The diagnostics tests include strict field/body validation, fixed failure responses and loopback HTTP. `cargo test --locked diagnostics::tests -- --include-ignored` additionally requires the disposable `TEST_DATABASE_URL`; it checks repeat-count updates, conflicting IDs, concurrent capacity and retention in its own temporary schema. No real user diagnostics should be submitted for testing.

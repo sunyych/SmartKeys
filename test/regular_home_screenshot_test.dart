@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/ui/regular_home_screen.dart';
+import 'package:smart_keys/ui/settings_screen.dart';
+import 'package:smart_keys/services/companion_service.dart';
+import 'package:smart_keys/icons/app_icon_catalog.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
+import 'package:smart_keys/diagnostics/diagnostics_service.dart';
+import 'package:smart_keys/diagnostics/diagnostics_store.dart';
 
 import 'regular_home_test_support.dart';
 import 'screenshot_support.dart';
@@ -14,7 +20,21 @@ void main() {
     tester,
   ) async {
     final shots = ScreenshotSupport(tester);
-    final harness = await TestHarness.create();
+    final diagnostics = DiagnosticsService(
+      metadata: DiagnosticMetadata(
+        appVersion: '1.6.0',
+        appBuild: 8,
+        edition: DiagnosticEdition.full,
+        platform: DiagnosticPlatform.android,
+      ),
+      store: MemoryDiagnosticsStore(),
+      maintenanceInterval: Duration.zero,
+    );
+    await diagnostics.initialize();
+    await diagnostics.setSharing(false);
+    final harness = await TestHarness.create(
+      companionService: ActivatingRegularCompanion(),
+    );
     final starter = DesktopManifest.regularStarter();
     connectRegularHarness(
       harness,
@@ -39,6 +59,7 @@ void main() {
       await shots.unmount();
       shots.resetViewport();
       await harness.dispose();
+      diagnostics.dispose();
     });
     await shots.setViewport(const Size(844, 390));
     await tester.pumpWidget(
@@ -50,16 +71,8 @@ void main() {
     final imageContext = tester.element(find.byType(RegularHomeScreen));
     await tester.runAsync(
       () => Future.wait([
-        for (final name in const [
-          'openai',
-          'chrome',
-          'illustrator',
-          'photoshop',
-          'premiere',
-          'solidworks',
-          'vscode',
-        ])
-          precacheImage(AssetImage('assets/app_icons/$name.png'), imageContext),
+        for (final asset in AppIconCatalog.assets.values.toSet())
+          precacheImage(AssetImage(asset), imageContext),
       ]),
     );
     await tester.pumpAndSettle();
@@ -97,6 +110,81 @@ void main() {
       orientation: 'landscape',
       notes:
           'Twelve keys and touchpad at iPad size; Flutter render, no physical-device validation.',
+      boundaryKey: key,
+    );
+    await shots.setViewport(const Size(844, 390));
+    await tester.tap(find.byKey(const ValueKey('regular-nav-launchpad')));
+    await tester.pumpAndSettle();
+    final configured = harness.companion.syncedManifest.value!;
+    harness.companion.syncedManifest.value = configured.copyWith(
+      applications: [
+        ...configured.applications,
+        const RemoteApplication(
+          id: 'custom-app',
+          name: 'Custom App',
+          icon: 'unknown',
+          executable: 'CustomApp',
+          layoutId: 'keyboard',
+          detected: true,
+        ),
+      ],
+      launcherApplicationIds: [
+        'custom-app',
+        'chrome',
+        'chatgpt',
+        ...List<String?>.filled(launcherSlotCount - 3, null),
+      ],
+    );
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'full-icon-fallback',
+      title: 'Full bundled and unknown-app icon fallback',
+      orientation: 'landscape',
+      notes:
+          'Production Launchpad with a simulated unknown application ID and bundled known-brand artwork; no native extraction or physical installation is claimed.',
+      boundaryKey: key,
+    );
+    harness.companion.syncedManifest.value = configured.copyWith(
+      launcherApplicationIds: List<String?>.filled(launcherSlotCount, null),
+    );
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'full-launchpad-unconfigured',
+      title: 'Full Launchpad awaiting Desktop configuration',
+      orientation: 'landscape',
+      notes:
+          'The twelve empty slots remain empty and show the Desktop-only setup entry.',
+      boundaryKey: key,
+    );
+    harness.companion.status.value = CompanionSyncStatus.disconnected;
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'full-desktop-disconnected',
+      title: 'Full Desktop connection recovery',
+      orientation: 'landscape',
+      notes:
+          'Disconnected Full exposes a pairing entry and disables shortcuts and pointer input.',
+      boundaryKey: key,
+    );
+    await tester.pumpWidget(
+      regularTestApp(
+        harness,
+        child: screenshotBoundary(
+          key,
+          DiagnosticsScope(
+            diagnostics: diagnostics,
+            child: const SettingsScreen(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await shots.capture(
+      id: 'full-settings',
+      title: 'Full phone settings',
+      orientation: 'landscape',
+      notes:
+          'Regular/Full settings surface; local Bluetooth Lite profile editors are not this product’s configuration path.',
       boundaryKey: key,
     );
   });

@@ -9,6 +9,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import 'companion_server.dart';
 import 'desktop_controller.dart';
+import 'desktop_application_artwork.dart';
 import 'desktop_dictation.dart';
 import 'shortcut_transfer_service.dart';
 import 'tray_shell.dart' show desktopBrandAsset;
@@ -1081,7 +1082,7 @@ class _LauncherPageState extends State<_LauncherPage> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '8 个快捷按键',
+                  '$launcherSlotCount 个快捷按键',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -1092,7 +1093,7 @@ class _LauncherPageState extends State<_LauncherPage> {
             Wrap(
               spacing: spacing,
               runSpacing: spacing,
-              children: List.generate(8, (index) {
+              children: List.generate(launcherSlotCount, (index) {
                 final appId = widget.controller.launcherAppIds[index];
                 final app = appId == null
                     ? null
@@ -1268,7 +1269,7 @@ class _LauncherPageState extends State<_LauncherPage> {
                           value: app.id,
                           child: Row(
                             children: [
-                              _LauncherAppArtwork(app: app, size: 22),
+                              DesktopApplicationArtwork(app: app, size: 22),
                               const SizedBox(width: 10),
                               Text(app.name),
                             ],
@@ -1401,7 +1402,7 @@ class _LauncherKey extends StatelessWidget {
                             color: theme.colorScheme.onPrimaryContainer,
                             size: 23,
                           )
-                        : _LauncherAppArtwork(app: app!, size: 34),
+                        : DesktopApplicationArtwork(app: app!, size: 34),
                   ),
                   const Spacer(),
                   Text(
@@ -1445,45 +1446,6 @@ class _LauncherKey extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _LauncherAppArtwork extends StatelessWidget {
-  const _LauncherAppArtwork({required this.app, required this.size});
-
-  final RemoteApplication app;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final asset = switch (app.id) {
-      'vscode' => 'assets/app_icons/vscode.png',
-      'solidworks' => 'assets/app_icons/solidworks.png',
-      'premiere' => 'assets/app_icons/premiere.png',
-      'photoshop' => 'assets/app_icons/photoshop.png',
-      'codex' || 'chatgpt' => 'assets/app_icons/openai.png',
-      'illustrator' => 'assets/app_icons/illustrator.png',
-      'chrome' => 'assets/app_icons/chrome.png',
-      _ => null,
-    };
-    if (asset != null) {
-      return Image.asset(
-        asset,
-        width: size,
-        height: size,
-        fit: BoxFit.contain,
-        errorBuilder: (_, _, _) => Icon(
-          desktopIcon(app.icon),
-          size: size,
-          color: Theme.of(context).colorScheme.onPrimaryContainer,
-        ),
-      );
-    }
-    return Icon(
-      desktopIcon(app.icon),
-      size: size,
-      color: Theme.of(context).colorScheme.onPrimaryContainer,
     );
   }
 }

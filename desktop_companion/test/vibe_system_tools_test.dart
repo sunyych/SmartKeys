@@ -40,11 +40,18 @@ void main() {
       final manifest = DesktopManifest.starter();
       final button = manifest.buttonById('chatgpt.codex.quote')!;
 
-      await DesktopActions(
-        vibeSystemTools: VibeSystemTools(channel: channel),
-      ).executeButton(button, manifest, expectedAppId: 'chatgpt');
+      for (final platform in [TargetPlatform.windows, TargetPlatform.macOS]) {
+        received = null;
+        await DesktopActions(
+          platformOverride: platform,
+          vibeSystemTools: VibeSystemTools(channel: channel),
+        ).executeButton(button, manifest, expectedAppId: 'chatgpt');
 
-      expect(received?.arguments, {'appId': 'codex', 'actionId': 'quote'});
+        expect(received?.arguments, {
+          'appId': 'codex',
+          'actionId': 'quote',
+        }, reason: platform.name);
+      }
     },
   );
 

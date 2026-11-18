@@ -1,0 +1,150 @@
+name: Bluetooth Lite Android build
+
+on:
+  push:
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library]
+    paths:
+      - 'apps/bluetooth/**'
+      - '.github/workflows/bluetooth-lite.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version for the validation APK
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bluetooth-lite-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /apps/bluetooth/
+            /packages/diagnostics_core/
+            /scripts/sync_diagnostics_core.py
+      - id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag="$GITHUB_REF_NAME"
+            [[ "$tag" =~ ^bluetooth-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected bluetooth-vMAJOR.MINOR.PATCH'; exit 1; }
+            git fetch --no-tags origin main:refs/remotes/origin/main
+            git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+            version="${tag#bluetooth-v}"
+          else
+            version="${INPUT_VERSION:-1.1.0}"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be MAJOR.MINOR.PATCH'; exit 1; }
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          cache: true
+      - name: Prepare screenshot fonts
+        timeout-minutes: 8
+        run: |
+          screenshot_font="$RUNNER_TEMP/NotoSansCJKsc-Regular.otf"
+          python3 -m unittest discover -s apps/bluetooth/scripts -p test_prepare_screenshot_font.py
+          python3 apps/bluetooth/scripts/prepare_screenshot_font.py --output "$screenshot_font" --github-env "$GITHUB_ENV"
+          flutter precache --linux
+          test -s "$screenshot_font"
+          test -s "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+          ls -l "$screenshot_font" "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+      - name: Check Lite dependency and permission boundary
+        run: |
+          test ! -e pubspec.yaml
+          test ! -d lib
+          python3 scripts/sync_diagnostics_core.py --check
+          ./apps/bluetooth/scripts/check-isolation.sh
+      - name: Analyze, test, and capture every Lite screen
+        working-directory: apps/bluetooth
+        env:
+          SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/apps/bluetooth/build/ui_screenshots
+        run: |
+          flutter pub get
+          python3 scripts/check_isolation.py
+          flutter analyze
+          flutter test
+      - name: Generate Lite screenshot index
+        working-directory: apps/bluetooth
+        run: dart run scripts/generate_screenshot_index.dart --root build/ui_screenshots
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-ui-screenshots
+          path: apps/bluetooth/build/ui_screenshots/
+          if-no-files-found: error
+
+  android:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /apps/bluetooth/
+            /packages/diagnostics_core/
+            /scripts/sync_diagnostics_core.py
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          cache: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Build Lite APK
+        working-directory: apps/bluetooth
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e ../../pubspec.yaml
+          test ! -d ../../lib
+          flutter pub get
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            for secret in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD; do
+              [[ -n "${!secret}" ]] || { echo "Missing signing secret: $secret" >&2; exit 1; }
+            done
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lite-release.jks"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/lite-release.jks"
+            flutter build apk --release --build-name="$RELEASE_VERSION" --build-number="$BUILD_NUMBER"
+            cp build/app/outputs/flutter-apk/app-release.apk "LumiaKey-Bluetooth-Lite-v${RELEASE_VERSION}.apk"
+          else
+            flutter build apk --debug --build-name="$RELEASE_VERSION" --build-number="$BUILD_NUMBER"
+            cp build/app/outputs/flutter-apk/app-debug.apk "LumiaKey-Bluetooth-Lite-Validation-v${RELEASE_VERSION}.apk"
+          fi
+          ./android/gradlew -p android :app:testDebugUnitTest
+          apk_path="build/app/outputs/flutter-apk/app-debug.apk"
+          [[ "$GITHUB_REF_TYPE" != tag ]] || apk_path="build/app/outputs/flutter-apk/app-release.apk"
+          python3 scripts/check_isolation.py --apk "$apk_path"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-android-apk
+          path: apps/bluetooth/LumiaKey-Bluetooth-Lite*.apk
+          if-no-files-found: error

@@ -5,12 +5,12 @@ import 'package:lumiakeys_companion/desktop_controller.dart';
 class _Discovery implements ApplicationDiscovery {
   @override
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async =>
-      apps;
+      apps.map((app) => app.copyWith(detected: true)).toList();
 }
 
 void main() {
   test(
-    'launcher slots remain exactly eight, ordered, local, and race-safe',
+    'launcher slots remain exactly twelve, ordered, local, and race-safe',
     () async {
       final config = MemoryDesktopConfigStore();
       final launcher = MemoryLauncherKeyStore();
@@ -23,13 +23,26 @@ void main() {
       final appIds = controller.manifest.applications
           .map((app) => app.id)
           .toList();
-      expect(appIds.length, greaterThanOrEqualTo(8));
+      expect(appIds.length, greaterThanOrEqualTo(launcherSlotCount));
       await Future.wait([
-        for (var index = 0; index < 8; index++)
+        for (var index = 0; index < launcherSlotCount; index++)
           controller.assignLauncherApp(index, appIds[index]),
       ]);
-      expect(controller.launcherAppIds, appIds.take(8).toList());
-      expect(launcher.value, appIds.take(8).toList());
+      expect(
+        controller.launcherAppIds,
+        appIds.take(launcherSlotCount).toList(),
+      );
+      expect(
+        config.value!.launcherApplicationIds,
+        appIds.take(launcherSlotCount).toList(),
+      );
+      final published = DesktopManifest.fromJson(
+        controller.manifest.toJson(forSync: true),
+      );
+      expect(
+        published.launcherApplicationIds,
+        appIds.take(launcherSlotCount).toList(),
+      );
 
       final reloaded = DesktopController(
         store: config,
@@ -37,9 +50,10 @@ void main() {
         discovery: _Discovery(),
       );
       await reloaded.initialize();
-      expect(reloaded.launcherAppIds, appIds.take(8).toList());
+      expect(reloaded.launcherAppIds, appIds.take(launcherSlotCount).toList());
+      expect(reloaded.manifest.revision, controller.manifest.revision);
       await expectLater(
-        reloaded.assignLauncherApp(8, appIds.first),
+        reloaded.assignLauncherApp(launcherSlotCount, appIds.first),
         throwsRangeError,
       );
       await expectLater(
@@ -48,6 +62,33 @@ void main() {
       );
       controller.dispose();
       reloaded.dispose();
+    },
+  );
+
+  test(
+    'failed manifest revision save rolls back the local slot assignment',
+    () async {
+      final store = _FailNextSaveStore();
+      final launcher = MemoryLauncherKeyStore();
+      final controller = DesktopController(
+        store: store,
+        launcherKeyStore: launcher,
+        discovery: _Discovery(),
+      );
+      await controller.initialize();
+      final before = List<String?>.from(controller.launcherAppIds);
+      store.failNextSave = true;
+
+      await expectLater(
+        controller.assignLauncherApp(
+          0,
+          controller.manifest.applications.first.id,
+        ),
+        throwsStateError,
+      );
+      expect(controller.launcherAppIds, before);
+      expect(launcher.value, before);
+      controller.dispose();
     },
   );
 
@@ -63,4 +104,21 @@ void main() {
     expect(controller.launcherAppIds.first, 'chatgpt');
     controller.dispose();
   });
+}
+
+class _FailNextSaveStore implements DesktopConfigStore {
+  final MemoryDesktopConfigStore inner = MemoryDesktopConfigStore();
+  bool failNextSave = false;
+
+  @override
+  Future<DesktopManifest?> load() => inner.load();
+
+  @override
+  Future<void> save(DesktopManifest manifest) {
+    if (failNextSave) {
+      failNextSave = false;
+      throw StateError('simulated manifest storage failure');
+    }
+    return inner.save(manifest);
+  }
 }

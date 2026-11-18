@@ -1,16 +1,19 @@
-name: Android editions build check
+name: Full Android and Windows build checks
 
 on:
   push:
-    branches: [main, codex/lite]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library]
     paths:
       - 'android/**'
       - 'lib/**'
-      - 'assets/profiles/**'
+      - 'assets/**'
+      - 'test/**'
       - 'pubspec.*'
       - 'packages/**'
       - 'desktop_companion/**'
       - 'packaging/windows/**'
+      - 'scripts/generate_app_icon_catalog.py'
+      - 'scripts/sync_diagnostics_core.py'
       - '.github/workflows/mobile-editions.yml'
   workflow_dispatch:
 
@@ -19,16 +22,10 @@ permissions:
 
 jobs:
   android:
-    name: Android ${{ matrix.edition }}
+    name: Full Android
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - edition: regular
-            target: lib/main.dart
-          - edition: lite
-            target: lib/main_lite.dart
+    env:
+      SMARTKEYS_SCREENSHOT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -39,15 +36,40 @@ jobs:
         with:
           flutter-version: '3.44.2'
           cache: true
-      - run: flutter pub get
-      - name: Build Android edition
-        run: flutter build apk --debug --flavor ${{ matrix.edition }} --target ${{ matrix.target }} --dart-define=LUMIAKEY_EDITION=${{ matrix.edition }}
+      - name: Prepare SDK and screenshot fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk xvfb xauth
+          flutter precache --linux
+          test -f "$SMARTKEYS_SCREENSHOT_FONT"
+          test -f "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+      - name: Resolve all analyzed package dependencies
+        run: |
+          flutter pub get
+          (cd packages/diagnostics_core && dart pub get)
+          (cd packages/lumiakeys_protocol && dart pub get)
+          (cd packages/local_dictation && flutter pub get)
+          (cd desktop_companion && flutter pub get)
+      - name: Check generated icon catalog
+        run: |
+          python3 scripts/generate_app_icon_catalog.py --check
+          python3 scripts/sync_diagnostics_core.py --check
+      - name: Analyze and test Full mobile
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub
+          (cd packages/diagnostics_core && dart test)
+          (cd packages/lumiakeys_protocol && dart test)
+          (cd packages/local_dictation && flutter test --no-pub)
+          (cd desktop_companion && xvfb-run -a flutter test --no-pub)
+      - name: Build Full Android
+        run: flutter build apk --debug --flavor regular --target lib/main.dart --dart-define=LUMIAKEY_EDITION=regular
       - name: Run Android unit tests
-        run: ./android/gradlew -p android :app:test${{ matrix.edition == 'lite' && 'Lite' || 'Regular' }}DebugUnitTest
+        run: ./android/gradlew -p android :app:testRegularDebugUnitTest
       - uses: actions/upload-artifact@v7
         with:
-          name: android-${{ matrix.edition }}-debug
-          path: build/app/outputs/flutter-apk/app-${{ matrix.edition }}-debug.apk
+          name: android-full-debug
+          path: build/app/outputs/flutter-apk/app-regular-debug.apk
           if-no-files-found: error
 
   windows-desktop:
@@ -62,11 +84,19 @@ jobs:
       - name: Install packaging compiler
         shell: pwsh
         run: choco install innosetup --yes --no-progress
+      - name: Read product version
+        shell: pwsh
+        run: |
+          $projectVersion = (Select-String -LiteralPath pubspec.yaml -Pattern '^version:\s*(\S+)').Matches.Groups[1].Value
+          $versionParts = $projectVersion.Split('+')
+          if ($versionParts.Length -ne 2) { throw 'pubspec.yaml must contain version+build.' }
+          "APP_VERSION=$($versionParts[0])" >> $env:GITHUB_ENV
+          "APP_BUILD_NUMBER=$($versionParts[1])" >> $env:GITHUB_ENV
       - name: Build Desktop release
         working-directory: desktop_companion
         run: |
           flutter pub get
-          flutter build windows --release --build-name=1.4.0 --build-number=6
+          flutter build windows --release --build-name=$env:APP_VERSION --build-number=$env:APP_BUILD_NUMBER
       - name: Build Windows installer
         shell: pwsh
         run: |
@@ -75,7 +105,7 @@ jobs:
           $buildRoot = Join-Path $PWD "desktop_companion\build\windows\x64\runner\Release"
           $outputDir = Join-Path $PWD "dist"
           New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-          & $compiler "/DAppVersion=1.4.0" "/DBuildRoot=$buildRoot" "/DOutputDir=$outputDir" "packaging\windows\lumiakeys.iss"
+          & $compiler "/DAppVersion=$env:APP_VERSION" "/DBuildRoot=$buildRoot" "/DOutputDir=$outputDir" "packaging\windows\lumiakeys.iss"
           if ($LASTEXITCODE -ne 0) { throw "Installer build failed ($LASTEXITCODE)." }
       - uses: actions/upload-artifact@v7
         with:

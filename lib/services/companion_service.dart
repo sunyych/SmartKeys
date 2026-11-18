@@ -1,9 +1,23 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import '../icons/app_icon_validation.dart';
+
+class _CompanionAuthenticationFailure implements Exception {}
+
+DiagnosticCode _connectionDiagnostic(Object error) =>
+    error is _CompanionAuthenticationFailure
+    ? DiagnosticCode.connectionAuthenticationFailed
+    : error is TimeoutException
+    ? DiagnosticCode.connectionTimeout
+    : error is FormatException
+    ? DiagnosticCode.connectionProtocolInvalid
+    : DiagnosticCode.connectionUnavailable;
 
 void _validateDictationPayload(String sessionId, int sequence, String text) {
   if (sessionId.isEmpty ||
@@ -127,6 +141,10 @@ abstract interface class CompanionService {
   void dispose();
 }
 
+abstract interface class CompanionIconConnection {
+  Future<Uint8List?> fetchApplicationIcon(String appId);
+}
+
 abstract interface class ManualCompanionConnection {
   Future<void> connectManually(String code);
   Future<void> disconnect();
@@ -143,6 +161,7 @@ class LanCompanionService
         CompanionService,
         ManualCompanionConnection,
         CompanionPointerConnection,
+        CompanionIconConnection,
         SwitchableCompanionConnection {
   LanCompanionService({
     this.discoveryPort = 45832,
@@ -150,10 +169,18 @@ class LanCompanionService
     this.expiryPollInterval = const Duration(seconds: 3),
     this.dictationTimeout = const Duration(seconds: 8),
     this.enableDiscovery = true,
+    this.reportDiagnostic,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   final int discoveryPort;
+  final void Function(DiagnosticCode)? reportDiagnostic;
+  void _report(DiagnosticCode code) {
+    try {
+      reportDiagnostic?.call(code);
+    } catch (_) {}
+  }
+
   final Duration hostExpiry;
   final Duration expiryPollInterval;
   final Duration dictationTimeout;
@@ -253,7 +280,10 @@ class LanCompanionService
         }
       });
     } catch (error) {
-      if (!_disposed) _setError('Companion discovery unavailable: $error');
+      if (!_disposed) {
+        _setError('Companion discovery unavailable: $error');
+        _report(DiagnosticCode.connectionUnavailable);
+      }
     }
   }
 
@@ -358,6 +388,7 @@ class LanCompanionService
       _host.value = null;
       _manifest.value = null;
       _setError('Desktop connection failed: $error');
+      _report(_connectionDiagnostic(error));
     }
   }
 
@@ -547,6 +578,72 @@ class LanCompanionService
     _error.value = null;
   }
 
+  @override
+  Future<Uint8List?> fetchApplicationIcon(String appId) async {
+    if (!remoteApplicationIconAppIds.contains(appId)) return null;
+    final host = _host.value;
+    if (host == null ||
+        !host.capabilities.contains('app-icons-v1') ||
+        _manifest.value?.settings.syncIcons != true ||
+        _manifest.value?.applicationById(appId) == null ||
+        !_sameDesktopSession(_host.value, host)) {
+      return null;
+    }
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    try {
+      final request = await client
+          .get(host.address, host.port, '/icons/${Uri.encodeComponent(appId)}')
+          .timeout(const Duration(seconds: 4));
+      request.followRedirects = false;
+      request.headers.set('x-lumiakeys-token', host.token);
+      request.headers.set(HttpHeaders.acceptHeader, 'image/png');
+      final response = await request.close().timeout(
+        const Duration(seconds: 4),
+      );
+      if (response.statusCode != HttpStatus.ok ||
+          response.headers.contentType?.mimeType.toLowerCase() != 'image/png') {
+        return null;
+      }
+      final bytes = await _readBoundedBytes(
+        response,
+        const Duration(seconds: 4),
+        64 * 1024,
+      ).timeout(const Duration(seconds: 4));
+      if (_disposed ||
+          !_sameDesktopSession(_host.value, host) ||
+          _manifest.value?.settings.syncIcons != true ||
+          !AppIconValidation.isValidPng(bytes)) {
+        return null;
+      }
+      return bytes;
+    } on TimeoutException {
+      return null;
+    } on SocketException {
+      return null;
+    } on HttpException {
+      return null;
+    } on FormatException {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Future<Uint8List> _readBoundedBytes(
+    Stream<List<int>> stream,
+    Duration timeout,
+    int maxBytes,
+  ) async {
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in stream.timeout(timeout)) {
+      if (bytes.length + chunk.length > maxBytes) {
+        throw const FormatException('Desktop app icon exceeds 64 KiB.');
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
+  }
+
   Future<Map<String, dynamic>> _getJson(
     String address,
     int port,
@@ -568,6 +665,9 @@ class LanCompanionService
         const Duration(seconds: 4),
         256 * 1024,
       );
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw _CompanionAuthenticationFailure();
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           'Desktop rejected the connection (${response.statusCode}).',
@@ -805,6 +905,9 @@ class LanCompanionService
           !_sameDesktopSession(_host.value, host)) {
         return;
       }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw _CompanionAuthenticationFailure();
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           body.isEmpty ? 'Desktop rejected layout sync' : body,
@@ -860,6 +963,7 @@ class LanCompanionService
           _selectionEpoch == epoch &&
           _sameDesktopSession(_host.value, host)) {
         _setError('Desktop sync failed: $error');
+        _report(_connectionDiagnostic(error));
       }
     } finally {
       client?.close(force: true);
@@ -982,6 +1086,7 @@ class LanCompanionService
           _sameDesktopSession(_host.value, queuedHost) &&
           _sameDesktopSession(_pointerQueueHost, queuedHost)) {
         _pointerError.value = 'Desktop mouse input failed: $error';
+        _report(DiagnosticCode.pointerDeliveryFailed);
       }
     } finally {
       _pointerFlushing = false;
@@ -1120,6 +1225,9 @@ class LanCompanionService
           );
         }
         return;
+      }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw _CompanionAuthenticationFailure();
       }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(

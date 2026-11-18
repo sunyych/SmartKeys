@@ -15,7 +15,9 @@ Future<TestHarness> mountRegular(
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(844, 390);
-  final harness = await TestHarness.create(companionService: companion);
+  final harness = await TestHarness.create(
+    companionService: companion ?? ActivatingRegularCompanion(),
+  );
   connectRegularHarness(harness);
   await tester.pumpWidget(regularTestApp(harness));
   await tester.pumpAndSettle();
@@ -38,6 +40,183 @@ class DeferredRegularCompanion extends RecordingCompanionService {
 }
 
 void main() {
+  testWidgets(
+    'Launcher shows only Desktop-assigned slots in their saved order',
+    (tester) async {
+      final harness = await mountRegular(tester);
+      final slots = List<String?>.filled(launcherSlotCount, null)
+        ..[0] = 'chrome'
+        ..[7] = 'chatgpt';
+      harness.companion.syncedManifest.value = harness
+          .companion
+          .syncedManifest
+          .value!
+          .copyWith(launcherApplicationIds: slots);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('regular-cell-0')),
+          matching: find.byKey(const ValueKey('regular-launch-chrome')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('regular-cell-7')),
+          matching: find.byKey(const ValueKey('regular-launch-chatgpt')),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('regular-launch-vscode')), findsNothing);
+      harness.companion.syncedManifest.value = harness
+          .companion
+          .syncedManifest
+          .value!
+          .copyWith(
+            launcherApplicationIds: List<String?>.filled(
+              launcherSlotCount,
+              null,
+            ),
+          );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('regular-configure-launchpad')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('regular-launch-chrome')), findsNothing);
+      expect(find.byKey(const ValueKey('regular-cell-11')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'stale activation and successful HTTP response do not unlock app keys',
+    (tester) async {
+      final service = RecordingCompanionService();
+      final harness = await mountRegular(tester, companion: service);
+      final initial = service.syncedManifest.value!;
+      service.syncedManifest.value = initial.copyWith(
+        applicationActivationSequence: 5,
+        activatedApplicationId: 'chrome',
+        applications: [
+          for (final app in initial.applications)
+            app.copyWith(foreground: app.id == 'chrome'),
+        ],
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('regular-launch-chrome')));
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('regular-button-chrome.newTab')),
+        findsNothing,
+      );
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('regular-workspace-title')))
+            .data,
+        'Launchpad',
+      );
+      expect(find.textContaining('has not confirmed'), findsOneWidget);
+      expect(harness.companion.remoteActions, hasLength(1));
+    },
+  );
+
+  testWidgets(
+    'returning to Launchpad ignores a later old activation notification',
+    (tester) async {
+      final service = RecordingCompanionService();
+      await mountRegular(tester, companion: service);
+      await tester.tap(find.byKey(const ValueKey('regular-launch-chrome')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('regular-nav-launchpad')));
+      await tester.pumpAndSettle();
+      final current = service.syncedManifest.value!;
+      service.syncedManifest.value = current.copyWith(
+        applicationActivationSequence: 20,
+        activatedApplicationId: 'chrome',
+        applications: [
+          for (final app in current.applications)
+            app.copyWith(foreground: app.id == 'chrome'),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('regular-workspace-title')))
+            .data,
+        'Launchpad',
+      );
+      expect(
+        find.byKey(const ValueKey('regular-button-chrome.newTab')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'foreground loss disables app shortcuts while General remains deliberate',
+    (tester) async {
+      final harness = await mountRegular(tester);
+      await tester.tap(find.byKey(const ValueKey('regular-launch-chrome')));
+      await tester.pumpAndSettle();
+      final current = harness.companion.syncedManifest.value!;
+      harness.companion.syncedManifest.value = current.copyWith(
+        applications: [
+          for (final app in current.applications)
+            app.copyWith(foreground: app.id == 'chatgpt'),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<InkWell>(
+              find.byKey(const ValueKey('regular-button-chrome.newTab')),
+            )
+            .onTap,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<LocalDictationEntryButton>(
+              find.byType(LocalDictationEntryButton),
+            )
+            .entryEnabled,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const ValueKey('regular-nav-general')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<InkWell>(
+              find.byKey(const ValueKey('regular-button-keyboard.copy')),
+            )
+            .onTap,
+        isNotNull,
+      );
+    },
+  );
+
+  testWidgets('Launcher retains clock and Desktop media controls', (
+    tester,
+  ) async {
+    final harness = await mountRegular(tester);
+    connectRegularHarness(harness, manifest: DesktopManifest.regularStarter());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('regular-clock')), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('regular-system-keyboard.playPause')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('regular-system-keyboard.mute')),
+    );
+    await tester.pumpAndSettle();
+    expect(harness.companion.remoteActions.map((action) => action.buttonId), [
+      'keyboard.playPause',
+      'keyboard.mute',
+    ]);
+  });
+
   testWidgets('launchpad renders twelve cells and launches Desktop IDs', (
     tester,
   ) async {

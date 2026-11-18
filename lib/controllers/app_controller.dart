@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:crypto/crypto.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../data/config_repository.dart';
@@ -14,6 +16,8 @@ import '../data/shortcut_usage_repository.dart';
 import '../models/config.dart';
 import '../models/computer_setup.dart';
 import '../models/control_surface_status.dart';
+import '../icons/app_icon_catalog.dart';
+import '../icons/app_icon_validation.dart';
 import '../services/hid_service.dart';
 import '../services/ios_companion_hid_service.dart';
 import '../services/companion_service.dart';
@@ -31,7 +35,9 @@ class AppController extends ChangeNotifier {
     required this.powerBrightnessService,
     required this.shortcutUsage,
     this.platformOverride,
-  }) {
+    this.reportDiagnostic,
+    IconCatalogClient? iconCatalogClient,
+  }) : _iconCatalogClient = iconCatalogClient ?? IconCatalogClient() {
     hid.activeHost.addListener(_handleActiveHostChanged);
     hid.connectionStatus.addListener(_handleActiveHostChanged);
     hid.pairedHosts.addListener(notifyListeners);
@@ -49,6 +55,23 @@ class AppController extends ChangeNotifier {
   }
 
   final ConfigRepository repository;
+  final void Function(DiagnosticCode)? reportDiagnostic;
+
+  void _report(DiagnosticCode code) {
+    try {
+      reportDiagnostic?.call(code);
+    } catch (_) {}
+  }
+
+  Future<void> _saveConfiguration(AppConfig value) async {
+    try {
+      await repository.save(value);
+    } catch (_) {
+      _report(DiagnosticCode.configurationSaveFailed);
+      rethrow;
+    }
+  }
+
   final ProfileTemplateRepository templates;
   final HidService hid;
   final CompanionService companion;
@@ -57,6 +80,7 @@ class AppController extends ChangeNotifier {
   final PowerBrightnessService powerBrightnessService;
   final ShortcutUsageRepository shortcutUsage;
   final TargetPlatform? platformOverride;
+  final IconCatalogClient _iconCatalogClient;
 
   AppConfig? _config;
   String? _acceptedCompanionSession;
@@ -68,6 +92,9 @@ class AppController extends ChangeNotifier {
   int _inputEpoch = 0;
   final Set<int> _pressedPositions = {};
   final Map<int, HidAction> _pressedButtonActions = {};
+  final Map<String, Uint8List> _desktopAppIconBytes = {};
+  final Map<String, DateTime> _desktopAppIconStoredAt = {};
+  final Map<String, Future<Uint8List?>> _desktopAppIconLoads = {};
   HidAction? _pressedWheelCenterAction;
   double _touchpadScrollAccumulator = 0;
   Future<void> _darkTransition = Future.value();
@@ -98,6 +125,110 @@ class AppController extends ChangeNotifier {
   bool get canAddProfile => config.profiles.length < freeProfileLimit;
   bool get isDarkModeActive => _darkModeActive;
   DesktopManifest? get desktopManifest => companion.manifest.value;
+
+  /// A stable disk-cache scope for one computer endpoint; tokens are never
+  /// persisted. A session check separately prevents late responses crossing KVM.
+  String? get desktopIconScope {
+    final manifest = desktopManifest;
+    final host = companion.activeHost.value;
+    if (!isDesktopSynced ||
+        host == null ||
+        manifest?.settings.syncIcons != true) {
+      return null;
+    }
+    final identity = manifest?.computerId ?? host.computerId ?? host.address;
+    return md5.convert(utf8.encode('$identity|${host.platform}')).toString();
+  }
+
+  String? get desktopIconRequestScope {
+    final scope = desktopIconScope;
+    final host = companion.activeHost.value;
+    return scope == null || host == null
+        ? null
+        : '$scope:${md5.convert(utf8.encode(_companionSessionId(host)))}:${desktopManifest?.revision}';
+  }
+
+  Future<Uint8List?> loadDesktopApplicationIcon(String appId) {
+    final scope = desktopIconScope;
+    final host = companion.activeHost.value;
+    if (scope == null ||
+        host == null ||
+        !remoteApplicationIconAppIds.contains(appId) ||
+        desktopManifest?.applicationById(appId) == null) {
+      return Future.value(null);
+    }
+    final session = _companionSessionId(host);
+    final app = desktopManifest!.applicationById(appId)!;
+    bool current() =>
+        desktopIconScope == scope &&
+        companion.activeHost.value != null &&
+        _companionSessionId(companion.activeHost.value!) == session &&
+        desktopManifest?.applicationById(appId)?.executable == app.executable &&
+        desktopManifest?.applicationById(appId)?.icon == app.icon;
+    final identity = md5
+        .convert(utf8.encode('${app.executable}|${app.icon}'))
+        .toString()
+        .substring(0, 12);
+    final cacheAppId = '${appId}_$identity';
+    final key = '$scope:$cacheAppId';
+    final cached = _desktopAppIconBytes[key];
+    final cachedAt = _desktopAppIconStoredAt[key];
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(hours: 24)) {
+      return Future.value(Uint8List.fromList(cached));
+    }
+    final requestKey = '$key:${md5.convert(utf8.encode(session))}';
+    return _desktopAppIconLoads.putIfAbsent(requestKey, () async {
+      try {
+        final local = await imageStore.readDesktopAppIcon(scope, cacheAppId);
+        final updatedAt = local == null
+            ? null
+            : await imageStore.desktopAppIconUpdatedAt(scope, cacheAppId);
+        if (!current()) return null;
+        Uint8List? bytes = local;
+        if (bytes == null &&
+            host.capabilities.contains('app-icons-v1') &&
+            companion is CompanionIconConnection) {
+          bytes = await (companion as CompanionIconConnection)
+              .fetchApplicationIcon(appId);
+          if (!current()) return null;
+        }
+        // Bundled icons stay available without any centralized-service request.
+        if ((bytes == null || !AppIconValidation.isValidPng(bytes)) &&
+            !await AppIconCatalog.hasBundledAsset(appId)) {
+          bytes = await _iconCatalogClient.downloadByAppId(appId);
+          if (!current()) return null;
+        }
+        if (bytes == null ||
+            !AppIconValidation.isValidPng(bytes) ||
+            !current()) {
+          return null;
+        }
+        if (local == null) {
+          try {
+            await imageStore.cacheDesktopAppIcon(scope, cacheAppId, bytes);
+          } catch (_) {
+            // A read-only/full cache must not hide a valid in-memory native icon.
+          }
+        }
+        if (!current()) return null;
+        if (_desktopAppIconBytes.length >= 128) {
+          final oldest = _desktopAppIconBytes.keys.first;
+          _desktopAppIconBytes.remove(oldest);
+          _desktopAppIconStoredAt.remove(oldest);
+        }
+        _desktopAppIconBytes[key] = Uint8List.fromList(bytes);
+        _desktopAppIconStoredAt[key] = updatedAt ?? DateTime.now();
+        return Uint8List.fromList(bytes);
+      } catch (_) {
+        return null;
+      } finally {
+        _desktopAppIconLoads.remove(requestKey);
+      }
+    });
+  }
+
   ValueListenable<List<CompanionComputerChoice>>? get desktopComputerChoices =>
       companion is SwitchableCompanionConnection
       ? (companion as SwitchableCompanionConnection).computerChoices
@@ -523,11 +654,11 @@ class AppController extends ChangeNotifier {
   ) async {
     var base = config;
     var nextConfig = _computerSetupConfig(base, targetId, setup);
-    await repository.save(nextConfig);
+    await _saveConfiguration(nextConfig);
     while (!identical(_config, base)) {
       base = config;
       nextConfig = _computerSetupConfig(base, targetId, setup);
-      await repository.save(nextConfig);
+      await _saveConfiguration(nextConfig);
     }
     _config = nextConfig;
     notifyListeners();
@@ -1041,7 +1172,12 @@ class AppController extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      _config = await repository.load();
+      try {
+        _config = await repository.load();
+      } catch (_) {
+        _report(DiagnosticCode.configurationLoadFailed);
+        rethrow;
+      }
       try {
         await shortcutUsage.load();
       } catch (_) {
@@ -1101,7 +1237,7 @@ class AppController extends ChangeNotifier {
     final safety = prepareForContextChange();
     _config = config.copyWith(activeProfileId: profileId);
     notifyListeners();
-    await Future.wait([safety, repository.save(config)]);
+    await Future.wait([safety, _saveConfiguration(config)]);
   }
 
   Future<void> switchProfileByOffset(int offset) async {
@@ -1163,7 +1299,12 @@ class AppController extends ChangeNotifier {
   Future<void> executeRemoteButton(RemoteShortcutButton button) async {
     if (_computerSwitchPendingId != null) return;
     _recordShortcutUsage('desktop:button:${button.id}', button.name);
-    await companion.executeRemote(RemoteActionRequest.button(button.id));
+    try {
+      await companion.executeRemote(RemoteActionRequest.button(button.id));
+    } catch (_) {
+      _report(DiagnosticCode.shortcutDeliveryFailed);
+      rethrow;
+    }
   }
 
   Future<void> executeVibeCodingButton(
@@ -1193,9 +1334,14 @@ class AppController extends ChangeNotifier {
       'desktop:app:${application.id}',
       'Open ${application.name}',
     );
-    await companion.executeRemote(
-      RemoteActionRequest.launchApplication(application.id),
-    );
+    try {
+      await companion.executeRemote(
+        RemoteActionRequest.launchApplication(application.id),
+      );
+    } catch (_) {
+      _report(DiagnosticCode.applicationActivationFailed);
+      rethrow;
+    }
   }
 
   Future<void> launchVibeCodingApplication(String applicationId) async {
@@ -1503,7 +1649,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     await Future.wait([
       orientationService.apply(mode),
-      repository.save(config),
+      _saveConfiguration(config),
     ]);
   }
 
@@ -1513,7 +1659,7 @@ class AppController extends ChangeNotifier {
       preferences: config.preferences.copyWith(shortcutPlatform: platform),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> setBeginnerMode(bool beginnerMode) async {
@@ -1523,10 +1669,10 @@ class AppController extends ChangeNotifier {
     );
     notifyListeners();
     var saved = config;
-    await repository.save(saved);
+    await _saveConfiguration(saved);
     while (!identical(_config, saved)) {
       saved = config;
-      await repository.save(saved);
+      await _saveConfiguration(saved);
     }
   }
 
@@ -1536,7 +1682,7 @@ class AppController extends ChangeNotifier {
       preferences: config.preferences.copyWith(controlSurfaceLayout: value),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> updateTabletKeysPerPage(int value) async {
@@ -1552,7 +1698,7 @@ class AppController extends ChangeNotifier {
       preferences: config.preferences.copyWith(tabletKeysPerPage: value),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> updateFeedbackPreferences({
@@ -1566,7 +1712,7 @@ class AppController extends ChangeNotifier {
       ),
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> updateChargingBrightness({
@@ -1583,7 +1729,10 @@ class AppController extends ChangeNotifier {
       ),
     );
     notifyListeners();
-    await Future.wait([repository.save(config), _applyChargingDisplayState()]);
+    await Future.wait([
+      _saveConfiguration(config),
+      _applyChargingDisplayState(),
+    ]);
   }
 
   Future<void> handleAppResumed() async {
@@ -1804,7 +1953,7 @@ class AppController extends ChangeNotifier {
       profileOrder: [...config.profileOrder, profile.id],
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     return profile;
   }
 
@@ -1823,7 +1972,7 @@ class AppController extends ChangeNotifier {
       profileOrder: [...config.profileOrder, copy.id],
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     return copy;
   }
 
@@ -1868,7 +2017,7 @@ class AppController extends ChangeNotifier {
   Future<void> setDefaultProfile(String profileId) async {
     _config = config.copyWith(defaultProfileId: profileId);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> deleteProfile(String profileId) async {
@@ -1893,7 +2042,7 @@ class AppController extends ChangeNotifier {
       activeProfileId: activeId,
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     await imageStore.cleanupUnreferenced(config);
   }
 
@@ -1903,7 +2052,7 @@ class AppController extends ChangeNotifier {
     order.insert(newIndex, moved);
     _config = config.copyWith(profileOrder: order);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> importProfile(
@@ -1946,7 +2095,7 @@ class AppController extends ChangeNotifier {
       );
     }
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     await imageStore.cleanupUnreferenced(config);
   }
 
@@ -1966,7 +2115,7 @@ class AppController extends ChangeNotifier {
         : [...config.profileOrder, templateId];
     _config = config.copyWith(profiles: profiles, profileOrder: order);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   Future<void> restoreAllTemplates() async {
@@ -1987,7 +2136,7 @@ class AppController extends ChangeNotifier {
       defaultProfileId: defaultId,
     );
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
   }
 
   /// Applies a reviewed account snapshot without invoking Desktop or HID
@@ -2065,7 +2214,7 @@ class AppController extends ChangeNotifier {
         profileOrder: order,
         preferences: preferences,
       );
-      await repository.save(nextConfig);
+      await _saveConfiguration(nextConfig);
     } catch (_) {
       await imageStore.deleteRestoredImages(imagePaths.values);
       rethrow;
@@ -2108,7 +2257,7 @@ class AppController extends ChangeNotifier {
         .toList();
     _config = config.copyWith(profiles: profiles);
     notifyListeners();
-    await repository.save(config);
+    await _saveConfiguration(config);
     unawaited(
       imageStore.cleanupUnreferenced(config).catchError((Object _) {
         // Image cleanup is housekeeping and must never block a saved edit.

@@ -128,13 +128,14 @@ void main() {
       store: MemoryDesktopConfigStore(),
       discovery: _Discovery(),
       actions: DesktopActions(
+        platformOverride: TargetPlatform.macOS,
         runner: _FailingRunner(),
         macSystemControl: systemControls,
       ),
     );
     await controller.initialize();
     for (final (index, app)
-        in controller.manifest.applications.take(8).indexed) {
+        in controller.manifest.applications.take(launcherSlotCount).indexed) {
       await controller.assignLauncherApp(index, app.id);
     }
     final server = CompanionServer(
@@ -361,8 +362,8 @@ void main() {
         ?.call(7);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('launcher-clock-time')), findsOneWidget);
-    expect(find.byKey(const ValueKey('launcher-key-7')), findsOneWidget);
-    expect(controller.launcherAppIds, hasLength(8));
+    expect(find.byKey(const ValueKey('launcher-key-11')), findsOneWidget);
+    expect(controller.launcherAppIds, hasLength(launcherSlotCount));
     final clockBefore = tester
         .widget<Text>(find.byKey(const ValueKey('launcher-clock-time')))
         .data;
@@ -401,7 +402,7 @@ void main() {
       'Launcher app key editor',
       1080,
       760,
-      'Flutter widget test render of the app picker for one of eight launcher keys.',
+      'Flutter widget test render of the app picker for one of twelve launcher keys.',
     );
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
@@ -422,7 +423,7 @@ void main() {
         .onDestinationSelected
         ?.call(7);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('launcher-key-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('launcher-key-11')), findsOneWidget);
     await capture(
       'desktop-launcher-editor-error-narrow',
       'Launcher with error · narrow',

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/app_edition.dart';
 import 'package:smart_keys/services/companion_service.dart';
@@ -46,6 +47,23 @@ void main() {
       find.byKey(const ValueKey('regular-twelve-key-grid')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('regular-launch-chrome')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('regular-configure-launchpad')),
+      findsOneWidget,
+    );
+    harness.companion.syncedManifest.value = harness
+        .companion
+        .syncedManifest
+        .value!
+        .copyWith(
+          launcherApplicationIds: [
+            'chrome',
+            'chatgpt',
+            ...List<String?>.filled(launcherSlotCount - 2, null),
+          ],
+        );
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('regular-launch-chrome')), findsOneWidget);
     expect(find.byType(HomeScreen), findsNothing);
     expect(tester.takeException(), isNull);

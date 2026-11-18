@@ -74,6 +74,16 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# tray_manager 0.5.3 still calls app_indicator_new, which current Ayatana
+# headers deprecate. Its inherited -Werror turns that third-party API warning
+# into a build failure on Linux. Keep the warning visible, but nonfatal only
+# for this plugin; runner code and all other warning classes retain -Werror.
+# Reproduce/verify on Linux with: flutter build linux --release -v
+if(TARGET tray_manager_plugin AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(tray_manager_plugin PRIVATE
+    -Wno-error=deprecated-declarations)
+endif()
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build

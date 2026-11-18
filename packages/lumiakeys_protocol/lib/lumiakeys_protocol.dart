@@ -2,6 +2,29 @@ library;
 
 part 'src/compact_layouts.dart';
 
+const int launcherSlotCount = 12;
+
+/// IDs accepted by the optional authenticated native app-icon resource.
+const Set<String> remoteApplicationIconAppIds = <String>{
+  'codex',
+  'chatgpt',
+  'claude',
+  'cursor',
+  'chrome',
+  'edge',
+  'firefox',
+  'safari',
+  'teams',
+  'zoom',
+  'photoshop',
+  'illustrator',
+  'vscode',
+  'solidworks',
+  'premiere',
+  'appleMusic',
+  'finder',
+};
+
 enum RemoteTargetType {
   keyboardShortcut,
   launchApplication,
@@ -519,7 +542,26 @@ class DesktopManifest {
     this.schemaVersion = 1,
     this.applicationActivationSequence = 0,
     this.activatedApplicationId,
-  });
+    List<String?>? launcherApplicationIds,
+    bool? hasLauncherConfiguration,
+  }) : launcherApplicationIds =
+           launcherApplicationIds ??
+           const <String?>[
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+             null,
+           ],
+       hasLauncherConfiguration =
+           hasLauncherConfiguration ?? launcherApplicationIds != null;
 
   final int schemaVersion;
   final int revision;
@@ -534,6 +576,12 @@ class DesktopManifest {
   final String? computerId;
   final int applicationActivationSequence;
   final String? activatedApplicationId;
+
+  /// Desktop-configured launcher slots, synced for phone display.
+  final List<String?> launcherApplicationIds;
+
+  /// Distinguishes a legacy manifest from an intentionally empty launcher.
+  final bool hasLauncherConfiguration;
 
   RemoteProfile? get currentProfile =>
       profiles.cast<RemoteProfile?>().firstWhere(
@@ -571,6 +619,7 @@ class DesktopManifest {
     String? computerId,
     int? applicationActivationSequence,
     String? activatedApplicationId,
+    List<String?>? launcherApplicationIds,
   }) => DesktopManifest(
     schemaVersion: schemaVersion,
     revision: revision ?? this.revision,
@@ -584,6 +633,10 @@ class DesktopManifest {
         applicationActivationSequence ?? this.applicationActivationSequence,
     activatedApplicationId:
         activatedApplicationId ?? this.activatedApplicationId,
+    launcherApplicationIds:
+        launcherApplicationIds ?? this.launcherApplicationIds,
+    hasLauncherConfiguration:
+        launcherApplicationIds != null || hasLauncherConfiguration,
   );
 
   Map<String, Object?> toJson({bool forSync = false}) {
@@ -591,7 +644,11 @@ class DesktopManifest {
     final syncedApplications = forSync
         ? settings.enableAppsSync
               ? applications
-                    .where((application) => application.detected)
+                    .where(
+                      (application) =>
+                          application.detected ||
+                          launcherApplicationIds.contains(application.id),
+                    )
                     .toList(growable: false)
               : const <RemoteApplication>[]
         : applications;
@@ -615,6 +672,16 @@ class DesktopManifest {
       'profiles': profiles.map((profile) => profile.toJson()).toList(),
       'applicationActivationSequence': applicationActivationSequence,
       'activatedApplicationId': syncedActivationApplicationId,
+      'launcherApplicationIds': !forSync
+          ? launcherApplicationIds
+          : settings.enableAppsSync
+          ? launcherApplicationIds
+                .map(
+                  (id) =>
+                      syncedApplications.any((app) => app.id == id) ? id : null,
+                )
+                .toList(growable: false)
+          : List<String?>.filled(launcherSlotCount, null),
     };
   }
 
@@ -643,6 +710,9 @@ class DesktopManifest {
           ? json['applicationActivationSequence']! as int
           : 0,
       activatedApplicationId: _nullableString(json['activatedApplicationId']),
+      launcherApplicationIds: json.containsKey('launcherApplicationIds')
+          ? _launcherSlotsFromJson(json['launcherApplicationIds'])
+          : null,
     );
     manifest.validate();
     return manifest;
@@ -658,6 +728,12 @@ class DesktopManifest {
         applications.any((app) => !layoutIds.contains(app.layoutId)) ||
         !profiles.any((profile) => profile.id == currentProfileId)) {
       throw const FormatException('Manifest contains invalid references');
+    }
+    if (launcherApplicationIds.length != launcherSlotCount ||
+        launcherApplicationIds.any(
+          (id) => id != null && !applications.any((app) => app.id == id),
+        )) {
+      throw const FormatException('Manifest contains invalid launcher slots');
     }
     if (applicationActivationSequence < 0 ||
         (activatedApplicationId != null &&
@@ -1440,3 +1516,15 @@ List<Map<String, Object?>> _mapList(Object? value) {
 List<String> _stringList(Object? value) => value is List
     ? value.map((item) => item.toString()).toList(growable: false)
     : const [];
+
+List<String?> _launcherSlotsFromJson(Object? value) {
+  if (value is! List ||
+      (value.length != 8 && value.length != launcherSlotCount) ||
+      value.any((id) => id != null && (id is! String || id.isEmpty))) {
+    throw const FormatException('Invalid launcher slots');
+  }
+  return List<String?>.unmodifiable([
+    ...value.cast<String?>(),
+    for (var index = value.length; index < launcherSlotCount; index++) null,
+  ]);
+}

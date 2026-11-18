@@ -1,0 +1,6 @@
+name: diagnostics_core
+description: Fixed-code, bounded local diagnostics with no platform or network dependencies.
+version: 1.0.0
+publish_to: none
+environment:
+  sdk: ^3.12.1

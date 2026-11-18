@@ -3,25 +3,108 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:diagnostics_core/diagnostics_core.dart';
 import 'package:image/image.dart' as image_lib;
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/config.dart';
+import '../icons/app_icon_validation.dart';
 
 class PrivateImageStore {
   PrivateImageStore({
     ImagePicker? imagePicker,
     Future<Directory> Function()? documentsDirectory,
+    this.reportDiagnostic,
   }) : _imagePicker = imagePicker ?? ImagePicker(),
        _documentsDirectory =
            documentsDirectory ?? getApplicationDocumentsDirectory;
 
   final ImagePicker _imagePicker;
+  final void Function(DiagnosticCode)? reportDiagnostic;
   final Future<Directory> Function() _documentsDirectory;
 
   static const supportedExtensions = {'png', 'jpg', 'jpeg', 'webp'};
+
+  Future<DateTime?> desktopAppIconUpdatedAt(
+    String computerId,
+    String appId,
+  ) async {
+    if (!_validDesktopIconKey(computerId, appId)) return null;
+    try {
+      final root = await _documentsDirectory();
+      return await File(
+        path.join(root.path, 'desktop_app_icons', computerId, '$appId.png'),
+      ).lastModified();
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  Future<Uint8List?> readDesktopAppIcon(String computerId, String appId) async {
+    if (!_validDesktopIconKey(computerId, appId)) return null;
+    final root = await _documentsDirectory();
+    final file = File(
+      path.join(root.path, 'desktop_app_icons', computerId, '$appId.png'),
+    );
+    if (!await file.exists()) return null;
+    try {
+      if (DateTime.now().difference(await file.lastModified()) >=
+          const Duration(hours: 24)) {
+        return null;
+      }
+      final length = await file.length();
+      if (length < 8 || length > 64 * 1024) return null;
+      final bytes = await file.readAsBytes();
+      return AppIconValidation.isValidPng(bytes)
+          ? Uint8List.fromList(bytes)
+          : null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  Future<void> cacheDesktopAppIcon(
+    String computerId,
+    String appId,
+    Uint8List bytes,
+  ) async {
+    try {
+      await _cacheDesktopAppIcon(computerId, appId, bytes);
+    } catch (_) {
+      try {
+        reportDiagnostic?.call(DiagnosticCode.storageWriteFailed);
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  Future<void> _cacheDesktopAppIcon(
+    String computerId,
+    String appId,
+    Uint8List bytes,
+  ) async {
+    if (!_validDesktopIconKey(computerId, appId) ||
+        !AppIconValidation.isValidPng(bytes)) {
+      throw const FormatException('Invalid desktop app icon.');
+    }
+    final root = await _documentsDirectory();
+    final directory = Directory(
+      path.join(root.path, 'desktop_app_icons', computerId),
+    );
+    await directory.create(recursive: true);
+    final destination = File(path.join(directory.path, '$appId.png'));
+    final temporary = File(
+      '${destination.path}.${DateTime.now().microsecondsSinceEpoch}.${Random.secure().nextInt(1 << 24)}.next',
+    );
+    await temporary.writeAsBytes(bytes, flush: true);
+    await temporary.rename(destination.path);
+  }
+
+  static bool _validDesktopIconKey(String computerId, String appId) =>
+      RegExp(r'^[a-f0-9]{32}$').hasMatch(computerId) &&
+      RegExp(r'^[A-Za-z][A-Za-z0-9_-]{0,63}$').hasMatch(appId);
 
   Future<String?> importFromGallery(String profileId) async {
     final selection = await _imagePicker.pickImage(source: ImageSource.gallery);

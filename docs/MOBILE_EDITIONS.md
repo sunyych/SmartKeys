@@ -1,5 +1,10 @@
 # LumiaKey 1.4 editions
 
+> Historical 1.4 flavor architecture. For the current independent Bluetooth Lite
+> project, source exports, and build entry points, use [EDITIONS.md](EDITIONS.md).
+> The root `lite` flavor and `lib/main_lite.dart` remain compatibility source;
+> they are not the independent Bluetooth Lite product delivered in this work.
+
 ## Choose an edition
 
 | | Lite | Regular |
