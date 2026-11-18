@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +13,16 @@ import 'package:lumiakey_bluetooth_lite/local_launcher.dart';
 class _Profiles implements LocalProfileStore {
   List<LocalProfile> values = defaultLocalProfiles();
   bool failSave = false;
+  Completer<void>? saveGate;
+  Completer<void>? saveEntered;
   @override
   Future<List<LocalProfile>> load() async => values;
   @override
   Future<void> save(List<LocalProfile> profiles) async {
+    if (saveEntered != null && !saveEntered!.isCompleted) {
+      saveEntered!.complete();
+    }
+    if (saveGate != null) await saveGate!.future;
     if (failSave) throw StateError('save failed');
     values = profiles;
   }
@@ -235,6 +242,130 @@ void main() {
         throwsFormatException,
         reason: 'Web-only cohort is not bundled into Lite',
       );
+      expect(reports, isEmpty);
+    },
+  );
+  test(
+    'durable install acknowledgement precedes publication and concurrent installs remain independent add-copies',
+    () async {
+      final store = _Profiles();
+      final controller = await ready(store: store);
+      await controller.saveLaunchSlot(
+        0,
+        const LocalLaunchSlot(
+          title: 'Private launch',
+          launchShortcut: LocalShortcut(
+            title: 'Private',
+            keyCode: 'F8',
+            modifiers: ['LEFT_ALT'],
+          ),
+        ),
+      );
+      final oldProfiles = controller.profiles
+          .map((profile) => profile.toJson())
+          .toList();
+      final oldSlots = controller.launcherSlots
+          .map((slot) => slot.toJson())
+          .toList();
+      store.saveGate = Completer<void>();
+      store.saveEntered = Completer<void>();
+      final pending = controller.installAppLibrary('chrome', 'macos');
+      await store.saveEntered!.future;
+      expect(controller.saving, isTrue);
+      expect(
+        controller.profiles.map((profile) => profile.toJson()).toList(),
+        oldProfiles,
+      );
+      expect(
+        store.values.map((profile) => profile.toJson()).toList(),
+        oldProfiles,
+      );
+      expect(
+        controller.launcherSlots.map((slot) => slot.toJson()).toList(),
+        oldSlots,
+      );
+      expect(await controller.launchSlot(0), isFalse);
+      expect(reports, isEmpty);
+      store.saveGate!.complete();
+      final installed = await pending;
+      expect(controller.profiles.last.id, installed.id);
+      expect(controller.profiles.last.iconId, 'chrome');
+      expect(store.values.last.toJson(), installed.toJson());
+
+      store.saveGate = Completer<void>();
+      store.saveEntered = Completer<void>();
+      final macCopy = controller.installAppLibrary('chrome', 'macos');
+      final windowsCopy = controller.installAppLibrary('chrome', 'windows');
+      await store.saveEntered!.future;
+      expect(controller.profiles, hasLength(oldProfiles.length + 1));
+      store.saveGate!.complete();
+      final copies = await Future.wait([macCopy, windowsCopy]);
+      expect(copies.map((profile) => profile.id).toSet(), hasLength(2));
+      expect(copies.map((profile) => profile.sourceOperatingSystem), [
+        'macos',
+        'windows',
+      ]);
+      expect(copies.first.shortcuts.first.modifiers, ['LEFT_META']);
+      expect(copies.last.shortcuts.first.modifiers, ['LEFT_CTRL']);
+      expect(controller.profiles, hasLength(oldProfiles.length + 3));
+      expect(
+        store.values.map((profile) => profile.toJson()).toList(),
+        controller.profiles.map((profile) => profile.toJson()).toList(),
+      );
+      expect(
+        controller.profiles
+            .take(oldProfiles.length)
+            .map((profile) => profile.toJson())
+            .toList(),
+        oldProfiles,
+      );
+      expect(
+        controller.launcherSlots.map((slot) => slot.toJson()).toList(),
+        oldSlots,
+      );
+      expect(reports, isEmpty);
+    },
+  );
+
+  test(
+    'a delayed failed App install preserves durable icon/profile data and retry creates one copy without HID',
+    () async {
+      final store = _Profiles();
+      final controller = await ready(store: store);
+      final before = controller.profiles
+          .map((profile) => profile.toJson())
+          .toList();
+      final slots = controller.launcherSlots
+          .map((slot) => slot.toJson())
+          .toList();
+      store.saveGate = Completer<void>();
+      store.saveEntered = Completer<void>();
+      store.failSave = true;
+      final pending = controller.installAppLibrary('chrome', 'windows');
+      final rejected = expectLater(pending, throwsStateError);
+      await store.saveEntered!.future;
+      expect(
+        controller.profiles.map((profile) => profile.toJson()).toList(),
+        before,
+      );
+      store.saveGate!.complete();
+      await rejected;
+      expect(controller.saving, isFalse);
+      expect(
+        controller.profiles.map((profile) => profile.toJson()).toList(),
+        before,
+      );
+      expect(store.values.map((profile) => profile.toJson()).toList(), before);
+      expect(
+        controller.launcherSlots.map((slot) => slot.toJson()).toList(),
+        slots,
+      );
+      store.failSave = false;
+      store.saveGate = null;
+      final installed = await controller.installAppLibrary('chrome', 'windows');
+      expect(controller.profiles, hasLength(before.length + 1));
+      expect(installed.sourceOperatingSystem, 'windows');
+      expect(installed.iconId, 'chrome');
       expect(reports, isEmpty);
     },
   );

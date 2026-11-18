@@ -2,7 +2,7 @@ name: Bluetooth Lite Android build
 
 on:
   push:
-    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/lite-bluetooth-full-interface, codex/unified-app-library]
+    branches: [main, feature/mobile-launcher-and-editions, feature/app-icon-library, codex/lite-bluetooth-full-interface, codex/unified-app-library, codex/host-switch-pointer-and-sidebar]
     paths:
       - 'apps/bluetooth/**'
       - '.github/workflows/bluetooth-lite.yml'
@@ -82,7 +82,13 @@ jobs:
           python3 -m unittest discover -s scripts -p "test_*.py"
           python3 scripts/check_isolation.py
           flutter analyze
-          flutter test
+          flutter test --coverage
+      - name: Upload Lite coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: bluetooth-lite-coverage
+          path: apps/bluetooth/coverage/lcov.info
+          if-no-files-found: error
       - name: Generate Lite screenshot index
         working-directory: apps/bluetooth
         run: dart run scripts/generate_screenshot_index.dart --root build/ui_screenshots

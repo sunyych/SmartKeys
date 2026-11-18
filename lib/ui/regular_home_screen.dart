@@ -341,6 +341,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       );
     }
     final ready = _ready(controller);
+    // A pointer route can outlive its rendered surface until the next frame.
+    // Do not let an old key/app tap acquire authority from a newly ready host.
+    final renderedSession = _session(controller);
+    final renderedInputEpoch = controller.inputEpoch;
+    bool acceptsRenderedInput() =>
+        mounted &&
+        renderedSession == _session(controller) &&
+        renderedInputEpoch == controller.inputEpoch;
     final manifest = controller.desktopManifest;
     final applications = _applications(controller);
     final sidebarApps = {
@@ -498,11 +506,15 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                   selected: item.id == _selection,
                                   busy: item.id == _pendingApplication,
                                   onTap: ready
-                                      ? () => _select(
-                                          controller,
-                                          item.id,
-                                          application: sidebarApps[item.id],
-                                        )
+                                      ? () {
+                                          if (acceptsRenderedInput()) {
+                                            _select(
+                                              controller,
+                                              item.id,
+                                              application: sidebarApps[item.id],
+                                            );
+                                          }
+                                        }
                                       : null,
                                 )
                               else
@@ -674,17 +686,27 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                                       _applicationReady(
                                                         controller,
                                                       )),
-                                              onConfigure: () =>
+                                              onConfigure: () {
+                                                if (acceptsRenderedInput()) {
                                                   _showLauncherSetup(
                                                     controller,
-                                                  ),
-                                              onApplication: (app) => _select(
-                                                controller,
-                                                app.id,
-                                                application: app,
-                                              ),
-                                              onButton: (button) =>
-                                                  _execute(controller, button),
+                                                  );
+                                                }
+                                              },
+                                              onApplication: (app) {
+                                                if (acceptsRenderedInput()) {
+                                                  _select(
+                                                    controller,
+                                                    app.id,
+                                                    application: app,
+                                                  );
+                                                }
+                                              },
+                                              onButton: (button) {
+                                                if (acceptsRenderedInput()) {
+                                                  _execute(controller, button);
+                                                }
+                                              },
                                             ),
                                     ),
                                   ],

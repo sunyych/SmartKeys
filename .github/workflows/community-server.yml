@@ -88,6 +88,7 @@ jobs:
           node community_server/tests/browser_icons.cjs
           node community_server/tests/app_key_labels.cjs
           node community_server/tests/browser_apps.cjs
+          node community_server/tests/browser_download_guards.cjs
       - uses: actions/upload-artifact@v7
         with:
           name: current-icon-web-screenshots
