@@ -10,8 +10,6 @@ jobs:
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    env:
-      SMARTKEYS_SCREENSHOT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -24,15 +22,14 @@ jobs:
           cache: true
       - name: Prepare screenshot fonts
         timeout-minutes: 8
-        env:
-          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo --preserve-env=DEBIAN_FRONTEND apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install --no-install-recommends -y fonts-noto-cjk
+          screenshot_font="$RUNNER_TEMP/NotoSansCJKsc-Regular.otf"
+          python3 -m unittest discover -s scripts -p test_prepare_screenshot_font.py
+          python3 scripts/prepare_screenshot_font.py --output "$screenshot_font" --github-env "$GITHUB_ENV"
           flutter precache --linux
-          test -f "$SMARTKEYS_SCREENSHOT_FONT"
-          test -f "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
-          ls -l "$SMARTKEYS_SCREENSHOT_FONT" "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+          test -s "$screenshot_font"
+          test -s "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
+          ls -l "$screenshot_font" "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf"
       - name: Verify standalone source and build
         env:
           SMARTKEYS_SCREENSHOT_DIR: ${{ github.workspace }}/build/ui_screenshots
