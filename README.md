@@ -37,6 +37,8 @@ system. Desktop installs profiles for its own OS; Lite installs offline profiles
 for the computer OS selected on the phone. Online App bundles include the icon
 and both supported shortcut variants. Actions without a documented default are
 marked for configuration, and importing a library preserves private launch keys.
+See [1.8 / Lite 1.3 acceptance](docs/handoffs/2026-11-18-unified-app-library-validation.md)
+for build, installation and online-platform boundaries.
 
 See [historical 1.4 behavior, builds, and installation](docs/MOBILE_EDITIONS.md).
 Current product boundaries are in [EDITIONS.md](docs/EDITIONS.md). The V1.1/V1.2 sections below record earlier behavior

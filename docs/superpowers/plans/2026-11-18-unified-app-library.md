@@ -56,7 +56,7 @@ Produce bounded catalog/App-bundle endpoints with hash verification and browser 
 
 - [x] Review diffs, official shortcut provenance, cross-component compatibility and destructive/persistence boundaries.
 - [x] Bump versions; update release verifiers for new App-library markers and handoff documentation.
-- [ ] Run full affected tests/analysis, generation checks and fresh NTFS release builds.
-- [ ] Verify packaged runtime/hashes/signing; install Android/Windows upgrades preserving data.
+- [x] Run full affected tests/analysis, generation checks and fresh NTFS release builds.
+- [x] Verify packaged runtime/hashes/signing; install Android/Windows upgrades preserving data.
 - [ ] Commit/push feature, check CI, merge passing work into main and push.
 - [ ] Deliver packages and concise acceptance report, distinguishing public deployment from local validation.
