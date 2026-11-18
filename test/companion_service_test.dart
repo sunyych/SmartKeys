@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart' show Listenable;
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/services/companion_service.dart';
 
@@ -369,67 +370,111 @@ void main() {
     },
   );
 
-  test('app button response survives a same-session revision update', () async {
-    final discoveryPort = await _unusedUdpPort();
-    final firstManifest = DesktopManifest.starter().copyWith(revision: 40);
-    final nextManifest = firstManifest.copyWith(revision: 41);
-    final actionGate = Completer<void>();
-    final server = await _ManifestServer.start(
-      firstManifest,
-      laterManifest: nextManifest,
-      actionGate: actionGate,
-      actionRevision: nextManifest.revision,
+  for (final manifestRespondsFirst in [true, false]) {
+    test(
+      'app button response survives a same-session revision update${manifestRespondsFirst ? '' : ' (action response first)'}',
+      () async {
+        final firstManifest = DesktopManifest.starter().copyWith(revision: 40);
+        final nextManifest = firstManifest.copyWith(revision: 41);
+        final actionGate = Completer<void>(),
+            laterManifestGate = Completer<void>();
+        final server = await _ManifestServer.start(
+          firstManifest,
+          laterManifest: nextManifest,
+          actionGate: actionGate,
+          actionRevision: nextManifest.revision,
+          laterManifestGate: laterManifestGate,
+        );
+        final sender = await RawDatagramSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        // Bind atomically rather than reserving and releasing an ephemeral UDP
+        // port that another test isolate could claim before Companion starts.
+        final companion = LanCompanionService(
+          discoveryPort: 0,
+          now: () => DateTime.utc(2026),
+        );
+        addTearDown(() async {
+          companion.dispose();
+          sender.close();
+          await server.close();
+        });
+        await companion.start();
+        final discoveryPort = companion.boundDiscoveryPort!;
+        final initiallyReady = _waitForCompanionState(
+          companion,
+          () =>
+              companion.syncStatus.value == CompanionSyncStatus.ready &&
+              companion.manifest.value?.revision == firstManifest.revision,
+          'initial manifest ready',
+        );
+        _advertise(
+          sender,
+          discoveryPort: discoveryPort,
+          name: 'Desktop A',
+          port: server.port,
+          token: 'token-a',
+          revision: firstManifest.revision,
+        );
+        await initiallyReady;
+        final action = companion.executeRemote(
+          const RemoteActionRequest.button('chatgpt.codexMode'),
+        );
+        await server.actionRequestReceived.future.timeout(
+          const Duration(seconds: 8),
+        );
+        final hostUpdated = _waitForCompanionState(
+          companion,
+          () => companion.activeHost.value?.revision == nextManifest.revision,
+          'same-session advertisement received',
+        );
+        _advertise(
+          sender,
+          discoveryPort: discoveryPort,
+          name: 'Desktop A',
+          port: server.port,
+          token: 'token-a',
+          revision: nextManifest.revision,
+        );
+        await hostUpdated;
+        await server.secondManifestRequestReceived.future.timeout(
+          const Duration(seconds: 8),
+        );
+        if (manifestRespondsFirst) {
+          final synchronized = _waitForCompanionState(
+            companion,
+            () =>
+                companion.manifest.value?.revision == nextManifest.revision &&
+                companion.syncStatus.value == CompanionSyncStatus.ready,
+            'new manifest before action response',
+          );
+          laterManifestGate.complete();
+          await synchronized;
+          actionGate.complete();
+          await action;
+        } else {
+          actionGate.complete();
+          await action;
+          expect(companion.manifest.value?.revision, firstManifest.revision);
+          expect(companion.syncStatus.value, CompanionSyncStatus.syncing);
+          final synchronized = _waitForCompanionState(
+            companion,
+            () =>
+                companion.manifest.value?.revision == nextManifest.revision &&
+                companion.syncStatus.value == CompanionSyncStatus.ready,
+            'new manifest after action response',
+          );
+          laterManifestGate.complete();
+          await synchronized;
+        }
+        expect(companion.manifest.value?.revision, nextManifest.revision);
+        expect(companion.syncStatus.value, CompanionSyncStatus.ready);
+        expect(companion.errorMessage.value, isNull);
+        expect(server.manifestRequests, 2);
+      },
     );
-    final sender = await RawDatagramSocket.bind(
-      InternetAddress.loopbackIPv4,
-      0,
-    );
-    final companion = LanCompanionService(discoveryPort: discoveryPort);
-    addTearDown(() async {
-      companion.dispose();
-      sender.close();
-      await server.close();
-    });
-
-    await companion.start();
-    _advertise(
-      sender,
-      discoveryPort: discoveryPort,
-      name: 'Desktop A',
-      port: server.port,
-      token: 'token-a',
-      revision: firstManifest.revision,
-    );
-    await _waitUntil(
-      () => companion.syncStatus.value == CompanionSyncStatus.ready,
-    );
-
-    final action = companion.executeRemote(
-      const RemoteActionRequest.button('chatgpt.codexMode'),
-    );
-    await server.actionRequestReceived.future;
-    _advertise(
-      sender,
-      discoveryPort: discoveryPort,
-      name: 'Desktop A',
-      port: server.port,
-      token: 'token-a',
-      revision: nextManifest.revision,
-    );
-    await _waitUntil(
-      () => companion.activeHost.value?.revision == nextManifest.revision,
-    );
-
-    actionGate.complete();
-    await action;
-    await _waitUntil(
-      () =>
-          companion.manifest.value?.revision == nextManifest.revision &&
-          companion.syncStatus.value == CompanionSyncStatus.ready,
-    );
-    expect(companion.errorMessage.value, isNull);
-    expect(server.manifestRequests, 2);
-  });
+  }
 
   test(
     'manifest refresh keeps a newer revision queued during an in-flight fetch',
@@ -634,6 +679,38 @@ void _advertise(
   sender.send(message, InternetAddress.loopbackIPv4, discoveryPort);
 }
 
+// Observe actual state transitions rather than polling every 20 ms against a
+// two-second budget shorter than the production HTTP timeout on busy CI hosts.
+Future<void> _waitForCompanionState(
+  LanCompanionService companion,
+  bool Function() predicate,
+  String phase,
+) async {
+  final changes = Listenable.merge([
+    companion.activeHost,
+    companion.manifest,
+    companion.syncStatus,
+  ]);
+  final completed = Completer<void>();
+  void check() {
+    if (!completed.isCompleted && predicate()) completed.complete();
+  }
+
+  changes.addListener(check);
+  try {
+    check();
+    await completed.future.timeout(
+      const Duration(seconds: 8),
+      onTimeout: () => throw TimeoutException(
+        'Companion state did not reach: $phase',
+        const Duration(seconds: 8),
+      ),
+    );
+  } finally {
+    changes.removeListener(check);
+  }
+}
+
 Future<void> _waitUntil(
   bool Function() predicate, {
   Duration timeout = const Duration(seconds: 2),
@@ -654,6 +731,7 @@ class _ManifestServer {
     this.firstManifestGate,
     this.actionGate,
     this.actionRevision,
+    this.laterManifestGate,
   });
 
   final HttpServer _server;
@@ -662,6 +740,8 @@ class _ManifestServer {
   final Completer<void>? firstManifestGate;
   final Completer<void>? actionGate;
   final int? actionRevision;
+  final Completer<void>? laterManifestGate;
+  final Completer<void> secondManifestRequestReceived = Completer<void>();
   final Completer<void> firstManifestRequestReceived = Completer<void>();
   final Completer<void> actionRequestReceived = Completer<void>();
   int manifestRequests = 0;
@@ -675,6 +755,7 @@ class _ManifestServer {
     Completer<void>? firstManifestGate,
     Completer<void>? actionGate,
     int? actionRevision,
+    Completer<void>? laterManifestGate,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final helper = _ManifestServer(
@@ -683,6 +764,7 @@ class _ManifestServer {
       firstManifestGate: firstManifestGate,
       actionGate: actionGate,
       actionRevision: actionRevision,
+      laterManifestGate: laterManifestGate,
     );
     helper._subscription = server.listen((request) async {
       request.response.headers.contentType = ContentType.json;
@@ -714,6 +796,10 @@ class _ManifestServer {
       }
       helper.manifestRequests++;
       final requestNumber = helper.manifestRequests;
+      if (requestNumber == 2) helper.secondManifestRequestReceived.complete();
+      if (requestNumber > 1 && helper.laterManifestGate != null) {
+        await helper.laterManifestGate!.future;
+      }
       if (!helper.firstManifestRequestReceived.isCompleted) {
         helper.firstManifestRequestReceived.complete();
       }
