@@ -9,6 +9,7 @@ import 'package:path/path.dart' as paths;
 
 import 'icons/builtin_icon_catalog.g.dart';
 import 'installed_app_registry.dart';
+import 'windows_desktop_backend.dart';
 
 typedef InstalledProcessRunner =
     Future<ProcessResult> Function(String executable, List<String> arguments);
@@ -20,15 +21,27 @@ class PlatformInstalledApplicationDiscovery {
     TargetPlatform? platform,
     this.runner,
     MethodChannel? channel,
+    WindowsDesktopBackend? windowsDesktopBackend,
     this.macRoots,
     this.timeout = const Duration(seconds: 15),
   }) : platform = platform ?? defaultTargetPlatform,
-       channel = channel ?? const MethodChannel('lumiakeys/installed_apps');
+       channel = channel ?? const MethodChannel('lumiakeys/installed_apps'),
+       _windowsDesktopBackend =
+           windowsDesktopBackend ??
+           (runner != null
+               ? null
+               : selectWindowsDesktopBackend(
+                   isWindows:
+                       (platform ?? defaultTargetPlatform) ==
+                       TargetPlatform.windows,
+                   environment: Platform.environment,
+                 ));
   final TargetPlatform platform;
   final InstalledProcessRunner? runner;
   final MethodChannel channel;
   final List<String>? macRoots;
   final Duration timeout;
+  final WindowsDesktopBackend? _windowsDesktopBackend;
 
   Future<List<InstalledLaunchTarget>> discover() async => switch (platform) {
     TargetPlatform.windows => _windows(),
@@ -71,20 +84,60 @@ class PlatformInstalledApplicationDiscovery {
   }
 
   Future<List<InstalledLaunchTarget>> _windows() async {
+    WindowsRegistryInventory? registry;
+    final backend = _windowsDesktopBackend;
+    if (backend != null) {
+      try {
+        registry = await backend.readRegistry().timeout(timeout);
+      } catch (_) {
+        // Inventory is read-only, so retry through the compatibility scanner.
+      }
+    }
+    if (registry == null) {
+      return parseInventory(
+        await _windowsInventory(windowsInventoryScript),
+        TargetPlatform.windows,
+      );
+    }
+    final shell = jsonDecode(
+      await _windowsInventory(windowsShellInventoryScript),
+    );
+    if (shell is! List) {
+      throw const FormatException('Invalid Windows Shell inventory');
+    }
+    final identities = <String>{};
+    return parseInventory(
+      jsonEncode([
+        ...shell,
+        for (final entry in registry.appPaths)
+          if (identities.add('apppath:${entry.path.toLowerCase()}'))
+            {
+              'name': entry.name,
+              'kind': 'windowsExecutable',
+              'identity': 'apppath:${entry.path.toLowerCase()}',
+              'locator': entry.path,
+              'executablePath': entry.path,
+            },
+      ]),
+      TargetPlatform.windows,
+    );
+  }
+
+  Future<String> _windowsInventory(String script) async {
     final result = await _run('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
       '-WindowStyle',
       'Hidden',
       '-Command',
-      windowsInventoryScript,
+      script,
     ]);
     if (result.exitCode != 0) {
       throw const FileSystemException(
         'Windows application inventory is unavailable',
       );
     }
-    return parseInventory(result.stdout.toString(), TargetPlatform.windows);
+    return result.stdout.toString();
   }
 
   Future<List<InstalledLaunchTarget>> _linux() async {
@@ -240,7 +293,12 @@ class PlatformInstalledApplicationDiscovery {
   }
 
   /// Fixed, local OS enumeration only. No remote target is interpolated.
-  static const windowsInventoryScript = r'''
+  static const windowsInventoryScript =
+      _windowsShellInventory + _windowsAppPaths + _windowsInventoryOutput;
+  static const windowsShellInventoryScript =
+      _windowsShellInventory + _windowsInventoryOutput;
+
+  static const _windowsShellInventory = r'''
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $items = New-Object System.Collections.Generic.List[object]
@@ -268,6 +326,8 @@ for ($scope=0; $scope -lt $roots.Count; $scope++) {
     }
   }
 }
+''';
+  static const _windowsAppPaths = r'''
 $appPaths = @('HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths')
 foreach ($root in $appPaths) {
   if (-not (Test-Path -LiteralPath $root)) { continue }
@@ -279,6 +339,8 @@ foreach ($root in $appPaths) {
     }
   }
 }
+''';
+  static const _windowsInventoryOutput = r'''
 ConvertTo-Json -InputObject @($items.ToArray()) -Compress -Depth 4
 ''';
 

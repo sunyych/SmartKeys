@@ -3,14 +3,23 @@
 #[cfg(any(windows, test))]
 mod shortcut;
 
+pub mod desktop;
+
 #[cfg(windows)]
 mod win32;
+#[cfg(windows)]
+mod windows_inventory;
 
 #[cfg(windows)]
 use std::ffi::{CStr, c_char};
 #[cfg(windows)]
 use std::sync::Mutex;
 
+#[cfg(windows)]
+use desktop::{
+    MAX_OUTPUT_BYTES, MAX_POINTER_INPUTS, PointerOutcome, RawPointerInput, deliver_pointer,
+    output_length,
+};
 #[cfg(windows)]
 use shortcut::{Outcome, Shortcut, deliver};
 
@@ -23,6 +32,66 @@ static INPUT_TRANSACTION: Mutex<()> = Mutex::new(());
 #[unsafe(no_mangle)]
 pub extern "C" fn lumiakeys_shortcut_abi_version() -> u32 {
     1
+}
+
+#[cfg(windows)]
+#[unsafe(no_mangle)]
+pub extern "C" fn lumiakeys_desktop_abi_version() -> u32 {
+    1
+}
+
+/// Writes one JSON read result into a caller-owned buffer, without a NUL.
+/// Kinds are 1 (process snapshot), 2 (foreground), 3 (registry inventory).
+/// Returns byte count, or -1 invalid arguments, -2 unavailable, -3 too small.
+///
+/// # Safety
+///
+/// The non-null output must be writable for the given capacity and exclusively
+/// borrowed for the duration of the call. Error results leave it untouched.
+#[cfg(windows)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lumiakeys_desktop_read_v1(
+    kind: u32,
+    output: *mut u8,
+    capacity: u32,
+) -> i32 {
+    if !matches!(kind, 1..=3) || output.is_null() || !(1..=MAX_OUTPUT_BYTES).contains(&capacity) {
+        return -1;
+    }
+    let Some(json) = windows_inventory::read(kind) else {
+        return -2;
+    };
+    // Copy directly to raw memory so callers can provide uninitialized output.
+    let Some(written) = output_length(json.len(), capacity as usize) else {
+        return -3;
+    };
+    unsafe { std::ptr::copy_nonoverlapping(json.as_ptr(), output, json.len()) };
+    written
+}
+
+/// Sends one validated mouse batch. Returns a `PointerOutcome` code.
+///
+/// # Safety
+///
+/// The non-null inputs pointer must be aligned and address the given number of
+/// live, immutable `RawPointerInput` records.
+#[cfg(windows)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lumiakeys_desktop_pointer_v1(
+    inputs: *const RawPointerInput,
+    length: u32,
+) -> i32 {
+    if inputs.is_null()
+        || !inputs.is_aligned()
+        || !(1..=MAX_POINTER_INPUTS as u32).contains(&length)
+    {
+        return PointerOutcome::Invalid as i32;
+    }
+    let inputs = unsafe { std::slice::from_raw_parts(inputs, length as usize) };
+    let Ok(_transaction) = INPUT_TRANSACTION.lock() else {
+        return PointerOutcome::Rejected as i32;
+    };
+    deliver_pointer(inputs, win32::send_pointer_events) as i32
 }
 
 /// Sends one shortcut using the active Windows desktop.

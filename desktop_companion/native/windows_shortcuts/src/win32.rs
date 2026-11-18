@@ -5,15 +5,17 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyboardLayout, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN,
-    VK_SHIFT, VkKeyScanExW,
+    GetAsyncKeyState, GetKeyboardLayout, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+    SendInput, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VkKeyScanExW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GW_OWNER, GWL_EXSTYLE, GetForegroundWindow, GetWindow, GetWindowLongPtrW,
     GetWindowThreadProcessId, IsWindowVisible, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
+use crate::desktop::{PointerEvent, foreground_process_name};
 use crate::shortcut::{Key, KeyEvent, ShortcutPlatform, layout_key};
 
 pub(crate) struct Win32;
@@ -103,17 +105,62 @@ impl ShortcutPlatform for Win32 {
                 }
             })
             .collect();
-        unsafe {
-            SendInput(
-                events.len() as u32,
-                events.as_ptr(),
-                size_of::<INPUT>() as i32,
-            ) as usize
-        }
+        send_input(&events)
     }
 }
 
-struct ProcessHandle(HANDLE);
+pub(crate) fn foreground_name() -> Option<String> {
+    let mut os = Win32;
+    let window = os.foreground()?;
+    let pid = os.process_id(window)?;
+    let name = os.process_name(pid)?;
+    let main_window = !name.eq_ignore_ascii_case("chatgpt") || os.is_main_window(window);
+    let name = foreground_process_name(Some(&name), main_window)?;
+    (os.process_id(window) == Some(pid) && os.foreground() == Some(window)).then_some(name)
+}
+
+pub(crate) fn send_pointer_events(events: &[PointerEvent]) -> usize {
+    let mut inputs = [INPUT::default(); 2 * crate::desktop::MAX_POINTER_INPUTS];
+    for (input, event) in inputs.iter_mut().zip(events) {
+        let mut mouse = MOUSEINPUT::default();
+        match *event {
+            PointerEvent::Move { x, y } => {
+                mouse.dx = x;
+                mouse.dy = y;
+                mouse.dwFlags = MOUSEEVENTF_MOVE;
+            }
+            PointerEvent::Wheel { delta } => {
+                mouse.mouseData = delta as u32;
+                mouse.dwFlags = MOUSEEVENTF_WHEEL;
+            }
+            PointerEvent::Button { secondary, down } => {
+                mouse.dwFlags = match (secondary, down) {
+                    (false, true) => MOUSEEVENTF_LEFTDOWN,
+                    (false, false) => MOUSEEVENTF_LEFTUP,
+                    (true, true) => MOUSEEVENTF_RIGHTDOWN,
+                    (true, false) => MOUSEEVENTF_RIGHTUP,
+                };
+            }
+        }
+        *input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 { mi: mouse },
+        };
+    }
+    send_input(&inputs[..events.len()])
+}
+
+fn send_input(events: &[INPUT]) -> usize {
+    unsafe {
+        SendInput(
+            events.len() as u32,
+            events.as_ptr(),
+            size_of::<INPUT>() as i32,
+        ) as usize
+    }
+}
+
+pub(crate) struct ProcessHandle(pub(crate) HANDLE);
 
 impl Drop for ProcessHandle {
     fn drop(&mut self) {
