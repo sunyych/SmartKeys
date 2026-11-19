@@ -2233,20 +2233,27 @@ class DesktopController extends ChangeNotifier {
             );
       // Delete a previously valid target and its reference in one atomic record.
       // Newly supplied invalid references still fail strict validation.
-      final revised =
-          (proposed.sidebarItems == null
-                  ? proposed
-                  : proposed.copyWith(
-                      sidebarItems: proposed.sidebarItems!
-                          .where(
-                            (item) =>
-                                referenceExists(proposed, item) ||
-                                !referenceExists(_manifest, item),
-                          )
-                          .toList(growable: false),
-                    ))
-              .copyWith(revision: _manifest.revision + 1);
-      revised.validate();
+      final candidate = proposed.sidebarItems == null
+          ? proposed
+          : proposed.copyWith(
+              sidebarItems: proposed.sidebarItems!
+                  .where(
+                    (item) =>
+                        referenceExists(proposed, item) ||
+                        !referenceExists(_manifest, item),
+                  )
+                  .toList(growable: false),
+            );
+      candidate.validate();
+      // Compare the full persisted content, including activation signals and
+      // configuration that may be hidden from the phone while sync is disabled.
+      if (jsonEncode(candidate.toJson()..remove('revision')) ==
+          jsonEncode(_manifest.toJson()..remove('revision'))) {
+        _error = null;
+        notifyListeners();
+        return;
+      }
+      final revised = candidate.copyWith(revision: _manifest.revision + 1);
       try {
         // Slots and revision are one atomic durable record. The old separate
         // key store is migration input only and can never resurrect clears.

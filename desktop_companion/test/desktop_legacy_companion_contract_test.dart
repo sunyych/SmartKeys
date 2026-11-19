@@ -177,7 +177,7 @@ void main() {
     () async {
       final fixture = await _start();
       final initialRevision = fixture.controller.manifest.revision;
-      final profile = fixture.controller.manifest.profiles.first.id;
+      final profile = fixture.controller.manifest.currentProfileId;
       final action = jsonEncode(
         RemoteActionRequest.switchProfile(profile).toJson(),
       );
@@ -200,10 +200,7 @@ void main() {
         rawBody: atLimit,
       );
       expect(accepted.statusCode, HttpStatus.ok);
-      expect(await _json(accepted), {
-        'ok': true,
-        'revision': initialRevision + 1,
-      });
+      expect(await _json(accepted), {'ok': true, 'revision': initialRevision});
       expect(fixture.controller.connectedPhone, isNotNull);
     },
   );
