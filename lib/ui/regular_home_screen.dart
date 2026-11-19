@@ -10,6 +10,7 @@ import '../icons/source_profile_icon.dart';
 import '../controllers/app_controller.dart';
 import '../models/config.dart';
 import '../icons/app_icon_catalog.dart';
+import '../mobile_appearance.dart';
 import 'computer_switcher.dart';
 import 'desktop_connection_panel.dart';
 import 'dictation_entry_consent.dart';
@@ -239,7 +240,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                 generation == _generation &&
                 session == _session(controller)) {
               throw StateError(
-                'Desktop has not confirmed ${application.name} is active. Select it again to retry.',
+                context.mobileText(
+                  'Desktop has not confirmed ${application.name} is active. Select it again to retry.',
+                  '电脑尚未确认 ${application.name} 已切换到前台。请重新选择该应用。',
+                ),
               );
             }
             return;
@@ -268,7 +272,12 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       if (mounted &&
           generation == _generation &&
           session == _session(controller)) {
-        setState(() => _error = 'Could not open this application. $error');
+        setState(
+          () => _error = context.mobileText(
+            'Could not open this application. $error',
+            '无法打开此应用。$error',
+          ),
+        );
       }
     } finally {
       if (mounted && generation == _generation) {
@@ -310,7 +319,12 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       if (mounted &&
           generation == _generation &&
           session == _session(controller)) {
-        setState(() => _error = 'Could not run this shortcut. $error');
+        setState(
+          () => _error = context.mobileText(
+            'Could not run this shortcut. $error',
+            '无法执行此快捷键。$error',
+          ),
+        );
       }
     }
   }
@@ -322,7 +336,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => SafeArea(
+      builder: (context) => SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(18),
           child: Column(
@@ -330,12 +344,16 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Configure Launchpad in Desktop',
+                context.mobileText(
+                  'Configure Launchpad in Desktop',
+                  '在桌面端配置启动台',
+                ),
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 12),
-              const Text(
+              const MobileText(
                 'Open LumiaKey Desktop → Launchpad on your computer. Assign applications to the twelve slots; this phone displays that configuration automatically.',
+                '在电脑上打开 LumiaKey Desktop 的启动台。为 12 个位置分配应用后，移动端会自动显示。',
               ),
               const SizedBox(height: 16),
               DesktopConnectionPanel(companion: controller.companion),
@@ -354,13 +372,16 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     controller.registerLayoutOrientation(landscape);
     _trackSession(controller, landscape);
     if (!landscape) {
-      return const Scaffold(
-        key: ValueKey('regular-portrait-gate'),
+      return Scaffold(
+        key: const ValueKey('regular-portrait-gate'),
         body: SafeArea(
           child: _EmptySurface(
             icon: Icons.screen_rotation,
-            title: 'Rotate to landscape',
-            message: 'Turn your device sideways to use LumiaKey.',
+            title: context.mobileText('Rotate to landscape', '请切换到横屏'),
+            message: context.mobileText(
+              'Turn your device sideways to use LumiaKey.',
+              '横置设备即可使用 LumiaKey。',
+            ),
           ),
         ),
       );
@@ -451,11 +472,15 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     final count = launcher ? launcherSlotCount : layout?.buttons.length ?? 0;
     final pageCount = math.max(1, (count / _pageSize).ceil());
     if (_page >= pageCount) _page = 0;
+    final launchpadTitle = context.mobileText('Launchpad', '启动台');
+    final generalTitle = context.mobileText('General', '常规');
     final title = launcher
-        ? 'Launchpad'
+        ? launchpadTitle
         : _selection == _general
-        ? 'General'
-        : libraryProfile?.name ?? application?.name ?? 'Application';
+        ? generalTitle
+        : libraryProfile?.name ??
+              application?.name ??
+              context.mobileText('Application', '应用');
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -469,8 +494,12 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                   width: 86,
                   decoration: BoxDecoration(
                     color: theme.colorScheme.surfaceContainerLow,
-                    border: const Border(
-                      right: BorderSide(color: Color(0xFF243242)),
+                    border: Border(
+                      right: BorderSide(
+                        color: theme.brightness == Brightness.dark
+                            ? const Color(0xFF243242)
+                            : theme.colorScheme.outlineVariant,
+                      ),
                     ),
                   ),
                   child: Column(
@@ -488,7 +517,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                 height: 32,
                                 cacheWidth: 96,
                                 fit: BoxFit.contain,
-                                semanticLabel: 'LumiaKey app icon',
+                                semanticLabel: context.mobileText(
+                                  'LumiaKey app icon',
+                                  'LumiaKey 应用图标',
+                                ),
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -507,14 +539,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                           children: [
                             _NavigationItem(
                               id: _launchpad,
-                              label: 'Launchpad',
+                              label: launchpadTitle,
                               icon: const Icon(Icons.apps_rounded),
                               selected: launcher,
                               onTap: () => _select(controller, _launchpad),
                             ),
                             _NavigationItem(
                               id: _general,
-                              label: 'General',
+                              label: generalTitle,
                               icon: const Icon(Icons.tune_rounded),
                               selected: _selection == _general,
                               onTap: () => _select(controller, _general),
@@ -613,7 +645,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                               key: const ValueKey(
                                                 'regular-previous-page',
                                               ),
-                                              tooltip: 'Previous page',
+                                              tooltip: context.mobileText(
+                                                'Previous page',
+                                                '上一页',
+                                              ),
                                               visualDensity:
                                                   VisualDensity.compact,
                                               onPressed: _page > 0
@@ -632,7 +667,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                               key: const ValueKey(
                                                 'regular-next-page',
                                               ),
-                                              tooltip: 'Next page',
+                                              tooltip: context.mobileText(
+                                                'Next page',
+                                                '下一页',
+                                              ),
                                               visualDensity:
                                                   VisualDensity.compact,
                                               onPressed: _page + 1 < pageCount
@@ -655,9 +693,11 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                         ready &&
                                         manifest?.settings.enableAppsSync !=
                                             true)
-                                      const _StatusBanner(
-                                        message:
-                                            'Enable Apps Sync in LumiaKey Desktop to display your saved launcher.',
+                                      _StatusBanner(
+                                        message: context.mobileText(
+                                          'Enable Apps Sync in LumiaKey Desktop to display your saved launcher.',
+                                          '在 LumiaKey Desktop 中启用应用同步，即可显示已保存的启动台。',
+                                        ),
                                       ),
                                     if (launcher &&
                                         ready &&
@@ -674,15 +714,18 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                           Icons.desktop_windows,
                                           size: 17,
                                         ),
-                                        label: const Text(
+                                        label: const MobileText(
                                           'Set up the twelve slots in Desktop',
+                                          '在桌面端设置 12 个应用位置',
                                         ),
                                       ),
                                     if (libraryProfile != null &&
                                         libraryProfile.applicationId == null)
-                                      const _StatusBanner(
-                                        message:
-                                            'Manual keyboard profile: focus the intended application on your computer before sending shortcuts. Selecting this profile does not launch or verify an app.',
+                                      _StatusBanner(
+                                        message: context.mobileText(
+                                          'Manual keyboard profile: focus the intended application on your computer before sending shortcuts. Selecting this profile does not launch or verify an app.',
+                                          '这是手动键盘配置。发送快捷键前，请先将电脑上的目标应用切换到前台。',
+                                        ),
                                       ),
                                     if (!launcher &&
                                         libraryProfile == null &&
@@ -691,8 +734,14 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                         _pendingApplication == null)
                                       _StatusBanner(
                                         message: _selectedWithoutActivation
-                                            ? 'Bring the application to the foreground on your computer to use its shortcuts.'
-                                            : 'Select the application in App Bar to activate it before sending shortcuts.',
+                                            ? context.mobileText(
+                                                'Bring the application to the foreground on your computer to use its shortcuts.',
+                                                '请在电脑上将应用切换到前台，然后使用它的快捷键。',
+                                              )
+                                            : context.mobileText(
+                                                'Select the application in App Bar to activate it before sending shortcuts.',
+                                                '发送快捷键前，请在应用栏选择目标应用。',
+                                              ),
                                       ),
                                     Expanded(
                                       child: !ready
@@ -701,11 +750,16 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                                   _showConnection(controller),
                                             )
                                           : !launcher && layout == null
-                                          ? const _EmptySurface(
+                                          ? _EmptySurface(
                                               icon: Icons.keyboard_outlined,
-                                              title: 'No shortcuts configured',
-                                              message:
-                                                  'Add this application’s shortcut layout in LumiaKey Desktop.',
+                                              title: context.mobileText(
+                                                'No shortcuts configured',
+                                                '尚未配置快捷键',
+                                              ),
+                                              message: context.mobileText(
+                                                'Add this application’s shortcut layout in LumiaKey Desktop.',
+                                                '请在 LumiaKey Desktop 中添加此应用的快捷键布局。',
+                                              ),
                                             )
                                           : _TwelveKeyGrid(
                                               page: _page,
@@ -824,7 +878,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                     child: Text(
                       ready
                           ? controller.companion.activeHost.value!.name
-                          : 'Desktop not connected',
+                          : context.mobileText(
+                              'Desktop not connected',
+                              '电脑未连接',
+                            ),
                       key: const ValueKey('regular-host-name'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -841,12 +898,17 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                     style: theme.textTheme.labelLarge,
                   ),
                   for (final control in const [
-                    ('keyboard.playPause', 'Play / Pause', Icons.play_arrow),
-                    ('keyboard.mute', 'Mute', Icons.volume_off),
+                    (
+                      'keyboard.playPause',
+                      'Play / Pause',
+                      '播放 / 暂停',
+                      Icons.play_arrow,
+                    ),
+                    ('keyboard.mute', 'Mute', '静音', Icons.volume_off),
                   ])
                     IconButton(
                       key: ValueKey('regular-system-${control.$1}'),
-                      tooltip: control.$2,
+                      tooltip: context.mobileText(control.$2, control.$3),
                       visualDensity: VisualDensity.compact,
                       onPressed:
                           ready &&
@@ -861,7 +923,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                               }
                             }
                           : null,
-                      icon: Icon(control.$3, size: 21),
+                      icon: Icon(control.$4, size: 21),
                     ),
                 ],
               ),
@@ -874,7 +936,9 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                   width: 40,
                   child: IconButton(
                     key: const ValueKey('regular-desktop-connection'),
-                    tooltip: ready ? 'Desktop connected' : 'Connect Desktop',
+                    tooltip: ready
+                        ? context.mobileText('Desktop connected', '电脑已连接')
+                        : context.mobileText('Connect Desktop', '连接电脑'),
                     visualDensity: VisualDensity.compact,
                     onPressed: () => _showConnection(controller),
                     color: ready ? theme.colorScheme.primary : null,
@@ -898,7 +962,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                   width: 40,
                   child: IconButton(
                     key: const ValueKey('regular-settings'),
-                    tooltip: 'Settings',
+                    tooltip: context.mobileText('Settings', '设置'),
                     visualDensity: VisualDensity.compact,
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
@@ -998,6 +1062,14 @@ class _TwelveKeyGrid extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       const spacing = 8.0;
+      final colors = Theme.of(context).colorScheme;
+      final dark = colors.brightness == Brightness.dark;
+      final vacantColor = dark
+          ? const Color(0xFF10161F)
+          : colors.surfaceContainerLow;
+      final assignedColor = dark
+          ? const Color(0xFF192433)
+          : colors.surfaceContainerHighest;
       final width = (constraints.maxWidth - spacing * 3) / 4;
       final height = (constraints.maxHeight - spacing * 2) / 3;
       return GridView.builder(
@@ -1022,7 +1094,7 @@ class _TwelveKeyGrid extends StatelessWidget {
           final label =
               app?.name ??
               (launcher
-                  ? 'Slot ${index + 1}'
+                  ? context.mobileText('Slot ${index + 1}', '位置 ${index + 1}')
                   : button == null
                   ? ''
                   : _shortcutLabel(button));
@@ -1031,9 +1103,7 @@ class _TwelveKeyGrid extends StatelessWidget {
               (app?.detected == true || !launcher && button?.enabled == true);
           return Material(
             key: ValueKey('regular-cell-$index'),
-            color: app == null && button == null
-                ? const Color(0xFF10161F)
-                : const Color(0xFF192433),
+            color: app == null && button == null ? vacantColor : assignedColor,
             borderRadius: BorderRadius.circular(15),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
@@ -1051,7 +1121,10 @@ class _TwelveKeyGrid extends StatelessWidget {
                   ? const SizedBox.expand()
                   : Tooltip(
                       message: launcher && (app == null || !app.detected)
-                          ? 'Configure this slot in LumiaKey Desktop'
+                          ? context.mobileText(
+                              'Configure this slot in LumiaKey Desktop',
+                              '在 LumiaKey Desktop 中配置此位置',
+                            )
                           : button?.description.isNotEmpty == true
                           ? button!.description
                           : label,
@@ -1215,10 +1288,16 @@ class _DesktopTouchpad extends StatelessWidget {
       return _EmptySurface(
         key: const ValueKey('regular-touchpad-unavailable'),
         icon: Icons.touch_app_outlined,
-        title: 'Touchpad',
+        title: context.mobileText('Touchpad', '触控板'),
         message: enabled
-            ? 'Update LumiaKey Desktop to enable mouse control.'
-            : 'Connect LumiaKey Desktop to use the touchpad.',
+            ? context.mobileText(
+                'Update LumiaKey Desktop to enable mouse control.',
+                '更新 LumiaKey Desktop 以启用鼠标控制。',
+              )
+            : context.mobileText(
+                'Connect LumiaKey Desktop to use the touchpad.',
+                '连接 LumiaKey Desktop 后即可使用触控板。',
+              ),
       );
     }
     return Stack(
@@ -1226,9 +1305,9 @@ class _DesktopTouchpad extends StatelessWidget {
       children: [
         MouseTouchpad(
           key: const ValueKey('regular-touchpad'),
-          config: const WheelConfig(
+          config: WheelConfig(
             controlType: WheelControlType.mousePad,
-            modeLabel: 'Touchpad',
+            modeLabel: context.mobileText('Touchpad', '触控板'),
           ),
           inputEpoch: controller.inputEpoch,
           onMove: (delta) {
@@ -1264,8 +1343,14 @@ class _DesktopTouchpad extends StatelessWidget {
                   padding: const EdgeInsets.all(10),
                   child: Text(
                     macPermissionError
-                        ? 'Desktop could not send mouse input. On Mac, check LumiaKey Desktop → General → Accessibility and event posting permission, then retry.'
-                        : 'Desktop could not send mouse input. Check the Desktop connection and retry.',
+                        ? context.mobileText(
+                            'Desktop could not send mouse input. On Mac, check LumiaKey Desktop → General → Accessibility and event posting permission, then retry.',
+                            '桌面端无法发送鼠标操作。请在 Mac 上打开 LumiaKey Desktop → 常规，检查辅助功能与事件发送权限后重试。',
+                          )
+                        : context.mobileText(
+                            'Desktop could not send mouse input. Check the Desktop connection and retry.',
+                            '桌面端无法发送鼠标操作。请检查桌面连接后重试。',
+                          ),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -1292,13 +1377,17 @@ class _ConnectionPrompt extends StatelessWidget {
           const Icon(Icons.devices_outlined, size: 42),
           const SizedBox(height: 14),
           Text(
-            'Connect LumiaKey Desktop',
+            context.mobileText(
+              'Connect LumiaKey Desktop',
+              '连接 LumiaKey Desktop',
+            ),
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          const Text(
+          const MobileText(
             'Your computer provides applications and shortcuts.',
+            '应用和快捷键由电脑提供。',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 18),
@@ -1306,7 +1395,7 @@ class _ConnectionPrompt extends StatelessWidget {
             key: const ValueKey('regular-connect-desktop'),
             onPressed: onConnect,
             icon: const Icon(Icons.link),
-            label: const Text('Connect Desktop'),
+            label: const MobileText('Connect Desktop', '连接电脑'),
           ),
         ],
       ),
@@ -1328,7 +1417,9 @@ class _EmptySurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
-      color: const Color(0xFF10161F),
+      color: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF10161F)
+          : Theme.of(context).colorScheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(22),
     ),
     child: Center(

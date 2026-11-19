@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:diagnostics_core/diagnostics_core.dart';
 import '../diagnostics/diagnostics_service.dart';
+import '../mobile_appearance.dart';
 
 import '../services/companion_service.dart';
 
@@ -129,14 +130,21 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                 const SizedBox(height: 6),
                 Text(
                   connected
-                      ? 'Connected to ${host.name} (${host.address})'
-                      : 'Pair on the same Wi-Fi. Your microphone audio and speech recognition stay on this iPad; only final text is sent to Desktop.',
+                      ? context.mobileText(
+                          'Connected to ${host.name} (${host.address})',
+                          '已连接 ${host.name}（${host.address}）',
+                        )
+                      : context.mobileText(
+                          'Pair on the same Wi-Fi. Your microphone audio and speech recognition stay on this iPad; only final text is sent to Desktop.',
+                          '请连接同一个 Wi-Fi 网络进行配对。麦克风音频和语音识别留在本设备，仅将识别完成的文字发送到电脑。',
+                        ),
                 ),
                 if (defaultTargetPlatform == TargetPlatform.iOS)
                   const Padding(
                     padding: EdgeInsets.only(top: 6),
-                    child: Text(
+                    child: MobileText(
                       'On iPhone and iPad, LumiaKey Desktop is required to use apps and keyboard shortcuts.',
+                      '在 iPhone 和 iPad 上使用应用和快捷键时，需要连接 LumiaKey Desktop。',
                     ),
                   ),
                 if (manual && !connected) ...[
@@ -150,21 +158,32 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.qr_code_scanner),
-                    label: const Text('Scan Desktop QR code'),
+                    label: const MobileText(
+                      'Scan Desktop QR code',
+                      '扫描桌面连接二维码',
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  const Text('Or enter the connection code manually.'),
+                  const MobileText(
+                    'Or enter the connection code manually.',
+                    '也可以手动输入连接码。',
+                  ),
                   TextField(
                     controller: _code,
                     obscureText: true,
                     autocorrect: false,
                     enableSuggestions: false,
                     keyboardType: TextInputType.visiblePassword,
-                    decoration: const InputDecoration(
-                      labelText: 'Desktop connection code',
+                    decoration: InputDecoration(
+                      labelText: context.mobileText(
+                        'Desktop connection code',
+                        '桌面连接码',
+                      ),
                       hintText: '192.168.1.20:45832 token',
-                      helperText:
-                          'The code stays on this device and is sent only in the authentication header.',
+                      helperText: context.mobileText(
+                        'The code stays on this device and is sent only in the authentication header.',
+                        '连接码保存在本设备上，仅通过身份验证请求头发送。',
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -184,7 +203,7 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                                 }
                               },
                         icon: const Icon(Icons.content_paste),
-                        label: const Text('Paste code'),
+                        label: const MobileText('Paste code', '粘贴连接码'),
                       ),
                       FilledButton(
                         onPressed: _connecting ? null : _connect,
@@ -195,7 +214,7 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Text('Connect'),
+                            : const MobileText('Connect', '连接'),
                       ),
                     ],
                   ),
@@ -207,7 +226,7 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                       onPressed: () =>
                           (widget.companion as ManualCompanionConnection)
                               .disconnect(),
-                      child: const Text('Disconnect'),
+                      child: const MobileText('Disconnect', '断开连接'),
                     ),
                   ),
                 ],
@@ -350,9 +369,9 @@ class _ConnectionScannerState extends State<DesktopConnectionScannerScreen>
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Scan Desktop QR code'),
+      title: const MobileText('Scan Desktop QR code', '扫描桌面连接二维码'),
       leading: IconButton(
-        tooltip: 'Cancel scanning',
+        tooltip: context.mobileText('Cancel scanning', '取消扫描'),
         icon: const Icon(Icons.close),
         onPressed: () => Navigator.of(context).pop(),
       ),
@@ -374,8 +393,9 @@ class _ConnectionScannerState extends State<DesktopConnectionScannerScreen>
         ),
         const Padding(
           padding: EdgeInsets.all(20),
-          child: Text(
+          child: MobileText(
             'Point your camera at the code shown in LumiaKey Desktop.',
+            '请将相机对准 LumiaKey Desktop 显示的二维码。',
           ),
         ),
       ],
@@ -390,8 +410,9 @@ class ConnectionScannerUnavailable extends StatelessWidget {
   Widget build(BuildContext context) => const Center(
     child: Padding(
       padding: EdgeInsets.all(24),
-      child: Text(
+      child: MobileText(
         'Camera unavailable. Allow camera access to scan, or close this screen and enter the code manually.',
+        '相机不可用。请允许相机访问后扫描，或关闭此页面并手动输入连接码。',
         textAlign: TextAlign.center,
       ),
     ),

@@ -11,6 +11,8 @@ import '../data/community_setup_repository.dart';
 import '../data/shortcut_community_client.dart';
 import '../data/shortcut_community_store.dart';
 import '../data/shortcut_usage_repository.dart';
+import '../mobile_appearance.dart';
+import 'community_setup_screen.dart';
 
 enum _UsagePeriod { all, today, days7, days30, custom }
 
@@ -194,19 +196,19 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
       .toList(growable: false);
 
   String _periodLabel() => switch (_period) {
-    _UsagePeriod.all => 'All time',
-    _UsagePeriod.today => 'Today',
-    _UsagePeriod.days7 => 'Last 7 days',
-    _UsagePeriod.days30 => 'Last 30 days',
+    _UsagePeriod.all => context.mobileText('All time', '全部时间'),
+    _UsagePeriod.today => context.mobileText('Today', '今天'),
+    _UsagePeriod.days7 => context.mobileText('Last 7 days', '最近 7 天'),
+    _UsagePeriod.days30 => context.mobileText('Last 30 days', '最近 30 天'),
     _UsagePeriod.custom =>
       _customRange == null
-          ? 'Custom dates'
+          ? context.mobileText('Custom dates', '自定义日期')
           : '${_date(_customRange!.start)} – ${_date(_customRange!.end)}',
   };
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Shortcut usage')),
+    appBar: AppBar(title: const MobileText('Shortcut usage', '快捷键使用情况')),
     body: FutureBuilder<_DashboardServices>(
       future: _services,
       builder: (context, snapshot) {
@@ -225,7 +227,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                     });
                     _loadServices(SmartKeysScope.of(context));
                   },
-                  child: const Text('Retry'),
+                  child: const MobileText('Retry', '重试'),
                 ),
               ],
             ),
@@ -277,9 +279,13 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
               if (services.repository.lastError != null)
                 const ListTile(
                   leading: Icon(Icons.warning_amber_outlined),
-                  title: Text('Some local usage changes could not be saved.'),
-                  subtitle: Text(
+                  title: MobileText(
+                    'Some local usage changes could not be saved.',
+                    '部分使用记录未能保存。',
+                  ),
+                  subtitle: MobileText(
                     'Shortcut controls remain available. Check local storage before clearing data.',
+                    '仍可使用快捷键。清除数据前请检查本地存储。',
                   ),
                 ),
               _periodSelector(),
@@ -289,18 +295,18 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                   final wide = constraints.maxWidth > 600;
                   final cards = [
                     _SummaryCard(
-                      label: 'Clicks',
+                      label: context.mobileText('Clicks', '点击次数'),
                       value:
                           '${_period == _UsagePeriod.all ? services.repository.records.fold<int>(0, (sum, record) => sum + record.count) : events.length}',
                       icon: Icons.touch_app_outlined,
                     ),
                     _SummaryCard(
-                      label: 'Shortcuts',
+                      label: context.mobileText('Shortcuts', '快捷键'),
                       value: '${ordered.length}',
                       icon: Icons.keyboard_alt_outlined,
                     ),
                     _SummaryCard(
-                      label: 'Range',
+                      label: context.mobileText('Range', '日期范围'),
                       value: _periodLabel(),
                       icon: Icons.date_range_outlined,
                     ),
@@ -334,8 +340,9 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                   _period == _UsagePeriod.all)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text(
+                  child: MobileText(
                     'All-time totals also include older migrated counts; dated views include recorded clicks only.',
+                    '汇总包含从旧版本迁移的次数，按日期筛选时仅显示有记录的点击。',
                   ),
                 ),
               const SizedBox(height: 18),
@@ -343,7 +350,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Shortcut ranking',
+                      context.mobileText('Shortcut ranking', '快捷键排行'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -353,15 +360,15 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                     items: const [
                       DropdownMenuItem(
                         value: _RankingOrder.most,
-                        child: Text('Most used'),
+                        child: MobileText('Most used', '最常使用'),
                       ),
                       DropdownMenuItem(
                         value: _RankingOrder.least,
-                        child: Text('Least used'),
+                        child: MobileText('Least used', '最少使用'),
                       ),
                       DropdownMenuItem(
                         value: _RankingOrder.recent,
-                        child: Text('Recently used'),
+                        child: MobileText('Recently used', '最近使用'),
                       ),
                     ],
                     onChanged: (value) {
@@ -371,7 +378,12 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                 ],
               ),
               if (ordered.isEmpty)
-                const ListTile(title: Text('No clicks in this date range'))
+                const ListTile(
+                  title: MobileText(
+                    'No clicks in this date range',
+                    '此日期范围内没有点击记录',
+                  ),
+                )
               else
                 for (var i = 0; i < ordered.length; i++)
                   ListTile(
@@ -391,7 +403,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Click history',
+                      context.mobileText('Click history', '点击历史'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -401,11 +413,11 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                     items: const [
                       DropdownMenuItem(
                         value: _HistoryOrder.newest,
-                        child: Text('Newest first'),
+                        child: MobileText('Newest first', '最新在前'),
                       ),
                       DropdownMenuItem(
                         value: _HistoryOrder.oldest,
-                        child: Text('Oldest first'),
+                        child: MobileText('Oldest first', '最早在前'),
                       ),
                     ],
                     onChanged: (value) {
@@ -416,7 +428,10 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
               ),
               if (history.isEmpty)
                 const ListTile(
-                  title: Text('No click history in this date range'),
+                  title: MobileText(
+                    'No click history in this date range',
+                    '此日期范围内没有点击历史',
+                  ),
                 ),
               for (final event in history.take(_historyLimit))
                 ListTile(
@@ -430,7 +445,10 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                   child: TextButton(
                     onPressed: () => setState(() => _historyLimit += 100),
                     child: Text(
-                      'Load more (${history.length - _historyLimit} remaining)',
+                      context.mobileText(
+                        'Load more (${history.length - _historyLimit} remaining)',
+                        '加载更多（剩余 ${history.length - _historyLimit} 条）',
+                      ),
                     ),
                   ),
                 ),
@@ -454,7 +472,10 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                     key: const ValueKey('usage-smart-sort'),
                     icon: const Icon(Icons.low_priority),
                     label: Text(
-                      'Smart sort · ${SmartKeysScope.of(context).activeProfile.name}',
+                      context.mobileText(
+                        'Smart sort · ${SmartKeysScope.of(context).activeProfile.name}',
+                        '按使用次数排序 · ${SmartKeysScope.of(context).activeProfile.name}',
+                      ),
                     ),
                     onPressed: _working || services.repository.records.isEmpty
                         ? null
@@ -465,8 +486,9 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text(
+                                  content: MobileText(
                                     'Current Profile reordered by usage',
+                                    '已按使用次数调整当前配置的顺序',
                                   ),
                                 ),
                               );
@@ -476,7 +498,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                   FilledButton.tonalIcon(
                     key: const ValueKey('usage-clear'),
                     icon: const Icon(Icons.delete_outline),
-                    label: const Text('Clear local usage'),
+                    label: const MobileText('Clear local usage', '清除本地使用记录'),
                     onPressed: _working || services.repository.records.isEmpty
                         ? null
                         : () => _confirmClear(context, services.repository),
@@ -497,11 +519,11 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
       for (final value in _UsagePeriod.values)
         ChoiceChip(
           label: Text(switch (value) {
-            _UsagePeriod.all => 'All time',
-            _UsagePeriod.today => 'Today',
-            _UsagePeriod.days7 => '7 days',
-            _UsagePeriod.days30 => '30 days',
-            _UsagePeriod.custom => 'Custom',
+            _UsagePeriod.all => context.mobileText('All time', '全部时间'),
+            _UsagePeriod.today => context.mobileText('Today', '今天'),
+            _UsagePeriod.days7 => context.mobileText('7 days', '7 天'),
+            _UsagePeriod.days30 => context.mobileText('30 days', '30 天'),
+            _UsagePeriod.custom => context.mobileText('Custom', '自定义'),
           }),
           selected: _period == value,
           onSelected: (_) async {
@@ -534,24 +556,34 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
   Widget _communityPanel(_DashboardServices services) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('Community ranking', style: Theme.of(context).textTheme.titleLarge),
+      Text(
+        context.mobileText('Community ranking', '社区排行'),
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
       const ListTile(
         leading: Icon(Icons.public),
-        title: Text('Public aggregate rankings'),
-        subtitle: Text(
+        title: MobileText('Public aggregate rankings', '公开汇总排行'),
+        subtitle: MobileText(
           'Reading is available without sharing. Network connections reveal your IP address to the service.',
+          '无需分享即可查看排行。联网时，服务可获取你的 IP 地址。',
         ),
       ),
       Wrap(
         children: [
-          const Text('Period'),
+          const MobileText('Period', '时间范围'),
           const SizedBox(width: 12),
           DropdownButton<String>(
             value: _communityPeriod,
             items: const [
-              DropdownMenuItem(value: 'all', child: Text('All time')),
-              DropdownMenuItem(value: '7d', child: Text('7 days')),
-              DropdownMenuItem(value: '30d', child: Text('30 days')),
+              DropdownMenuItem(
+                value: 'all',
+                child: MobileText('All time', '全部时间'),
+              ),
+              DropdownMenuItem(value: '7d', child: MobileText('7 days', '7 天')),
+              DropdownMenuItem(
+                value: '30d',
+                child: MobileText('30 days', '30 天'),
+              ),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -561,15 +593,21 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
             },
           ),
           const SizedBox(width: 16),
-          const Text('Profession'),
+          const MobileText('Profession', '职业'),
           const SizedBox(width: 8),
           DropdownButton<String>(
             key: const ValueKey('usage-community-tag'),
             value: _communityTag,
             items: [
-              const DropdownMenuItem(value: '', child: Text('All professions')),
+              const DropdownMenuItem(
+                value: '',
+                child: MobileText('All professions', '所有职业'),
+              ),
               for (final entry in communityProfessionTags.entries)
-                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+                DropdownMenuItem(
+                  value: entry.key,
+                  child: Text(communityProfessionLabel(context, entry.key)),
+                ),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -579,7 +617,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
             },
           ),
           const SizedBox(width: 16),
-          const Text('Experience'),
+          const MobileText('Experience', '熟练程度'),
           const SizedBox(width: 8),
           DropdownButton<String>(
             key: const ValueKey('usage-community-experience'),
@@ -587,10 +625,13 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
             items: [
               const DropdownMenuItem(
                 value: '',
-                child: Text('All experience levels'),
+                child: MobileText('All experience levels', '所有熟练程度'),
               ),
               for (final entry in communityExperienceLevels.entries)
-                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+                DropdownMenuItem(
+                  value: entry.key,
+                  child: Text(communityExperienceLabel(context, entry.key)),
+                ),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -600,7 +641,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
             },
           ),
           IconButton(
-            tooltip: 'Refresh rankings',
+            tooltip: context.mobileText('Refresh rankings', '刷新排行'),
             onPressed: _refreshCommunity,
             icon: const Icon(Icons.refresh),
           ),
@@ -608,12 +649,15 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
       ),
       if (_communityState == 'not_configured')
         const ListTile(
-          title: Text('Community service is not configured for this build.'),
+          title: MobileText(
+            'Community service is not configured for this build.',
+            '当前版本未配置社区服务。',
+          ),
         )
       else if (_communityState == 'loading')
         const LinearProgressIndicator()
       else if (_communityState == 'empty')
-        const ListTile(title: Text('No public rankings yet.'))
+        const ListTile(title: MobileText('No public rankings yet.', '暂无公开排行。'))
       else if (_communityState != 'ready')
         ListTile(
           title: Text(_communityErrorLabel(_communityState)),
@@ -629,15 +673,21 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
             leading: CircleAvatar(child: Text('${entry.key + 1}')),
             title: Text(publicShortcutLabels[row.shortcutId] ?? row.shortcutId),
             trailing: Text('${row.count}×'),
-            subtitle: Text('${row.contributions} contributions'),
+            subtitle: Text(
+              context.mobileText(
+                '${row.contributions} contributions',
+                '${row.contributions} 份贡献',
+              ),
+            ),
           );
         }),
       const Divider(),
       SwitchListTile(
         key: const ValueKey('usage-sharing-enabled'),
-        title: const Text('Share anonymous aggregate counts'),
-        subtitle: const Text(
+        title: const MobileText('Share anonymous aggregate counts', '分享匿名汇总次数'),
+        subtitle: const MobileText(
           'Off by default. Each batch needs its own preview and confirmation. Submitted batches can be withdrawn here.',
+          '默认关闭。每批数据都需要预览并确认，已提交的批次也可在此撤回。',
         ),
         value: services.store.sharingEnabled,
         onChanged: (value) async {
@@ -647,7 +697,10 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Sharing preference could not be saved.'),
+                  content: MobileText(
+                    'Sharing preference could not be saved.',
+                    '无法保存分享设置。',
+                  ),
                 ),
               );
             }
@@ -658,24 +711,29 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
       ),
       if (services.store.pending != null && !services.store.pending!.cancelled)
         ListTile(
-          title: const Text('A submission is waiting for an explicit retry'),
-          subtitle: const Text(
+          title: const MobileText(
+            'A submission is waiting for an explicit retry',
+            '一批数据等待手动重试',
+          ),
+          subtitle: const MobileText(
             'The same saved batch will be retried to prevent duplicate counts.',
+            '重试使用同一个已保存的批次，避免重复统计。',
           ),
           trailing: TextButton(
             onPressed: services.store.sharingEnabled && !_working
                 ? () => _submitPending(services)
                 : null,
-            child: const Text('Retry'),
+            child: const MobileText('Retry', '重试'),
           ),
         ),
       if (services.store.pending != null && !services.store.pending!.cancelled)
         ListTile(
           key: const ValueKey('usage-cancel-pending'),
           leading: const Icon(Icons.pause_circle_outline),
-          title: const Text('Cancel this pending batch'),
-          subtitle: const Text(
+          title: const MobileText('Cancel this pending batch', '取消待处理批次'),
+          subtitle: const MobileText(
             'Keeps its receipt for withdrawal if the server accepted it.',
+            '会保留回执，以便在服务器已接收时撤回。',
           ),
           onTap: _working ? null : () => _cancelPending(services),
         ),
@@ -683,11 +741,17 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
         ListTile(
           key: const ValueKey('usage-share-preview'),
           leading: const Icon(Icons.upload_outlined),
-          title: const Text('Preview a new batch'),
+          title: const MobileText('Preview a new batch', '预览新批次'),
           subtitle: Text(
             _client.isConfigured
-                ? 'Only recognized shortcut categories and counts are included.'
-                : 'Service unavailable for this build; configure a ranking endpoint to submit.',
+                ? context.mobileText(
+                    'Only recognized shortcut categories and counts are included.',
+                    '仅包含已识别的快捷键类别及次数。',
+                  )
+                : context.mobileText(
+                    'Service unavailable for this build; configure a ranking endpoint to submit.',
+                    '当前版本的服务不可用。请配置排行服务后提交。',
+                  ),
           ),
           trailing: const Icon(Icons.chevron_right),
           onTap: _working || !_client.isConfigured
@@ -698,8 +762,13 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
         ListTile(
           key: const ValueKey('usage-withdraw'),
           leading: const Icon(Icons.delete_sweep_outlined),
-          title: const Text('Withdraw online contributions'),
-          subtitle: Text('${services.store.receipts.length} saved receipt(s)'),
+          title: const MobileText('Withdraw online contributions', '撤回在线贡献'),
+          subtitle: Text(
+            context.mobileText(
+              '${services.store.receipts.length} saved receipt(s)',
+              '已保存 ${services.store.receipts.length} 份回执',
+            ),
+          ),
           trailing: _working
               ? const CircularProgressIndicator()
               : const Icon(Icons.chevron_right),
@@ -736,7 +805,10 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
     if (counts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No new recognized shortcut clicks to share'),
+          content: MobileText(
+            'No new recognized shortcut clicks to share',
+            '没有可分享的新快捷键点击',
+          ),
         ),
       );
       return;
@@ -761,7 +833,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Review this sharing batch'),
+        title: const MobileText('Review this sharing batch', '检查分享批次'),
         content: SizedBox(
           width: 420,
           child: SingleChildScrollView(
@@ -792,17 +864,27 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                 DropdownButtonFormField<String>(
                   key: const ValueKey('usage-preview-tag'),
                   initialValue: selectedTag,
-                  decoration: const InputDecoration(
-                    labelText: 'Optional profession tag',
-                    helperText:
-                        'Not inferred or linked to your Google account. Used only for this batch.',
+                  decoration: InputDecoration(
+                    labelText: context.mobileText(
+                      'Optional profession tag',
+                      '职业（选填）',
+                    ),
+                    helperText: context.mobileText(
+                      'Not inferred or linked to your Google account. Used only for this batch.',
+                      '不会自动推断，也不会关联 Google 账号，仅用于这一批。',
+                    ),
                   ),
                   items: [
-                    const DropdownMenuItem(value: '', child: Text('None')),
+                    const DropdownMenuItem(
+                      value: '',
+                      child: MobileText('None', '无'),
+                    ),
                     for (final entry in communityProfessionTags.entries)
                       DropdownMenuItem(
                         value: entry.key,
-                        child: Text(entry.value),
+                        child: Text(
+                          communityProfessionLabel(context, entry.key),
+                        ),
                       ),
                   ],
                   onChanged: (value) => selectedTag = value ?? '',
@@ -811,17 +893,27 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
                 DropdownButtonFormField<String>(
                   key: const ValueKey('usage-preview-experience'),
                   initialValue: selectedExperience,
-                  decoration: const InputDecoration(
-                    labelText: 'Optional computer proficiency',
-                    helperText:
-                        'Not inferred or linked to your Google account. Used only for this batch.',
+                  decoration: InputDecoration(
+                    labelText: context.mobileText(
+                      'Optional computer proficiency',
+                      '电脑熟练程度（选填）',
+                    ),
+                    helperText: context.mobileText(
+                      'Not inferred or linked to your Google account. Used only for this batch.',
+                      '不会自动推断，也不会关联 Google 账号，仅用于这一批。',
+                    ),
                   ),
                   items: [
-                    const DropdownMenuItem(value: '', child: Text('None')),
+                    const DropdownMenuItem(
+                      value: '',
+                      child: MobileText('None', '无'),
+                    ),
                     for (final entry in communityExperienceLevels.entries)
                       DropdownMenuItem(
                         value: entry.key,
-                        child: Text(entry.value),
+                        child: Text(
+                          communityExperienceLabel(context, entry.key),
+                        ),
                       ),
                   ],
                   onChanged: (value) => selectedExperience = value ?? '',
@@ -833,11 +925,11 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+            child: const MobileText('Cancel', '取消'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Submit this batch'),
+            child: const MobileText('Submit this batch', '提交此批次'),
           ),
         ],
       ),
@@ -923,7 +1015,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Withdraw online contributions?'),
+        title: const MobileText('Withdraw online contributions?', '撤回在线贡献？'),
         content: Text(
           'This removes ${services.store.receipts.length} submitted batch(es) from public aggregates. Failed requests keep their receipts for retry.',
         ),
@@ -934,7 +1026,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(c, true),
-            child: const Text('Withdraw'),
+            child: const MobileText('Withdraw', '撤回'),
           ),
         ],
       ),
@@ -978,18 +1070,18 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Cancel pending batch?'),
+        title: const MobileText('Cancel pending batch?', '取消待处理批次？'),
         content: const Text(
           'The batch will never be retried. Its private receipt stays on this device so you can request withdrawal if the server already accepted it.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep pending'),
+            child: const MobileText('Keep pending', '保持待处理'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Cancel batch'),
+            child: const MobileText('Cancel batch', '取消批次'),
           ),
         ],
       ),
@@ -1018,9 +1110,10 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Clear local usage?'),
-        content: const Text(
+        title: const MobileText('Clear local usage?', '清除本地使用记录？'),
+        content: const MobileText(
           'This permanently removes click history and local counters. An unsent batch will be canceled; contributions already accepted online remain there until you withdraw their saved receipts.',
+          '这会永久删除本地点击历史和计数，并取消未提交的批次。已接收的在线贡献可凭已保存的回执撤回。',
         ),
         actions: [
           TextButton(
@@ -1029,7 +1122,7 @@ class _UsageDashboardScreenState extends State<UsageDashboardScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(c, true),
-            child: const Text('Clear'),
+            child: const MobileText('Clear', '清除'),
           ),
         ],
       ),

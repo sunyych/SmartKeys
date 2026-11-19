@@ -7,6 +7,7 @@ import '../app.dart';
 import '../controllers/app_controller.dart';
 import '../data/account_backup_client.dart';
 import '../data/account_backup_codec.dart';
+import '../mobile_appearance.dart';
 import '../services/google_account_auth_service.dart';
 
 class AccountBackupScreen extends StatefulWidget {
@@ -52,29 +53,32 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
     final authConfigured = googleAuth?.configurationError == null;
     final canOperate = _client.isConfigured && authConfigured;
     return Scaffold(
-      appBar: AppBar(title: const Text('Google account backup')),
+      appBar: AppBar(
+        title: const MobileText('Google account backup', 'Google 账号备份'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text(
+          const MobileText(
             'Back up selected items to the configured service using Google sign-in. This is separate from anonymous community rankings. Nothing uploads automatically.',
+            '通过 Google 登录将所选内容备份至配置的服务。备份与匿名社区排行榜独立，内容不会自动上传。',
           ),
           const SizedBox(height: 16),
           if (_auth.displayEmail case final email?)
             ListTile(
               leading: const Icon(Icons.account_circle_outlined),
               title: Text(email),
-              subtitle: const Text('Signed in on this device'),
+              subtitle: const MobileText('Signed in on this device', '已在本设备登录'),
               trailing: Wrap(
                 spacing: 4,
                 children: [
                   TextButton(
                     onPressed: _busy || !canOperate ? null : _signIn,
-                    child: const Text('Switch account'),
+                    child: const MobileText('Switch account', '切换账号'),
                   ),
                   TextButton(
                     onPressed: _busy ? null : _signOut,
-                    child: const Text('Sign out'),
+                    child: const MobileText('Sign out', '退出登录'),
                   ),
                 ],
               ),
@@ -83,13 +87,16 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
             FilledButton.tonalIcon(
               onPressed: _busy || !canOperate ? null : _signIn,
               icon: const Icon(Icons.login),
-              label: const Text('Sign in with Google'),
+              label: const MobileText('Sign in with Google', '使用 Google 登录'),
             ),
           if (googleAuth?.configurationError != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                'Google sign-in is not available in this build.',
+                context.mobileText(
+                  'Google sign-in is not available in this build.',
+                  '当前版本无法使用 Google 登录。',
+                ),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
@@ -97,13 +104,16 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                'Online backup service is not configured for this build.',
+                context.mobileText(
+                  'Online backup service is not configured for this build.',
+                  '当前版本未配置在线备份服务。',
+                ),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
           const Divider(height: 32),
           SwitchListTile(
-            title: const Text('App settings'),
+            title: const MobileText('App settings', '应用设置'),
             value: _settings,
             onChanged: _busy ? null : (v) => setState(() => _settings = v),
           ),
@@ -123,9 +133,13 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
             ),
           ),
           SwitchListTile(
-            title: const Text('Include custom button images'),
-            subtitle: const Text(
+            title: const MobileText(
+              'Include custom button images',
+              '包含自定义按键图像',
+            ),
+            subtitle: const MobileText(
               'Images are optional; each image is limited to 4 MiB.',
+              '图像为可选项，每张大小限制为 4 MiB。',
             ),
             value: _images,
             onChanged: _busy ? null : (v) => setState(() => _images = v),
@@ -134,17 +148,17 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
           FilledButton.icon(
             onPressed: _busy || !canOperate ? null : () => _backup(controller),
             icon: const Icon(Icons.cloud_upload_outlined),
-            label: const Text('Preview and back up'),
+            label: const MobileText('Preview and back up', '预览并备份'),
           ),
           OutlinedButton.icon(
             onPressed: _busy || !canOperate ? null : () => _restore(controller),
             icon: const Icon(Icons.cloud_download_outlined),
-            label: const Text('Preview and restore'),
+            label: const MobileText('Preview and restore', '预览并恢复'),
           ),
           TextButton.icon(
             onPressed: _busy || !canOperate ? null : _delete,
             icon: const Icon(Icons.delete_outline),
-            label: const Text('Delete online backup'),
+            label: const MobileText('Delete online backup', '删除在线备份'),
           ),
           if (_busy)
             const Padding(
@@ -248,11 +262,14 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
       'images': imagePreview,
       'image_bytes_are_not_rendered': true,
     };
+    if (!mounted) return;
+    final description = context.mobileText(
+      'This replaces the previous online backup for this Google account. Only the selected items will be kept.',
+      '这将替换此 Google 账号之前的在线备份，仅保留所选内容。',
+    );
     final accepted = await _confirm(
-      'Review backup contents',
-      'This replaces the previous online backup for this Google account. '
-          'Only the selected items will be kept.\n\n'
-          '${const JsonEncoder.withIndent('  ').convert(preview)}',
+      context.mobileText('Review backup contents', '检查备份内容'),
+      '$description\n\n${const JsonEncoder.withIndent('  ').convert(preview)}',
     );
     if (!accepted) return;
     final updated = await _client.putEnvelope(envelope);
@@ -284,9 +301,13 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
 
   Future<void> _delete() => _run(() async {
     await _ensureSignedIn();
+    if (!mounted) return;
     final accepted = await _confirm(
-      'Delete online backup?',
-      'This permanently deletes the latest settings and Profile backup stored for the signed-in Google account.',
+      context.mobileText('Delete online backup?', '删除在线备份？'),
+      context.mobileText(
+        'This permanently deletes the latest settings and Profile backup stored for the signed-in Google account.',
+        '这将永久删除当前 Google 账号最新的设置和快捷键配置备份。',
+      ),
     );
     if (!accepted) return;
     await _client.delete();
@@ -312,11 +333,11 @@ class _AccountBackupScreenState extends State<AccountBackupScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
+              child: const MobileText('Cancel', '取消'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Continue'),
+              child: const MobileText('Continue', '继续'),
             ),
           ],
         ),
@@ -365,18 +386,21 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Review restore'),
+    title: const MobileText('Review restore', '检查恢复内容'),
     content: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'Backup from ${widget.backup.updatedAt}. This merges selected Profiles by ID and preserves device pairing and local usage.',
+            context.mobileText(
+              'Backup from ${widget.backup.updatedAt}. This merges selected Profiles by ID and preserves device pairing and local usage.',
+              '备份时间 ${widget.backup.updatedAt}。恢复时按 ID 合并所选快捷键配置，并保留设备配对和本地使用记录。',
+            ),
           ),
           if (widget.backup.preferences != null)
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('App settings'),
+              title: const MobileText('App settings', '应用设置'),
               value: _settings,
               onChanged: (v) => setState(() => _settings = v ?? false),
             ),
@@ -398,13 +422,17 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                'Restore ${widget.backup.images.length} custom images',
+                context.mobileText(
+                  'Restore ${widget.backup.images.length} custom images',
+                  '恢复 ${widget.backup.images.length} 张自定义图像',
+                ),
               ),
               value: _images,
               onChanged: (v) => setState(() => _images = v ?? false),
             ),
-          const Text(
+          const MobileText(
             'Restored shortcuts are saved but never executed automatically.',
+            '恢复的快捷键会保存，不会自动执行。',
           ),
         ],
       ),
@@ -412,7 +440,7 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
+        child: const MobileText('Cancel', '取消'),
       ),
       FilledButton(
         onPressed: _settings || _profiles.isNotEmpty
@@ -421,7 +449,7 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
                 _RestoreChoice(_settings, Set.of(_profiles), _images),
               )
             : null,
-        child: const Text('Restore selected'),
+        child: const MobileText('Restore selected', '恢复所选内容'),
       ),
     ],
   );

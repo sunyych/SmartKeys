@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'controllers/app_controller.dart';
 import 'app_edition.dart';
@@ -19,6 +20,7 @@ import 'services/companion_service.dart';
 import 'services/disabled_companion_service.dart';
 import 'services/orientation_service.dart';
 import 'services/power_brightness_service.dart';
+import 'mobile_appearance.dart';
 import 'models/config.dart';
 import 'ui/home_screen.dart';
 import 'ui/diagnostics_consent_screen.dart';
@@ -51,6 +53,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
   late final AppController controller;
   late final bool ownsController;
   late final IconLibrary iconLibrary;
+  late final MobileAppearance _appearance;
   bool get _unsupportedLite =>
       widget.edition == AppEdition.lite &&
       !Platform.isAndroid &&
@@ -62,6 +65,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
     unawaited(_enterFullscreen());
     ownsController = widget.controller == null;
     if (_unsupportedLite) return;
+    _appearance = MobileAppearance();
     iconLibrary = IconLibrary(
       onFailure: () =>
           widget.diagnostics?.record(DiagnosticCode.iconDownloadFailed),
@@ -107,6 +111,7 @@ class _SmartKeysAppState extends State<SmartKeysApp>
     }
     WidgetsBinding.instance.removeObserver(this);
     if (ownsController) controller.dispose();
+    _appearance.dispose();
     iconLibrary.dispose();
     if (ownsController) widget.diagnostics?.dispose();
     super.dispose();
@@ -140,73 +145,11 @@ class _SmartKeysAppState extends State<SmartKeysApp>
       child: SmartKeysScope(
         controller: controller,
         edition: widget.edition,
-        child: MaterialApp(
-          title: widget.edition == AppEdition.lite
-              ? 'LumiaKey Lite'
-              : 'LumiaKey',
-          navigatorObservers: [localDictationRouteObserver],
-          debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            brightness: Brightness.dark,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF67E8F9),
-              brightness: Brightness.dark,
-              surface: const Color(0xFF10151D),
-            ),
-            scaffoldBackgroundColor: const Color(0xFF090D12),
-            cardTheme: const CardThemeData(
-              color: Color(0xFF151C26),
-              elevation: 0,
-              margin: EdgeInsets.zero,
-            ),
-            inputDecorationTheme: const InputDecorationTheme(
-              border: OutlineInputBorder(),
-            ),
-            useMaterial3: true,
-          ),
-          home: AnimatedBuilder(
-            animation: controller,
-            builder: (context, _) {
-              if (controller.isLoading) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (controller.error != null) {
-                return Scaffold(
-                  body: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.error_outline, size: 48),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'LumiaKey could not load its configuration.',
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '${controller.error}',
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-              final home =
-                  widget.homeOverride ??
-                  (widget.edition == AppEdition.lite
-                      ? const HomeScreen(liteMode: true)
-                      : const RegularHomeScreen());
-              if (widget.diagnostics == null) return home;
-              return DiagnosticsConsentGate(
-                diagnostics: widget.diagnostics!,
-                child: home,
-              );
-            },
+        child: MobileAppearanceScope(
+          appearance: _appearance,
+          child: ListenableBuilder(
+            listenable: _appearance,
+            builder: _buildMaterialApp,
           ),
         ),
       ),
@@ -214,6 +157,82 @@ class _SmartKeysAppState extends State<SmartKeysApp>
     return widget.diagnostics == null
         ? app
         : DiagnosticsScope(diagnostics: widget.diagnostics!, child: app);
+  }
+
+  Widget _buildMaterialApp(BuildContext context, Widget? child) => MaterialApp(
+    title: widget.edition == AppEdition.lite ? 'LumiaKey Lite' : 'LumiaKey',
+    navigatorObservers: [localDictationRouteObserver],
+    debugShowCheckedModeBanner: false,
+    locale: _appearance.language.locale,
+    localizationsDelegates: GlobalMaterialLocalizations.delegates,
+    supportedLocales: const [Locale('en'), Locale('zh', 'CN')],
+    themeMode: _appearance.themeMode,
+    theme: _theme(Brightness.light),
+    darkTheme: _theme(Brightness.dark),
+    home: AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        if (controller.isLoading) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (controller.error != null) {
+          return Scaffold(
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline, size: 48),
+                    const SizedBox(height: 16),
+                    const MobileText(
+                      'LumiaKey could not load its configuration.',
+                      'LumiaKey 无法加载配置。',
+                    ),
+                    const SizedBox(height: 8),
+                    Text('${controller.error}', textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        final home =
+            widget.homeOverride ??
+            (widget.edition == AppEdition.lite
+                ? const HomeScreen(liteMode: true)
+                : const RegularHomeScreen());
+        if (widget.diagnostics == null) return home;
+        return DiagnosticsConsentGate(
+          diagnostics: widget.diagnostics!,
+          child: home,
+        );
+      },
+    ),
+  );
+
+  static ThemeData _theme(Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    final colors = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF67E8F9),
+      brightness: brightness,
+      surface: dark ? const Color(0xFF10151D) : null,
+    );
+    return ThemeData(
+      colorScheme: colors,
+      scaffoldBackgroundColor: dark ? const Color(0xFF090D12) : colors.surface,
+      cardTheme: CardThemeData(
+        color: dark ? const Color(0xFF151C26) : colors.surfaceContainerLow,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+      ),
+      inputDecorationTheme: const InputDecorationTheme(
+        border: OutlineInputBorder(),
+      ),
+      useMaterial3: true,
+    );
   }
 }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../controllers/app_controller.dart';
+import '../mobile_appearance.dart';
 import 'desktop_connection_panel.dart';
 
 /// KVM target control. Every tap opens a list of Desktop Companion targets.
@@ -17,13 +18,14 @@ class ComputerSwitcher extends StatelessWidget {
   final bool iconOnly;
 
   static String _name(
+    BuildContext context,
     List<({String id, String name, String platform, String address})> choices,
     String id,
   ) {
     for (final choice in choices) {
       if (choice.id == id) return '${choice.name} · ${choice.address}';
     }
-    return 'computer';
+    return context.mobileText('computer', '电脑');
   }
 
   @override
@@ -37,18 +39,26 @@ class ComputerSwitcher extends StatelessWidget {
         if (choice.id == selectedId) selected = choice;
       }
       final pending = controller.computerSwitchPendingId;
+      final noComputer = context.mobileText('No computer selected', '未选择电脑');
       if (compact) {
         if (choices.isEmpty && !iconOnly) return const SizedBox.shrink();
         final currentName = selected == null
-            ? 'No computer selected'
+            ? noComputer
             : _choiceLabel(choices, selected);
+        final chooseTooltip = context.mobileText(
+          'Choose a Desktop computer. Current: $currentName.',
+          '请选择桌面电脑。当前：$currentName。',
+        );
         if (iconOnly) {
           return Tooltip(
-            message: 'Choose a Desktop computer. Current: $currentName.',
+            message: chooseTooltip,
             child: IconButton(
               key: const ValueKey('computer-kvm-switch'),
               visualDensity: VisualDensity.compact,
-              tooltip: 'Switch computer · $currentName',
+              tooltip: context.mobileText(
+                'Switch computer · $currentName',
+                '切换电脑 · $currentName',
+              ),
               onPressed: pending != null ? null : () => _showPicker(context),
               icon: pending != null
                   ? const SizedBox.square(
@@ -60,7 +70,7 @@ class ComputerSwitcher extends StatelessWidget {
           );
         }
         return Tooltip(
-          message: 'Choose a Desktop computer. Current: $currentName.',
+          message: chooseTooltip,
           child: TextButton.icon(
             key: const ValueKey('computer-kvm-switch'),
             style: TextButton.styleFrom(
@@ -80,6 +90,9 @@ class ComputerSwitcher extends StatelessWidget {
           ),
         );
       }
+      final name = pending == null
+          ? selected?.name ?? noComputer
+          : _name(context, choices, pending);
       return Material(
         color: Theme.of(
           context,
@@ -102,8 +115,14 @@ class ComputerSwitcher extends StatelessWidget {
                       Expanded(
                         child: Text(
                           pending != null
-                              ? 'Switching to ${_name(choices, pending)}…'
-                              : 'Switch computer · ${selected?.name ?? 'No computer selected'}',
+                              ? context.mobileText(
+                                  'Switching to $name…',
+                                  '正在切换到 $name…',
+                                )
+                              : context.mobileText(
+                                  'Switch computer · $name',
+                                  '切换电脑 · $name',
+                                ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.labelLarge,
@@ -122,7 +141,10 @@ class ComputerSwitcher extends StatelessWidget {
               ),
               IconButton(
                 visualDensity: VisualDensity.compact,
-                tooltip: 'Choose or manage computers',
+                tooltip: context.mobileText(
+                  'Choose or manage computers',
+                  '选择或管理电脑',
+                ),
                 icon: const Icon(Icons.devices_other, size: 19),
                 onPressed: () => _showPicker(context),
               ),
@@ -153,14 +175,17 @@ class ComputerSwitcher extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 children: [
                   Text(
-                    'Switch computer',
+                    context.mobileText('Switch computer', '切换电脑'),
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
                   if (choices.isEmpty)
                     const ListTile(
-                      title: Text('No paired computers yet'),
-                      subtitle: Text('Pair a computer with LumiaKey Desktop.'),
+                      title: MobileText('No paired computers yet', '尚未配对电脑'),
+                      subtitle: MobileText(
+                        'Pair a computer with LumiaKey Desktop.',
+                        '请配对已安装 LumiaKey Desktop 的电脑。',
+                      ),
                     ),
                   for (final choice in choices)
                     ListTile(
@@ -212,11 +237,15 @@ class ComputerSwitcher extends StatelessWidget {
                       );
                     },
                     icon: const Icon(Icons.desktop_windows),
-                    label: const Text('Pair or manage LumiaKey Desktop'),
+                    label: const MobileText(
+                      'Pair or manage LumiaKey Desktop',
+                      '配对或管理 LumiaKey Desktop',
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  const MobileText(
                     'Choose a paired LumiaKey Desktop computer. Android Bluetooth devices connect separately in Settings.',
+                    '请选择已配对的 LumiaKey Desktop 电脑。Android 蓝牙设备需在设置中单独连接。',
                   ),
                 ],
               ),

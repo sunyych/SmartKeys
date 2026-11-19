@@ -4,6 +4,7 @@ import '../app.dart';
 import '../app_edition.dart';
 import '../controllers/app_controller.dart';
 import '../data/community_setup_repository.dart';
+import '../mobile_appearance.dart';
 import '../models/config.dart';
 import '../services/ios_companion_hid_service.dart';
 import 'bluetooth_connection_sheet.dart';
@@ -30,16 +31,22 @@ class SettingsScreen extends StatelessWidget {
     final preferences = controller.config.preferences;
     final isIosDesktop = controller.hid is IosCompanionHidService;
     final isLite = SmartKeysScope.editionOf(context) == AppEdition.lite;
+    final appearance = MobileAppearanceScope.maybeOf(context);
     final content = ListView(
       key: ValueKey(embedded ? 'embedded-settings' : 'settings-list'),
       children: [
+        if (!isLite && appearance != null) ...[
+          _AppearanceSettings(appearance: appearance),
+          const Divider(),
+        ],
         if (!isLite) ...[
           ListTile(
             key: const ValueKey('open-app-icon-library'),
             leading: const Icon(Icons.apps),
-            title: const Text('App library'),
-            subtitle: const Text(
+            title: const MobileText('App library', '应用库'),
+            subtitle: const MobileText(
               'App icons and shortcuts for your computer OS',
+              '适用于电脑操作系统的应用图标和快捷键',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
@@ -52,11 +59,14 @@ class SettingsScreen extends StatelessWidget {
             ListTile(
               key: const ValueKey('open-error-logs'),
               leading: const Icon(Icons.bug_report_outlined),
-              title: const Text('Error logs'),
+              title: const MobileText('Error logs', '错误日志'),
               subtitle: Text(
                 diagnostics.sharing
-                    ? 'Error sharing allowed'
-                    : 'Saved only on this device',
+                    ? context.mobileText('Error sharing allowed', '已允许分享错误日志')
+                    : context.mobileText(
+                        'Saved only on this device',
+                        '仅保存在本设备',
+                      ),
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
@@ -67,12 +77,12 @@ class SettingsScreen extends StatelessWidget {
             ),
         ],
         if (isLite) ...[
-          const _SectionLabel('BLUETOOTH HID'),
+          const _SectionLabel('BLUETOOTH HID', '蓝牙 HID'),
           ValueListenableBuilder(
             valueListenable: controller.hid.connectionStatus,
             builder: (context, status, _) => ListTile(
               leading: const Icon(Icons.bluetooth),
-              title: const Text('Computer connection'),
+              title: const MobileText('Computer connection', '电脑连接'),
               subtitle: Text(status.name),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => showBluetoothConnectionSheet(
@@ -85,27 +95,33 @@ class SettingsScreen extends StatelessWidget {
           const Divider(),
         ],
         if (!isLite) ...[
-          const _SectionLabel('DESKTOP COMPANION'),
+          const _SectionLabel('DESKTOP COMPANION', '桌面连接'),
           DesktopConnectionPanel(companion: controller.companion),
           const Divider(),
           const ListTile(
             leading: Icon(Icons.desktop_windows_outlined),
-            title: Text('Shortcut settings on your computer'),
-            subtitle: Text(
+            title: MobileText(
+              'Shortcut settings on your computer',
+              '在电脑上设置快捷键',
+            ),
+            subtitle: MobileText(
               'Edit applications and shortcut buttons in LumiaKey Desktop. '
-              'Launchpad shows the installed apps synced from your computer. '
-              'The mobile app displays twelve buttons in four columns and three rows.',
+                  'Launchpad shows the installed apps synced from your computer. '
+                  'The mobile app displays twelve buttons in four columns and three rows.',
+              '在 LumiaKey Desktop 中编辑应用和快捷按键。启动台显示从电脑同步的应用，'
+                  '移动端以四列三行显示 12 个按键。',
             ),
           ),
         ],
         if (isLite) ...[
-          const _SectionLabel('LOCAL SHORTCUTS'),
+          const _SectionLabel('LOCAL SHORTCUTS', '本地快捷键'),
           ListTile(
             key: const ValueKey('lite-shortcut-settings'),
             leading: const Icon(Icons.keyboard_outlined),
-            title: const Text('Shortcut settings'),
-            subtitle: const Text(
+            title: const MobileText('Shortcut settings', '快捷键设置'),
+            subtitle: const MobileText(
               'Edit General, ChatGPT, Chrome, or add a profile',
+              '编辑常规、ChatGPT、Chrome，或新增配置',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push<void>(
@@ -114,11 +130,17 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          const _SectionLabel('SHORTCUT PLATFORM'),
+          if (appearance != null) ...[
+            const Divider(),
+            _AppearanceSettings(appearance: appearance),
+            const Divider(),
+          ],
+          const _SectionLabel('SHORTCUT PLATFORM', '快捷键平台'),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text(
+            child: MobileText(
               'Per-app shortcuts are sent exactly as entered. This setting is the fallback for Primary profile keys; the saved or paired computer OS takes priority.',
+              '各应用的快捷键按输入值发送。此设置用于配置中的主修饰键，已保存或已配对的电脑系统优先。',
             ),
           ),
           Builder(
@@ -165,7 +187,7 @@ class SettingsScreen extends StatelessWidget {
         ],
         if (isLite && !isIosDesktop) ...[
           const Divider(),
-          const _SectionLabel('CONTROL SURFACE'),
+          const _SectionLabel('CONTROL SURFACE', '控制面板'),
           RadioGroup<ControlSurfaceLayout>(
             groupValue: preferences.controlSurfaceLayout,
             onChanged: (value) {
@@ -185,7 +207,10 @@ class SettingsScreen extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.grid_view_outlined),
-            title: const Text('Shortcut board keys per screen'),
+            title: const MobileText(
+              'Shortcut board keys per screen',
+              '每屏快捷按键数',
+            ),
             trailing: DropdownButton<int>(
               key: const ValueKey('tablet-keys-per-page'),
               value: preferences.tabletKeysPerPage,
@@ -214,7 +239,7 @@ class SettingsScreen extends StatelessWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.dashboard_customize_outlined),
-            title: const Text('Profiles'),
+            title: const MobileText('Profiles', '快捷键配置'),
             subtitle: Text(
               '${controller.config.profiles.length}/$freeProfileLimit profiles · manual switching',
             ),
@@ -227,9 +252,10 @@ class SettingsScreen extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.groups_outlined),
-            title: const Text('Shortcut Community'),
-            subtitle: const Text(
+            title: const MobileText('Shortcut Community', '快捷键社区'),
+            subtitle: const MobileText(
               'Import, replace, copy, and export Profile JSON',
+              '导入、替换、复制和导出配置 JSON',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
@@ -243,9 +269,10 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             key: const ValueKey('open-desktop-installers'),
             leading: const Icon(Icons.install_desktop_outlined),
-            title: const Text('Desktop installers'),
-            subtitle: const Text(
+            title: const MobileText('Desktop installers', '桌面安装包'),
+            subtitle: const MobileText(
               'Verify and export bundled Windows and macOS installers',
+              '验证和导出内置的 Windows 和 macOS 安装包',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
@@ -255,12 +282,15 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
         const Divider(),
-        const _SectionLabel('SCREEN ORIENTATION'),
+        const _SectionLabel('SCREEN ORIENTATION', '屏幕方向'),
         if (!isLite)
           const ListTile(
             leading: Icon(Icons.screen_lock_landscape_outlined),
-            title: Text('Landscape only'),
-            subtitle: Text('The control surface always stays horizontal.'),
+            title: MobileText('Landscape only', '仅横屏'),
+            subtitle: MobileText(
+              'The control surface always stays horizontal.',
+              '控制面板始终保持横屏。',
+            ),
           ),
         if (isLite)
           RadioGroup<OrientationMode>(
@@ -281,7 +311,7 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
         const Divider(),
-        const _SectionLabel('CHARGING DISPLAY'),
+        const _SectionLabel('CHARGING DISPLAY', '充电时的屏幕设置'),
         RadioGroup<ChargingBrightnessMode>(
           groupValue: preferences.chargingBrightnessMode,
           onChanged: (value) {
@@ -293,16 +323,18 @@ class SettingsScreen extends StatelessWidget {
             children: [
               RadioListTile<ChargingBrightnessMode>(
                 value: ChargingBrightnessMode.fixed,
-                title: Text('Fixed while charging'),
-                subtitle: Text(
+                title: MobileText('Fixed while charging', '充电时固定亮度'),
+                subtitle: MobileText(
                   'Keep the app at the selected brightness when power is connected',
+                  '连接电源时使用选定的屏幕亮度',
                 ),
               ),
               RadioListTile<ChargingBrightnessMode>(
                 value: ChargingBrightnessMode.dynamic,
-                title: Text('Dynamic / system controlled'),
-                subtitle: Text(
+                title: MobileText('Dynamic / system controlled', '由系统动态调节'),
+                subtitle: MobileText(
                   'Follow Android and compatible eye or presence tracking features',
+                  '跟随 Android 及兼容的视线或在场检测功能',
                 ),
               ),
             ],
@@ -312,7 +344,10 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.brightness_6_outlined),
             title: Text(
-              'Charging brightness ${(preferences.chargingBrightness * 100).round()}%',
+              context.mobileText(
+                'Charging brightness ${(preferences.chargingBrightness * 100).round()}%',
+                '充电时的亮度 ${(preferences.chargingBrightness * 100).round()}%',
+              ),
             ),
             subtitle: Slider(
               key: const ValueKey('charging-brightness-slider'),
@@ -327,38 +362,43 @@ class SettingsScreen extends StatelessWidget {
           ),
         SwitchListTile(
           secondary: const Icon(Icons.screen_lock_portrait_outlined),
-          title: const Text('Keep screen awake while charging'),
-          subtitle: const Text(
+          title: const MobileText(
+            'Keep screen awake while charging',
+            '充电时保持屏幕常亮',
+          ),
+          subtitle: const MobileText(
             'Prevent automatic screen timeout while external power is connected',
+            '连接外部电源时防止屏幕自动熄灭',
           ),
           value: preferences.keepScreenOnWhileCharging,
           onChanged: (value) =>
               controller.updateChargingBrightness(keepScreenOn: value),
         ),
         const Divider(),
-        const _SectionLabel('FEEDBACK'),
+        const _SectionLabel('FEEDBACK', '操作反馈'),
         SwitchListTile(
           secondary: const Icon(Icons.vibration),
-          title: const Text('Haptic feedback'),
+          title: const MobileText('Haptic feedback', '触觉反馈'),
           value: preferences.hapticEnabled,
           onChanged: (value) =>
               controller.updateFeedbackPreferences(hapticEnabled: value),
         ),
         SwitchListTile(
           secondary: const Icon(Icons.volume_up_outlined),
-          title: const Text('Sound feedback'),
+          title: const MobileText('Sound feedback', '声音反馈'),
           value: preferences.soundEnabled,
           onChanged: (value) =>
               controller.updateFeedbackPreferences(soundEnabled: value),
         ),
         const Divider(),
-        const _SectionLabel('COMMUNITY'),
+        const _SectionLabel('COMMUNITY', '社区'),
         ListTile(
           key: const ValueKey('open-community-setup'),
           leading: const Icon(Icons.tune),
-          title: const Text('Community sharing setup'),
-          subtitle: const Text(
+          title: const MobileText('Community sharing setup', '社区分享设置'),
+          subtitle: const MobileText(
             'Optional profession and computer proficiency for reviewed batches',
+            '可选填职业和电脑熟练程度，供分享内容审核参考',
           ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(
@@ -371,15 +411,18 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         const Divider(),
-        const _SectionLabel('SHORTCUT USAGE'),
+        const _SectionLabel('SHORTCUT USAGE', '快捷键使用情况'),
         _ShortcutUsageSection(controller: controller),
         const Divider(),
-        if (isLite) const _SectionLabel('BUILT-IN TEMPLATES'),
+        if (isLite) const _SectionLabel('BUILT-IN TEMPLATES', '内置模板'),
         if (isLite)
           ListTile(
             leading: const Icon(Icons.restore),
-            title: const Text('Restore all default profiles'),
-            subtitle: const Text('Restores General, ChatGPT, and Chrome'),
+            title: const MobileText('Restore all default profiles', '恢复所有默认配置'),
+            subtitle: const MobileText(
+              'Restores General, ChatGPT, and Chrome',
+              '恢复常规、ChatGPT 和 Chrome 配置',
+            ),
             onTap: () => _confirmRestore(context),
           ),
         Padding(
@@ -394,16 +437,20 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: !isLite
-                        ? const Text(
+                        ? const MobileText(
                             'LumiaKey sends shortcuts and pointer controls to '
-                            'LumiaKey Desktop over Wi-Fi; speech recognition '
-                            'stays on this device.',
+                                'LumiaKey Desktop over Wi-Fi; speech recognition '
+                                'stays on this device.',
+                            'LumiaKey 通过 Wi-Fi 向 LumiaKey Desktop 发送快捷键和指针操作，'
+                                '语音识别在本设备上进行。',
                             key: ValueKey('ipad-desktop-keyboard-explanation'),
                           )
-                        : const Text(
+                        : const MobileText(
                             'LumiaKey Lite sends Bluetooth keyboard and mouse '
-                            'input directly to your computer. Open the target '
-                            'app yourself and configure its shortcuts here.',
+                                'input directly to your computer. Open the target '
+                                'app yourself and configure its shortcuts here.',
+                            'LumiaKey Lite 通过蓝牙直接向电脑发送键盘和鼠标操作。'
+                                '请自行打开目标应用，并在这里设置它的快捷键。',
                           ),
                   ),
                 ],
@@ -415,7 +462,7 @@ class SettingsScreen extends StatelessWidget {
     );
     if (embedded) return SafeArea(child: content);
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const MobileText('Settings', '设置')),
       body: content,
     );
   }
@@ -473,18 +520,19 @@ class SettingsScreen extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Restore default profiles?'),
-        content: const Text(
+        title: const MobileText('Restore default profiles?', '恢复默认配置？'),
+        content: const MobileText(
           'Your local shortcuts will be replaced with General, ChatGPT, and Chrome.',
+          '你的本地快捷键将被常规、ChatGPT 和 Chrome 的默认快捷键替换。',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const MobileText('Cancel', '取消'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Restore'),
+            child: const MobileText('Restore', '恢复'),
           ),
         ],
       ),
@@ -493,10 +541,86 @@ class SettingsScreen extends StatelessWidget {
     await SmartKeysScope.of(context).restoreAllTemplates();
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Default profiles restored')),
+        const SnackBar(
+          content: MobileText('Default profiles restored', '已恢复默认配置'),
+        ),
       );
     }
   }
+}
+
+class _AppearanceSettings extends StatelessWidget {
+  const _AppearanceSettings({required this.appearance});
+
+  final MobileAppearance appearance;
+
+  Future<void> _save(BuildContext context, Future<void> operation) async {
+    try {
+      await operation;
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: MobileText('Could not save this setting.', '无法保存此设置。'),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      const _SectionLabel('APPEARANCE', '外观'),
+      ListTile(
+        leading: const Icon(Icons.language),
+        title: const MobileText('Language', '语言'),
+        trailing: DropdownButton<MobileLanguage>(
+          key: const ValueKey('mobile-language-selector'),
+          value: appearance.language,
+          items: [
+            for (final language in MobileLanguage.values)
+              DropdownMenuItem(value: language, child: Text(language.label)),
+          ],
+          onChanged: appearance.ready
+              ? (value) {
+                  if (value != null) {
+                    _save(context, appearance.setLanguage(value));
+                  }
+                }
+              : null,
+        ),
+      ),
+      ListTile(
+        leading: const Icon(Icons.palette_outlined),
+        title: const MobileText('Theme', '主题'),
+        trailing: DropdownButton<ThemeMode>(
+          key: const ValueKey('mobile-theme-selector'),
+          value: appearance.themeMode,
+          items: const [
+            DropdownMenuItem(
+              value: ThemeMode.system,
+              child: MobileText('Follow system', '跟随系统'),
+            ),
+            DropdownMenuItem(
+              value: ThemeMode.light,
+              child: MobileText('Light', '浅色'),
+            ),
+            DropdownMenuItem(
+              value: ThemeMode.dark,
+              child: MobileText('Dark', '深色'),
+            ),
+          ],
+          onChanged: appearance.ready
+              ? (value) {
+                  if (value != null) {
+                    _save(context, appearance.setThemeMode(value));
+                  }
+                }
+              : null,
+        ),
+      ),
+    ],
+  );
 }
 
 class _ShortcutUsageSection extends StatelessWidget {
@@ -515,27 +639,31 @@ class _ShortcutUsageSection extends StatelessWidget {
         children: [
           const ListTile(
             leading: Icon(Icons.privacy_tip_outlined),
-            title: Text('Private, on-device data'),
-            subtitle: Text(
+            title: MobileText('Private, on-device data', '本机私密数据'),
+            subtitle: MobileText(
               'Usage stays on this device unless you opt in to share aggregate counts.',
+              '除非你选择分享汇总次数，使用记录仅保存在本设备。',
             ),
           ),
           if (mostUsed == null)
             const ListTile(
               leading: Icon(Icons.bar_chart_outlined),
-              title: Text('No usage recorded yet'),
-              subtitle: Text('Counts appear here after you use shortcuts.'),
+              title: MobileText('No usage recorded yet', '暂无使用记录'),
+              subtitle: MobileText(
+                'Counts appear here after you use shortcuts.',
+                '使用快捷键后，这里会显示次数。',
+              ),
             )
           else ...[
             ListTile(
               leading: const Icon(Icons.trending_up),
-              title: const Text('Most used'),
+              title: const MobileText('Most used', '最常使用'),
               subtitle: Text(mostUsed.label),
               trailing: Text('${mostUsed.count}×'),
             ),
             ListTile(
               leading: const Icon(Icons.trending_down),
-              title: const Text('Least used'),
+              title: const MobileText('Least used', '最少使用'),
               subtitle: Text(leastUsed!.label),
               trailing: Text('${leastUsed.count}×'),
             ),
@@ -543,9 +671,10 @@ class _ShortcutUsageSection extends StatelessWidget {
           ListTile(
             key: const ValueKey('open-usage-dashboard'),
             leading: const Icon(Icons.query_stats_outlined),
-            title: const Text('Usage Dashboard'),
-            subtitle: const Text(
+            title: const MobileText('Usage Dashboard', '使用统计'),
+            subtitle: const MobileText(
               'Filter history, sort shortcuts, and manage optional sharing',
+              '筛选历史记录、排列快捷键，以及管理分享选项',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
@@ -557,8 +686,11 @@ class _ShortcutUsageSection extends StatelessWidget {
           ListTile(
             key: const ValueKey('open-account-backup'),
             leading: const Icon(Icons.cloud_outlined),
-            title: const Text('Google Drive backup'),
-            subtitle: const Text('Back up and restore your profiles'),
+            title: const MobileText('Google Drive backup', 'Google Drive 备份'),
+            subtitle: const MobileText(
+              'Back up and restore your profiles',
+              '备份和恢复你的快捷键配置',
+            ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -573,16 +705,17 @@ class _ShortcutUsageSection extends StatelessWidget {
 }
 
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
+  const _SectionLabel(this.text, this.translation);
 
   final String text;
+  final String translation;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
       child: Text(
-        text,
+        context.mobileText(text, translation),
         style: TextStyle(
           color: Theme.of(context).colorScheme.primary,
           fontSize: 12,

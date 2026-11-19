@@ -7,6 +7,7 @@ import '../icons/app_icon_catalog.dart';
 import '../icons/icon_library.dart';
 import '../app.dart';
 import '../app_library/app_library.dart';
+import '../mobile_appearance.dart';
 
 class AppIconLibraryScreen extends StatefulWidget {
   const AppIconLibraryScreen({super.key, this.library});
@@ -102,11 +103,14 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
           return Scaffold(
             key: const ValueKey('app-library-catalog'),
             appBar: AppBar(
-              title: const Text('App library'),
+              title: const MobileText('App library', '应用库'),
               actions: [
                 IconButton(
                   key: const ValueKey('icon-library-refresh'),
-                  tooltip: 'Refresh online catalog',
+                  tooltip: context.mobileText(
+                    'Refresh online catalog',
+                    '刷新在线目录',
+                  ),
                   onPressed: library.loading ? null : library.refresh,
                   icon: const Icon(Icons.refresh),
                 ),
@@ -124,9 +128,12 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                           builder: (context, bounds) {
                             final search = TextField(
                               key: const ValueKey('icon-library-search'),
-                              decoration: const InputDecoration(
-                                prefixIcon: Icon(Icons.search),
-                                labelText: 'Search App name or ID',
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.search),
+                                labelText: context.mobileText(
+                                  'Search App name or ID',
+                                  '搜索应用名称或 ID',
+                                ),
                               ),
                               onChanged: (value) =>
                                   setState(() => _query = value),
@@ -135,8 +142,11 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                               key: const ValueKey('app-library-os'),
                               initialValue: _targetOS,
                               isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Computer OS',
+                              decoration: InputDecoration(
+                                labelText: context.mobileText(
+                                  'Computer OS',
+                                  '电脑操作系统',
+                                ),
                               ),
                               items: [
                                 for (final value in const [
@@ -169,8 +179,9 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                           horizontal: 16,
                           vertical: 4,
                         ),
-                        child: Text(
+                        child: MobileText(
                           'Set up in LumiaKey Desktop → Apps → App library.',
+                          '请在 LumiaKey Desktop → 应用 → 应用库中配置。',
                         ),
                       ),
                       Padding(
@@ -194,7 +205,9 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                                         ),
                                         child: ChoiceChip(
                                           key: ValueKey('icon-filter-$filter'),
-                                          label: Text(filter),
+                                          label: Text(
+                                            _localizedFilter(context, filter),
+                                          ),
                                           selected: _filter == filter,
                                           onSelected: (_) =>
                                               setState(() => _filter = filter),
@@ -205,7 +218,10 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                               ),
                             ),
                             Text(
-                              '${entries.length} Apps',
+                              context.mobileText(
+                                '${entries.length} Apps',
+                                '${entries.length} 个应用',
+                              ),
                               key: const ValueKey('icon-library-count'),
                             ),
                           ],
@@ -230,7 +246,7 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                                 onPressed: library.loading
                                     ? null
                                     : library.refresh,
-                                child: const Text('Retry'),
+                                child: const MobileText('Retry', '重试'),
                               ),
                             ],
                           ),
@@ -241,8 +257,9 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                             horizontal: 16,
                             vertical: 5,
                           ),
-                          child: Text(
+                          child: MobileText(
                             'Bundled artwork works offline. App shortcut previews are included; optional artwork additions require a configured icon service.',
+                            '内置图标和快捷键预览可离线使用。下载更多图标需要配置图标服务。',
                           ),
                         ),
                     ],
@@ -252,8 +269,9 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: Center(
-                      child: Text(
+                      child: MobileText(
                         'No Apps match this search and computer OS.',
+                        '没有应用符合当前搜索和电脑操作系统。',
                         key: ValueKey('icon-library-empty'),
                       ),
                     ),
@@ -300,10 +318,16 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                                     const Spacer(),
                                     Text(
                                       entry.bundled
-                                          ? 'Built-in'
+                                          ? _localizedFilter(
+                                              context,
+                                              'Built-in',
+                                            )
                                           : library.isDownloaded(entry.id)
-                                          ? 'Downloaded'
-                                          : 'Online',
+                                          ? _localizedFilter(
+                                              context,
+                                              'Downloaded',
+                                            )
+                                          : _localizedFilter(context, 'Online'),
                                       style: Theme.of(
                                         context,
                                       ).textTheme.labelSmall,
@@ -324,6 +348,14 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
       ),
     );
   }
+
+  String _localizedFilter(BuildContext context, String value) =>
+      context.mobileText(value, switch (value) {
+        'Built-in' => '内置',
+        'Downloaded' => '已下载',
+        'Online' => '在线',
+        _ => '全部',
+      });
 
   Future<void> _showEntry(
     IconLibrary library,
@@ -348,7 +380,10 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                 '${appLibraryOSLabel(_targetOS)} · ${appLibraryContextLabel(appLibrary.context)} · v${appLibrary.version}',
                 key: const ValueKey('app-library-variant'),
               ),
-              const Text('Set up in LumiaKey Desktop → Apps → App library.'),
+              const MobileText(
+                'Set up in LumiaKey Desktop → Apps → App library.',
+                '请在 LumiaKey Desktop → 应用 → 应用库中配置。',
+              ),
               for (final action in appLibrary.actions)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -357,10 +392,13 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                   subtitle: Text(
                     action.isConfigured
                         ? formatAppLibraryChord(action.keys, _targetOS)
-                        : 'Unassigned · configure before use',
+                        : context.mobileText(
+                            'Unassigned · configure before use',
+                            '未分配 · 请先配置',
+                          ),
                   ),
                 ),
-              const Text('Shortcut sources'),
+              const MobileText('Shortcut sources', '快捷键来源'),
               for (final source in appLibrary.sourceUrls)
                 SelectableText(source),
               const Divider(),
@@ -377,27 +415,33 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
             SelectableText(entry.id),
             Text(
               entry.bundled
-                  ? 'Included for offline use'
+                  ? context.mobileText('Included for offline use', '已内置，可离线使用')
                   : library.isDownloaded(entry.id)
-                  ? 'Downloaded for offline use'
-                  : 'Available from the icon library',
+                  ? context.mobileText(
+                      'Downloaded for offline use',
+                      '已下载，可离线使用',
+                    )
+                  : context.mobileText(
+                      'Available from the icon library',
+                      '可从图标库下载',
+                    ),
             ),
             const SizedBox(height: 12),
-            const Text('Source'),
+            const MobileText('Source', '来源'),
             SelectableText(entry.sourcePageUrl),
             TextButton.icon(
               onPressed: () =>
                   Clipboard.setData(ClipboardData(text: entry.sourcePageUrl)),
               icon: const Icon(Icons.link),
-              label: const Text('Copy source link'),
+              label: const MobileText('Copy source link', '复制来源链接'),
             ),
-            const Text('Brand usage terms'),
+            const MobileText('Brand usage terms', '品牌使用条款'),
             SelectableText(entry.termsUrl),
             TextButton.icon(
               onPressed: () =>
                   Clipboard.setData(ClipboardData(text: entry.termsUrl)),
               icon: const Icon(Icons.link),
-              label: const Text('Copy terms link'),
+              label: const MobileText('Copy terms link', '复制条款链接'),
             ),
             if (!entry.bundled)
               FilledButton.icon(
@@ -413,10 +457,13 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
                     : const Icon(Icons.download),
                 label: Text(
                   library.isDownloading(entry.id)
-                      ? 'Downloading…'
+                      ? context.mobileText('Downloading…', '正在下载…')
                       : library.isDownloaded(entry.id)
-                      ? 'Download again'
-                      : 'Download for offline use',
+                      ? context.mobileText('Download again', '重新下载')
+                      : context.mobileText(
+                          'Download for offline use',
+                          '下载以便离线使用',
+                        ),
                 ),
               ),
             if (library.error case final message?)
@@ -426,11 +473,11 @@ class _AppIconLibraryScreenState extends State<AppIconLibraryScreen> {
         actions: [
           TextButton(
             onPressed: () => Clipboard.setData(ClipboardData(text: entry.id)),
-            child: const Text('Copy App ID'),
+            child: const MobileText('Copy App ID', '复制应用 ID'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
+            child: const MobileText('Close', '关闭'),
           ),
         ],
       ),
