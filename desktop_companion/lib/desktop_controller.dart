@@ -11,6 +11,7 @@ import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'desktop_actions.dart';
+import 'desktop_pairing_address_store.dart';
 import 'app_icon_service.dart';
 import 'installed_app_registry.dart';
 import 'installed_app_discovery.dart';
@@ -558,6 +559,8 @@ class DesktopController extends ChangeNotifier {
     ApplicationDiscovery? discovery,
     InstalledAppRegistry? installedRegistry,
     LauncherKeyStore? launcherKeyStore,
+    DesktopPairingAddressStore? pairingAddressStore,
+    Map<String, String>? environment,
     this.foregroundProbe,
     String? libraryOperatingSystem,
   }) : libraryOperatingSystem =
@@ -567,16 +570,24 @@ class DesktopController extends ChangeNotifier {
                : Platform.isWindows
                ? 'windows'
                : 'linux'),
-       actions = actions ?? DesktopActions(),
+       actions = actions ?? DesktopActions(environment: environment),
        installedRegistry =
            installedRegistry ??
            (store is MemoryDesktopConfigStore
                ? InstalledAppRegistry()
                : InstalledAppRegistry(
-                   discover: PlatformInstalledApplicationDiscovery().discover,
+                   discover: PlatformInstalledApplicationDiscovery(
+                     environment: environment,
+                   ).discover,
                    store: SharedPreferencesInstalledRegistryStore(),
                  )),
-       discovery = discovery ?? PlatformApplicationDiscovery(),
+       discovery =
+           discovery ?? PlatformApplicationDiscovery(environment: environment),
+       pairingAddressStore =
+           pairingAddressStore ??
+           (store is MemoryDesktopConfigStore
+               ? MemoryDesktopPairingAddressStore()
+               : SharedPreferencesDesktopPairingAddressStore()),
        launcherKeyStore =
            launcherKeyStore ??
            (store is MemoryDesktopConfigStore
@@ -611,6 +622,7 @@ class DesktopController extends ChangeNotifier {
   final ApplicationDiscovery discovery;
   final InstalledAppRegistry installedRegistry;
   final LauncherKeyStore launcherKeyStore;
+  final DesktopPairingAddressStore pairingAddressStore;
   final Future<bool> Function(RemoteApplication)? foregroundProbe;
   bool _managedActionRunning = false;
   int _applicationRefreshGeneration = 0;
@@ -1790,12 +1802,105 @@ class DesktopController extends ChangeNotifier {
     return List.generate(32, (_) => hex[random.nextInt(hex.length)]).join();
   }
 
-  Future<void> switchProfile(String profileId) async {
-    if (!_manifest.profiles.any((profile) => profile.id == profileId)) {
+  List<RemoteShortcutLayout> get profileLayoutOptions =>
+      List.unmodifiable(_profileLayouts(manifest));
+
+  static Iterable<RemoteShortcutLayout> _profileLayouts(
+    DesktopManifest manifest,
+  ) {
+    final libraryLayouts = {
+      for (final profile in manifest.profiles)
+        if (profile.isLibraryProfile) profile.layoutId,
+    };
+    return manifest.layouts.where(
+      (layout) =>
+          layout.id != installedLaunchOnlyLayoutId &&
+          !libraryLayouts.contains(layout.id),
+    );
+  }
+
+  Future<String> addProfile({
+    required String name,
+    required String layoutId,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty ||
+        trimmed.length > 64 ||
+        trimmed.codeUnits.any(
+          (unit) => unit < 32 || (unit >= 127 && unit < 160),
+        )) {
+      throw const FormatException(
+        'Enter a profile name between 1 and 64 characters.',
+      );
+    }
+    final id = 'profile.${_newComputerId()}';
+    await _commit((current) {
+      if (current.profiles.any(
+        (profile) => profile.name.trim().toLowerCase() == trimmed.toLowerCase(),
+      )) {
+        throw const FormatException('A profile already uses that name.');
+      }
+      if (!_profileLayouts(current).any((layout) => layout.id == layoutId)) {
+        throw const FormatException('Choose an available shortcut layout.');
+      }
+      return current.copyWith(
+        profiles: [
+          ...current.profiles,
+          RemoteProfile(id: id, name: trimmed, layoutId: layoutId),
+        ],
+      );
+    });
+    return id;
+  }
+
+  Future<void> deleteProfile(String profileId) => _commit((current) {
+    final removed = current.profiles
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    if (removed == null) {
       throw const FormatException('Unknown shortcut profile');
     }
-    await _commit((current) => current.copyWith(currentProfileId: profileId));
-  }
+    if (profileId == 'default' || current.profiles.length == 1) {
+      throw const FormatException(
+        'The default or only profile cannot be deleted.',
+      );
+    }
+    final remaining = current.profiles
+        .where((profile) => profile.id != profileId)
+        .toList(growable: false);
+    if (removed.isLibraryProfile &&
+        (remaining.any((profile) => profile.layoutId == removed.layoutId) ||
+            current.applications.any(
+              (app) => app.layoutId == removed.layoutId,
+            ))) {
+      // A library-backed layout must continue to be covered by its profile's
+      // input authority and foreground guard.
+      throw const FormatException(
+        'The library layout is shared and cannot be deleted.',
+      );
+    }
+    final fallback =
+        remaining.where((profile) => profile.id == 'default').firstOrNull ??
+        remaining.first;
+    return current.copyWith(
+      profiles: remaining,
+      currentProfileId: current.currentProfileId == profileId
+          ? fallback.id
+          : current.currentProfileId,
+      layouts: removed.isLibraryProfile
+          ? current.layouts
+                .where((layout) => layout.id != removed.layoutId)
+                .toList(growable: false)
+          : current.layouts,
+    );
+  });
+
+  Future<void> switchProfile(String profileId) => _commit((current) {
+    if (!current.profiles.any((profile) => profile.id == profileId)) {
+      throw const FormatException('Unknown shortcut profile');
+    }
+    return current.copyWith(currentProfileId: profileId);
+  });
 
   Future<void> executeRemote(RemoteActionRequest request) async {
     switch (request.kind) {

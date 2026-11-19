@@ -19,6 +19,7 @@ typedef InstalledProcessRunner =
 class PlatformInstalledApplicationDiscovery {
   PlatformInstalledApplicationDiscovery({
     TargetPlatform? platform,
+    Map<String, String>? environment,
     this.runner,
     MethodChannel? channel,
     WindowsDesktopBackend? windowsDesktopBackend,
@@ -34,7 +35,7 @@ class PlatformInstalledApplicationDiscovery {
                    isWindows:
                        (platform ?? defaultTargetPlatform) ==
                        TargetPlatform.windows,
-                   environment: Platform.environment,
+                   environment: environment ?? Platform.environment,
                  ));
   final TargetPlatform platform;
   final InstalledProcessRunner? runner;

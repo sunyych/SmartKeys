@@ -1,20 +1,36 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'desktop_controller.dart';
 import 'desktop_dictation.dart';
+import 'desktop_localizations.dart';
 
 const desktopBrandAsset = 'assets/tray_icon.png';
 
 class DesktopTrayShell with TrayListener, WindowListener {
-  DesktopTrayShell({required this.controller, required this.dictation});
+  DesktopTrayShell({
+    required this.controller,
+    required this.dictation,
+    Locale? locale,
+  }) : _locale = locale ?? const Locale('en');
 
   final DesktopController controller;
   final DesktopDictationService dictation;
+  Locale _locale;
   bool _disposed = false;
+
+  void setLocale(Locale locale) {
+    if (_disposed || _locale == locale) return;
+    _locale = locale;
+    unawaited(_refreshMenu());
+  }
+
+  String _text(String english, String chinese) =>
+      desktopLocaleText(_locale, english, chinese);
 
   Future<void> initialize() async {
     trayManager.addListener(this);
@@ -51,25 +67,28 @@ class DesktopTrayShell with TrayListener, WindowListener {
     await trayManager.setContextMenu(
       Menu(
         items: [
-          MenuItem(key: 'settings', label: 'Open Settings'),
-          MenuItem(key: 'launcher', label: 'Open Launcher'),
+          MenuItem(key: 'settings', label: _text('Open Settings', '打开设置')),
+          MenuItem(key: 'launcher', label: _text('Open Launcher', '打开启动台')),
           MenuItem(
             key: 'dictation',
             label: dictation.listening
-                ? 'Stop Local Dictation'
-                : 'Start Local Dictation',
+                ? _text('Stop Local Dictation', '停止本地听写')
+                : _text('Start Local Dictation', '开始本地听写'),
           ),
           MenuItem(
             key: 'phone',
             label: controller.connectedPhone == null
-                ? 'Connected Phone · None'
-                : 'Connected Phone · ${controller.connectedPhone}',
+                ? _text('Connected Phone · None', '已连接手机 · 无')
+                : '${_text('Connected Phone', '已连接手机')} · ${controller.connectedPhone}',
             disabled: true,
           ),
-          MenuItem.submenu(label: 'Shortcut Profiles', submenu: profiles),
-          MenuItem(key: 'about', label: 'About'),
+          MenuItem.submenu(
+            label: _text('Shortcut Profiles', '快捷键配置'),
+            submenu: profiles,
+          ),
+          MenuItem(key: 'about', label: _text('About', '关于')),
           MenuItem.separator(),
-          MenuItem(key: 'quit', label: 'Quit'),
+          MenuItem(key: 'quit', label: _text('Quit', '退出')),
         ],
       ),
     );

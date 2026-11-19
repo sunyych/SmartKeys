@@ -2,14 +2,15 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import 'package:flutter/services.dart';
 import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'companion_server.dart';
 import 'desktop_actions.dart';
+import 'desktop_connections.dart';
+import 'desktop_profiles.dart';
+import 'desktop_app_preferences.dart';
 import 'desktop_controller.dart';
 import 'app_library_page.dart';
 import 'phone_sidebar_page.dart';
@@ -17,8 +18,12 @@ import 'desktop_application_artwork.dart';
 import 'installed_app_picker.dart';
 import 'app_icon_service.dart';
 import 'desktop_dictation.dart';
+import 'desktop_localizations.dart';
+import 'desktop_preferences_page.dart';
 import 'shortcut_transfer_service.dart';
 import 'tray_shell.dart' show desktopBrandAsset;
+
+export 'desktop_connections.dart' show desktopPairingCode, DesktopPairingQr;
 
 class DesktopSettingsHome extends StatelessWidget {
   const DesktopSettingsHome({
@@ -27,25 +32,35 @@ class DesktopSettingsHome extends StatelessWidget {
     required this.server,
     required this.dictation,
     this.displayHost,
+    this.preferences = const DesktopAppPreferences(),
+    this.onPreferencesChanged,
+    this.savingPreferences = false,
+    this.preferencesSaveFailed = false,
   });
 
   final DesktopController controller;
   final CompanionServer server;
   final DesktopDictationService dictation;
   final String? displayHost;
+  final DesktopAppPreferences preferences;
+  final ValueChanged<DesktopAppPreferences>? onPreferencesChanged;
+  final bool savingPreferences;
+  final bool preferencesSaveFailed;
 
-  static const appBarSection = 8;
+  static const appBarSection = 9;
+  static const navigationOrder = [0, 1, 2, 3, appBarSection, 4, 6, 7, 8, 5];
 
   static const sections = [
-    (Icons.tune, 'General'),
-    (Icons.bluetooth, 'Bluetooth'),
-    (Icons.dashboard_customize_outlined, 'Shortcut Layout'),
-    (Icons.apps, 'Apps'),
-    (Icons.layers_outlined, 'Profiles'),
-    (Icons.info_outline, 'About'),
-    (Icons.mic, 'Local Dictation'),
-    (Icons.rocket_launch_outlined, 'Launcher'),
-    (Icons.view_sidebar_outlined, 'App Bar'),
+    (Icons.tune, 'General', '常规'),
+    (Icons.bluetooth, 'Connections', '连接'),
+    (Icons.dashboard_customize_outlined, 'Shortcut Layout', '快捷键布局'),
+    (Icons.apps, 'Apps', '应用'),
+    (Icons.layers_outlined, 'Profiles', '配置方案'),
+    (Icons.info_outline, 'About', '关于'),
+    (Icons.mic, 'Local Dictation', '本地听写'),
+    (Icons.rocket_launch_outlined, 'Launcher', '启动台'),
+    (Icons.settings_outlined, 'Settings', '设置'),
+    (Icons.view_sidebar_outlined, 'App Bar', '应用栏'),
   ];
 
   @override
@@ -54,23 +69,29 @@ class DesktopSettingsHome extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     final extendedNavigation = MediaQuery.sizeOf(context).width >= 920;
+    final selected = navigationOrder.contains(controller.selectedSection)
+        ? controller.selectedSection
+        : 7;
+    String sectionLabel(int section) =>
+        desktopText(context, sections[section].$2, sections[section].$3);
     return Scaffold(
       body: Row(
         children: [
           NavigationRail(
             scrollable: true,
             extended: extendedNavigation,
-            selectedIndex: controller.selectedSection,
-            onDestinationSelected: controller.selectSection,
+            selectedIndex: navigationOrder.indexOf(selected),
+            onDestinationSelected: (index) =>
+                controller.selectSection(navigationOrder[index]),
             leading: Padding(
               padding: const EdgeInsets.only(top: 16, bottom: 20),
               child: _BrandLogo(extended: extendedNavigation),
             ),
-            destinations: sections
+            destinations: navigationOrder
                 .map(
                   (section) => NavigationRailDestination(
-                    icon: Icon(section.$1),
-                    label: Text(section.$2),
+                    icon: Icon(sections[section].$1),
+                    label: Text(sectionLabel(section)),
                   ),
                 )
                 .toList(growable: false),
@@ -79,14 +100,14 @@ class DesktopSettingsHome extends StatelessWidget {
           Expanded(
             child: Column(
               children: [
-                _TitleBar(title: sections[controller.selectedSection].$2),
+                _TitleBar(title: sectionLabel(selected)),
                 if (controller.error != null)
                   MaterialBanner(
                     content: Text(controller.error!),
                     actions: [
                       TextButton(
                         onPressed: controller.refreshApplications,
-                        child: const Text('Retry'),
+                        child: Text(desktopText(context, 'Retry', '重试')),
                       ),
                     ],
                   ),
@@ -107,16 +128,28 @@ class DesktopSettingsHome extends StatelessWidget {
       displayHost: displayHost,
       dictation: dictation,
     ),
-    1 => _BluetoothPage(
+    1 => DesktopConnectionsPage(
       controller: controller,
       server: server,
-      displayHost: displayHost,
+      statusCard: _StatusCard(
+        controller: controller,
+        server: server,
+        displayHost: displayHost,
+      ),
     ),
     2 => _ShortcutLayoutsPage(controller: controller),
     3 => _AppsPage(controller: controller),
-    4 => _ProfilesPage(controller: controller),
+    4 => DesktopProfilesPage(controller: controller),
     5 => _AboutPage(inputBackend: controller.actions.inputBackend),
     6 => _LocalDictationPage(dictation: dictation),
+    8 => DesktopPreferencesPage(
+      preferences: preferences,
+      rustInitiallySelected:
+          controller.actions.inputBackend != DesktopInputBackend.standard,
+      onChanged: onPreferencesChanged,
+      saving: savingPreferences,
+      saveFailed: preferencesSaveFailed,
+    ),
     appBarSection => PhoneSidebarPage(controller: controller),
     _ => _LauncherPage(controller: controller),
   };
@@ -131,19 +164,22 @@ class _DesktopStatusBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final foreground = controller.foregroundApplication;
+    final colors = Theme.of(context).colorScheme;
     return Container(
       key: const ValueKey('desktop-status-bar'),
       height: 34,
       padding: const EdgeInsets.symmetric(horizontal: 18),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Colors.black12)),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.outlineVariant)),
       ),
       child: Row(
         children: [
           Expanded(
             child: _DesktopStatusItem(
               icon: server.running ? Icons.sync : Icons.sync_problem,
-              label: server.running ? 'Desktop ready' : 'Desktop offline',
+              label: server.running
+                  ? desktopText(context, 'Desktop ready', '桌面端已就绪')
+                  : desktopText(context, 'Desktop offline', '桌面端离线'),
               active: server.running,
             ),
           ),
@@ -152,8 +188,8 @@ class _DesktopStatusBar extends StatelessWidget {
             child: _DesktopStatusItem(
               icon: Icons.phone_android,
               label: controller.connectedPhone == null
-                  ? 'Waiting for phone'
-                  : 'Phone connected',
+                  ? desktopText(context, 'Waiting for phone', '正在等待手机连接')
+                  : desktopText(context, 'Phone connected', '手机已连接'),
               active: controller.connectedPhone != null,
             ),
           ),
@@ -161,7 +197,13 @@ class _DesktopStatusBar extends StatelessWidget {
           Expanded(
             child: _DesktopStatusItem(
               icon: Icons.center_focus_strong,
-              label: foreground?.name ?? 'No mapped foreground app',
+              label:
+                  foreground?.name ??
+                  desktopText(
+                    context,
+                    'No mapped foreground app',
+                    '没有已映射的前台应用',
+                  ),
               active: foreground != null,
             ),
           ),
@@ -214,8 +256,10 @@ class _TitleBar extends StatelessWidget {
     height: 68,
     alignment: Alignment.centerLeft,
     padding: const EdgeInsets.symmetric(horizontal: 28),
-    decoration: const BoxDecoration(
-      border: Border(bottom: BorderSide(color: Colors.black12)),
+    decoration: BoxDecoration(
+      border: Border(
+        bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
     ),
     child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
   );
@@ -240,7 +284,7 @@ class _BrandLogo extends StatelessWidget {
           width: 42,
           height: 42,
           filterQuality: FilterQuality.high,
-          semanticLabel: 'LumiaKey logo',
+          semanticLabel: desktopText(context, 'LumiaKey logo', 'LumiaKey 标志'),
         ),
         if (extended) ...[
           const SizedBox(width: 10),
@@ -315,15 +359,22 @@ class _GeneralPage extends StatelessWidget {
           _MacPointerPermissionCard(service: dictation),
         ],
         const SizedBox(height: 24),
-        Text('Synchronization', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          desktopText(context, 'Synchronization', '同步'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         Card(
           child: Column(
             children: [
               SwitchListTile(
-                title: const Text('Enable Apps Sync'),
-                subtitle: const Text(
-                  'Publish managed apps and their layouts to Android',
+                title: Text(desktopText(context, 'Enable Apps Sync', '启用应用同步')),
+                subtitle: Text(
+                  desktopText(
+                    context,
+                    'Publish managed apps and their layouts to Android',
+                    '将受管理的应用及其布局同步到 Android',
+                  ),
                 ),
                 value: settings.enableAppsSync,
                 onChanged: (value) => controller.updateSettings(
@@ -332,9 +383,13 @@ class _GeneralPage extends StatelessWidget {
               ),
               const Divider(height: 1),
               SwitchListTile(
-                title: const Text('Auto Launch Apps'),
-                subtitle: const Text(
-                  'Allow phone app cards to launch configured desktop apps',
+                title: Text(desktopText(context, 'Auto Launch Apps', '自动启动应用')),
+                subtitle: Text(
+                  desktopText(
+                    context,
+                    'Allow phone app cards to launch configured desktop apps',
+                    '允许手机上的应用卡片启动已配置的桌面应用',
+                  ),
                 ),
                 value: settings.autoLaunchApps,
                 onChanged: (value) => controller.updateSettings(
@@ -343,9 +398,13 @@ class _GeneralPage extends StatelessWidget {
               ),
               const Divider(height: 1),
               SwitchListTile(
-                title: const Text('Sync Icons'),
-                subtitle: const Text(
-                  'Include semantic icon identifiers in the phone manifest',
+                title: Text(desktopText(context, 'Sync Icons', '同步图标')),
+                subtitle: Text(
+                  desktopText(
+                    context,
+                    'Include semantic icon identifiers in the phone manifest',
+                    '在发送给手机的配置中包含图标标识',
+                  ),
                 ),
                 value: settings.syncIcons,
                 onChanged: (value) => controller.updateSettings(
@@ -356,23 +415,33 @@ class _GeneralPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
-        Text('Current state', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          desktopText(context, 'Current state', '当前状态'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         Card(
           child: Column(
             children: [
               ListTile(
                 leading: const Icon(Icons.phone_android),
-                title: const Text('Current Connected Phone'),
+                title: Text(
+                  desktopText(context, 'Current Connected Phone', '当前连接的手机'),
+                ),
                 subtitle: Text(
-                  controller.connectedPhone ?? 'No phone connected',
+                  controller.connectedPhone ??
+                      desktopText(context, 'No phone connected', '尚未连接手机'),
                 ),
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.layers_outlined),
-                title: const Text('Current Shortcut Profile'),
-                subtitle: Text(profile?.name ?? 'Unavailable'),
+                title: Text(
+                  desktopText(context, 'Current Shortcut Profile', '当前快捷键配置'),
+                ),
+                subtitle: Text(
+                  profile?.name ?? desktopText(context, 'Unavailable', '不可用'),
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => controller.selectSection(4),
               ),
@@ -402,24 +471,40 @@ class _MacPointerPermissionCard extends StatelessWidget {
         ),
         title: Text(
           service.accessibilityGranted
-              ? 'Mouse and keyboard permissions are ready'
-              : 'Allow Mac mouse and keyboard control',
+              ? desktopText(
+                  context,
+                  'Mouse and keyboard permissions are ready',
+                  '鼠标和键盘权限已就绪',
+                )
+              : desktopText(
+                  context,
+                  'Allow Mac mouse and keyboard control',
+                  '允许控制 Mac 的鼠标和键盘',
+                ),
         ),
-        subtitle: const Text(
-          'In System Settings → Privacy & Security → Accessibility, allow LumiaKey Desktop. This permission also enables event posting. If it is already enabled but input still fails, remove the old LumiaKey Desktop entry and add the current app again.',
+        subtitle: Text(
+          desktopText(
+            context,
+            'In System Settings → Privacy & Security → Accessibility, allow LumiaKey Desktop. This permission also enables event posting. If it is already enabled but input still fails, remove the old LumiaKey Desktop entry and add the current app again.',
+            '打开「系统设置 → 隐私与安全性 → 辅助功能」，允许 LumiaKey Desktop 控制电脑。该权限也用于发送输入事件。如果已授权但仍无法输入，请移除旧的 LumiaKey Desktop 条目，再添加当前应用。',
+          ),
         ),
         trailing: Wrap(
           children: [
             TextButton(
               onPressed: service.requestAccessibility,
-              child: const Text('Request'),
+              child: Text(desktopText(context, 'Request', '请求权限')),
             ),
             TextButton(
               onPressed: service.openAccessibilitySettings,
-              child: const Text('Settings'),
+              child: Text(desktopText(context, 'Settings', '系统设置')),
             ),
             IconButton(
-              tooltip: 'Refresh permission status',
+              tooltip: desktopText(
+                context,
+                'Refresh permission status',
+                '刷新权限状态',
+              ),
               onPressed: service.refreshAccessibility,
               icon: const Icon(Icons.refresh),
             ),
@@ -470,13 +555,21 @@ class _StatusCard extends StatelessWidget {
                 children: [
                   Text(
                     server.running
-                        ? 'LumiaKey Desktop is ready'
-                        : 'Sync service unavailable',
+                        ? desktopText(
+                            context,
+                            'LumiaKey Desktop is ready',
+                            'LumiaKey Desktop 已就绪',
+                          )
+                        : desktopText(
+                            context,
+                            'Sync service unavailable',
+                            '同步服务不可用',
+                          ),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '$platform · ${displayHost ?? Platform.localHostname} · revision ${controller.manifest.revision}',
+                    '$platform · ${displayHost ?? Platform.localHostname} · ${desktopText(context, 'revision', '修订版本')} ${controller.manifest.revision}',
                   ),
                 ],
               ),
@@ -486,253 +579,6 @@ class _StatusCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _BluetoothPage extends StatelessWidget {
-  const _BluetoothPage({
-    required this.controller,
-    required this.server,
-    required this.displayHost,
-  });
-
-  final DesktopController controller;
-  final CompanionServer server;
-  final String? displayHost;
-
-  @override
-  Widget build(BuildContext context) => _PageBody(
-    children: [
-      _StatusCard(
-        controller: controller,
-        server: server,
-        displayHost: displayHost,
-      ),
-      const SizedBox(height: 24),
-      _TabletPairingCard(server: server),
-      const SizedBox(height: 24),
-      Card(
-        child: Column(
-          children: [
-            const ListTile(
-              leading: Icon(Icons.bluetooth_connected),
-              title: Text('Bluetooth HID'),
-              subtitle: Text(
-                'The Android phone pairs directly with this computer for keyboard and mouse input.',
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.sync),
-              title: const Text('Desktop layout sync'),
-              subtitle: Text(
-                server.running
-                    ? 'Authenticated local channel active on port ${server.actionPort ?? 'starting'}'
-                    : server.error ?? 'Not running',
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.phone_android),
-              title: const Text('Current Connected Phone'),
-              subtitle: Text(
-                controller.connectedPhone ?? 'Waiting for LumiaKey Android',
-              ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 16),
-      const Text(
-        'Bluetooth HID remains the input path. V1.2 layout data uses the authenticated companion channel so the desktop can send structured layouts and icons back to Android.',
-      ),
-    ],
-  );
-}
-
-class _TabletPairingCard extends StatefulWidget {
-  const _TabletPairingCard({required this.server});
-  final CompanionServer server;
-
-  @override
-  State<_TabletPairingCard> createState() => _TabletPairingCardState();
-}
-
-class _TabletPairingCardState extends State<_TabletPairingCard> {
-  List<String> _addresses = const [];
-  String? _selectedAddress;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_loadAddresses());
-  }
-
-  Future<void> _loadAddresses() async {
-    try {
-      final interfaces = await NetworkInterface.list(
-        includeLoopback: false,
-        type: InternetAddressType.IPv4,
-      );
-      final values =
-          interfaces
-              .expand((interface) => interface.addresses)
-              .where(_isPrivateIpv4)
-              .map((address) => address.address)
-              .toSet()
-              .toList()
-            ..sort();
-      if (mounted) {
-        setState(() {
-          _addresses = values;
-          if (!_addresses.contains(_selectedAddress)) {
-            _selectedAddress = values.isEmpty ? null : values.first;
-          }
-        });
-      }
-    } on SocketException {
-      if (mounted) setState(() => _addresses = const []);
-    }
-  }
-
-  bool _isPrivateIpv4(InternetAddress address) {
-    final bytes = address.rawAddress;
-    return bytes[0] == 10 ||
-        (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
-        (bytes[0] == 192 && bytes[1] == 168);
-  }
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Connect an iPhone, iPad, or Android device',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Join the same Wi-Fi, then scan this code in LumiaKey or paste the private connection code manually.',
-          ),
-          const SizedBox(height: 12),
-          if (_addresses.isEmpty)
-            const Text('No private IPv4 address is available.')
-          else ...[
-            DropdownButtonFormField<String>(
-              initialValue: _addresses.contains(_selectedAddress)
-                  ? _selectedAddress
-                  : null,
-              decoration: const InputDecoration(
-                labelText: 'Desktop network address',
-              ),
-              items: _addresses
-                  .map(
-                    (address) =>
-                        DropdownMenuItem(value: address, child: Text(address)),
-                  )
-                  .toList(growable: false),
-              onChanged: (address) =>
-                  setState(() => _selectedAddress = address),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Choose the Wi-Fi address reachable by your iPhone or iPad. Avoid VPN or virtual adapter addresses.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-          if (_addresses.contains(_selectedAddress) &&
-              widget.server.running &&
-              widget.server.actionPort != null) ...[
-            const SizedBox(height: 12),
-            DesktopPairingQr(
-              code: desktopPairingCode(
-                _selectedAddress!,
-                widget.server.actionPort!,
-                widget.server.token,
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 12),
-            const Text('Start LumiaKey Desktop to generate a pairing code.'),
-          ],
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed:
-                !widget.server.running ||
-                    widget.server.actionPort == null ||
-                    !_addresses.contains(_selectedAddress)
-                ? null
-                : () async {
-                    final address = _selectedAddress;
-                    if (address == null) return;
-                    final code = desktopPairingCode(
-                      address,
-                      widget.server.actionPort!,
-                      widget.server.token,
-                    );
-                    await Clipboard.setData(ClipboardData(text: code));
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Private connection code copied. Treat it like a password.',
-                        ),
-                      ),
-                    );
-                  },
-            icon: const Icon(Icons.copy),
-            label: const Text('Copy connection code'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-String desktopPairingCode(String address, int port, String token) =>
-    '$address:$port $token';
-
-class DesktopPairingQr extends StatelessWidget {
-  const DesktopPairingQr({super.key, required this.code});
-
-  final String code;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('Scan with LumiaKey on your phone'),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final qrSize = constraints.maxWidth.isFinite
-                  ? (constraints.maxWidth - 32).clamp(0.0, 220.0)
-                  : 220.0;
-              return DecoratedBox(
-                decoration: const BoxDecoration(color: Colors.white),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: QrImageView(
-                    data: code,
-                    size: qrSize,
-                    padding: const EdgeInsets.all(16),
-                    backgroundColor: Colors.white,
-                    errorCorrectionLevel: QrErrorCorrectLevel.M,
-                    semanticsLabel: 'Private LumiaKey Desktop pairing QR code',
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 class _ShortcutLayoutsPage extends StatefulWidget {
@@ -772,15 +618,19 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                   key: const ValueKey('layout-selector'),
                   initialValue: selected.id,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Shortcut Layout',
+                  decoration: InputDecoration(
+                    labelText: desktopText(context, 'Shortcut Layout', '快捷键布局'),
                   ),
                   items: layouts
                       .map(
                         (layout) => DropdownMenuItem(
                           value: layout.id,
                           child: Text(
-                            '${layout.name} · ${layout.kind.name}',
+                            '${layout.name} · ${desktopText(context, layout.kind.name, switch (layout.kind) {
+                              RemoteLayoutKind.keyboard => '键盘',
+                              RemoteLayoutKind.application => '应用',
+                              RemoteLayoutKind.codex => 'Codex',
+                            })}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -792,7 +642,15 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                 ),
               ),
               const SizedBox(width: 16),
-              Chip(label: Text('${selected.buttons.length} buttons')),
+              Chip(
+                label: Text(
+                  desktopText(
+                    context,
+                    '${selected.buttons.length} buttons',
+                    '${selected.buttons.length} 个按键',
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -803,13 +661,13 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                 key: const ValueKey('desktop-import-shortcuts-json'),
                 onPressed: transferring ? null : _importJson,
                 icon: const Icon(Icons.file_download_outlined),
-                label: const Text('Import JSON'),
+                label: Text(desktopText(context, 'Import JSON', '导入 JSON')),
               ),
               OutlinedButton.icon(
                 key: const ValueKey('desktop-export-shortcuts-json'),
                 onPressed: transferring ? null : _exportJson,
                 icon: const Icon(Icons.ios_share_outlined),
-                label: const Text('Export JSON'),
+                label: Text(desktopText(context, 'Export JSON', '导出 JSON')),
               ),
             ],
           ),
@@ -859,7 +717,7 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                _buttonSummary(button),
+                                _buttonSummary(context, button),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.bodySmall,
@@ -893,7 +751,11 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
       final raw = await transfer.importJson();
       if (raw == null) return;
       await widget.controller.importShortcutLayouts(transfer.decode(raw));
-      if (mounted) _showTransferMessage('Shortcut JSON imported');
+      if (mounted) {
+        _showTransferMessage(
+          desktopText(context, 'Shortcut JSON imported', '已导入快捷键 JSON'),
+        );
+      }
     } catch (error) {
       if (mounted) _showTransferMessage('$error');
     } finally {
@@ -908,7 +770,9 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
         widget.controller.manifestForExport,
       );
       if (exported && mounted) {
-        _showTransferMessage('Shortcut JSON exported');
+        _showTransferMessage(
+          desktopText(context, 'Shortcut JSON exported', '已导出快捷键 JSON'),
+        );
       }
     } catch (error) {
       if (mounted) _showTransferMessage('$error');
@@ -931,8 +795,14 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
     if (button.targetType == RemoteTargetType.system ||
         button.id.endsWith('.deleteToStart')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('This Desktop action has a fixed, guarded behavior.'),
+        SnackBar(
+          content: Text(
+            desktopText(
+              context,
+              'This Desktop action has a fixed, guarded behavior.',
+              '此桌面操作固定且受保护。',
+            ),
+          ),
         ),
       );
       return;
@@ -951,9 +821,13 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(
-                'Could not save. App library profiles accept one keyboard chord, or a disabled unassigned action.',
+                desktopText(
+                  context,
+                  'Could not save. App library profiles accept one keyboard chord, or a disabled unassigned action.',
+                  '无法保存。应用库配置仅接受一个组合键，或已停用的未分配操作。',
+                ),
               ),
             ),
           );
@@ -975,20 +849,26 @@ class _AppsPage extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              'Managed Applications',
+              desktopText(context, 'Managed Applications', '受管理的应用'),
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
           OutlinedButton.icon(
             onPressed: controller.refreshApplications,
             icon: const Icon(Icons.refresh),
-            label: const Text('Refresh installed apps'),
+            label: Text(
+              desktopText(context, 'Refresh installed apps', '刷新已安装应用'),
+            ),
           ),
         ],
       ),
       const SizedBox(height: 8),
-      const Text(
-        'Manage shortcut-enabled applications here. Choose all installed launch-only applications in Launchpad.',
+      Text(
+        desktopText(
+          context,
+          'Manage shortcut-enabled applications here. Choose all installed launch-only applications in Launchpad.',
+          '在此管理支持快捷键的应用。可在启动台中选择已安装的仅启动应用。',
+        ),
       ),
       const SizedBox(height: 12),
       Align(
@@ -996,7 +876,7 @@ class _AppsPage extends StatelessWidget {
         child: FilledButton.icon(
           key: const ValueKey('desktop-open-app-library'),
           icon: const Icon(Icons.library_books_outlined),
-          label: const Text('App library'),
+          label: Text(desktopText(context, 'App library', '应用库')),
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => DesktopAppLibraryPage(controller: controller),
@@ -1024,7 +904,7 @@ class _AppsPage extends StatelessWidget {
               leading: CircleAvatar(child: Icon(desktopIcon(app.icon))),
               title: Text(app.name),
               subtitle: Text(
-                '${app.executable} · ${app.detected ? 'Detected' : 'Not detected'}',
+                '${app.executable} · ${app.detected ? desktopText(context, 'Detected', '已检测到') : desktopText(context, 'Not detected', '未检测到')}',
               ),
               trailing: Wrap(
                 spacing: 8,
@@ -1035,10 +915,14 @@ class _AppsPage extends StatelessWidget {
                       size: 16,
                       color: app.detected ? Colors.green : null,
                     ),
-                    label: Text(app.detected ? 'Installed' : 'Configured'),
+                    label: Text(
+                      app.detected
+                          ? desktopText(context, 'Installed', '已安装')
+                          : desktopText(context, 'Configured', '已配置'),
+                    ),
                   ),
                   IconButton(
-                    tooltip: 'Edit app',
+                    tooltip: desktopText(context, 'Edit app', '编辑应用'),
                     onPressed: () => _editApp(context, app),
                     icon: const Icon(Icons.edit_outlined),
                   ),
@@ -1128,7 +1012,7 @@ class _LauncherPageState extends State<_LauncherPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final date = '${_now.year}年${_now.month}月${_now.day}日';
+    final date = MaterialLocalizations.of(context).formatFullDate(_now);
     return LayoutBuilder(
       builder: (context, constraints) {
         final contentWidth = (constraints.maxWidth - 56).clamp(
@@ -1149,14 +1033,18 @@ class _LauncherPageState extends State<_LauncherPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '快捷启动台',
+                        desktopText(context, 'Quick Launcher', '快捷启动台'),
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '把常用应用放在手边，让每一次开始都更轻松。',
+                        desktopText(
+                          context,
+                          'Open your frequently used applications.',
+                          '启动常用应用。',
+                        ),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -1168,24 +1056,28 @@ class _LauncherPageState extends State<_LauncherPage> {
                   key: const ValueKey('launcher-edit'),
                   onPressed: () => _editKey(0),
                   icon: const Icon(Icons.edit_outlined, size: 17),
-                  label: const Text('编辑按键'),
+                  label: Text(desktopText(context, 'Edit Keys', '编辑按键')),
                 ),
               ],
             ),
             const SizedBox(height: 18),
-            _clockBar(theme, date),
+            _clockBar(context, theme, date),
             const SizedBox(height: 22),
             Row(
               children: [
                 Text(
-                  '我的应用',
+                  desktopText(context, 'My Apps', '我的应用'),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '$launcherSlotCount 个快捷按键',
+                  desktopText(
+                    context,
+                    '$launcherSlotCount shortcut keys',
+                    '$launcherSlotCount 个快捷按键',
+                  ),
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -1217,14 +1109,15 @@ class _LauncherPageState extends State<_LauncherPage> {
               }),
             ),
             const SizedBox(height: 18),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
               children: [
                 _SystemActionButton(
                   icon: Icons.play_arrow,
-                  label: '播放 / 暂停',
+                  label: desktopText(context, 'Play / Pause', '播放 / 暂停'),
                   onPressed: _busy ? null : _playPause,
                 ),
-                const SizedBox(width: 10),
                 _SystemActionButton(
                   icon: _muted == null
                       ? Icons.help_outline
@@ -1232,10 +1125,10 @@ class _LauncherPageState extends State<_LauncherPage> {
                       ? Icons.volume_off_outlined
                       : Icons.volume_up_outlined,
                   label: _muted == null
-                      ? '静音状态未知'
+                      ? desktopText(context, 'Mute Status Unknown', '静音状态未知')
                       : _muted == true
-                      ? '已静音'
-                      : '系统静音',
+                      ? desktopText(context, 'Muted', '已静音')
+                      : desktopText(context, 'Mute System', '系统静音'),
                   onPressed: _busy ? null : _toggleMute,
                 ),
               ],
@@ -1268,7 +1161,7 @@ class _LauncherPageState extends State<_LauncherPage> {
                         ),
                       ),
                       IconButton(
-                        tooltip: '关闭',
+                        tooltip: desktopText(context, 'Close', '关闭'),
                         onPressed: () => setState(() => _error = null),
                         icon: const Icon(Icons.close, size: 17),
                       ),
@@ -1283,67 +1176,61 @@ class _LauncherPageState extends State<_LauncherPage> {
     );
   }
 
-  Widget _clockBar(ThemeData theme, String date) => LayoutBuilder(
-    builder: (context, constraints) => Container(
-      key: const ValueKey('launcher-clock'),
-      height: 68,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primaryContainer.withValues(alpha: .75),
-            theme.colorScheme.surfaceContainerHighest,
+  Widget _clockBar(BuildContext context, ThemeData theme, String date) =>
+      Container(
+        key: const ValueKey('launcher-clock'),
+        height: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            colors: [
+              theme.colorScheme.primaryContainer.withValues(alpha: .75),
+              theme.colorScheme.surfaceContainerHighest,
+            ],
+          ),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.schedule, color: theme.colorScheme.primary),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                desktopText(context, 'Local time', '本地时间'),
+                style: theme.textTheme.labelLarge,
+              ),
+            ),
+            const SizedBox(width: 18),
+            Text(
+              _time,
+              key: const ValueKey('launcher-clock-time'),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+                letterSpacing: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Container(
+              width: 1,
+              height: 25,
+              color: theme.colorScheme.outlineVariant,
+            ),
+            const SizedBox(width: 16),
+            Flexible(
+              child: Text(
+                date,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           ],
         ),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.schedule, color: theme.colorScheme.primary),
-          const SizedBox(width: 10),
-          Flexible(child: Text('本地时间', style: theme.textTheme.labelLarge)),
-          const SizedBox(width: 18),
-          Text(
-            _time,
-            key: const ValueKey('launcher-clock-time'),
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontFeatures: const [FontFeature.tabularFigures()],
-              letterSpacing: 1.4,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Container(
-            width: 1,
-            height: 25,
-            color: theme.colorScheme.outlineVariant,
-          ),
-          const SizedBox(width: 16),
-          Flexible(
-            child: Text(
-              date,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          if (constraints.maxWidth >= 760) ...[
-            const SizedBox(width: 12),
-            Text(
-              'MAKE SPACE FOR WHAT MATTERS',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                letterSpacing: 1.1,
-              ),
-            ),
-          ],
-        ],
-      ),
-    ),
-  );
+      );
 
   Future<void> _editKey(int index) async {
     final selected = await showDialog<String>(
@@ -1461,7 +1348,7 @@ class _LauncherKey extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    app?.name ?? '添加快捷应用',
+                    app?.name ?? desktopText(context, 'Add App', '添加快捷应用'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelLarge?.copyWith(
@@ -1471,10 +1358,16 @@ class _LauncherKey extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     app == null
-                        ? '点击配置'
+                        ? desktopText(context, 'Click to configure', '点击配置')
                         : app!.detected
-                        ? '点击启动'
-                        : '应用不可用 · 绑定已保留',
+                        ? desktopText(context, 'Click to launch', '点击启动')
+                        : desktopText(
+                            context,
+                            'App unavailable · assignment kept',
+                            '应用不可用 · 绑定已保留',
+                          ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -1496,7 +1389,11 @@ class _LauncherKey extends StatelessWidget {
                 bottom: -10,
                 child: IconButton(
                   key: ValueKey('launcher-edit-$index'),
-                  tooltip: '编辑按键 ${index + 1}',
+                  tooltip: desktopText(
+                    context,
+                    'Edit Key ${index + 1}',
+                    '编辑按键 ${index + 1}',
+                  ),
                   onPressed: onEdit,
                   icon: const Icon(Icons.more_horiz, size: 18),
                 ),
@@ -1560,7 +1457,9 @@ class _ApplicationEditorState extends State<_ApplicationEditor> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text('Edit ${widget.app.name}'),
+    title: Text(
+      desktopText(context, 'Edit ${widget.app.name}', '编辑 ${widget.app.name}'),
+    ),
     content: SizedBox(
       width: 520,
       child: Column(
@@ -1568,25 +1467,35 @@ class _ApplicationEditorState extends State<_ApplicationEditor> {
         children: [
           TextField(
             controller: name,
-            decoration: const InputDecoration(labelText: 'Name'),
+            decoration: InputDecoration(
+              labelText: desktopText(context, 'Name', '名称'),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: icon,
-            decoration: const InputDecoration(labelText: 'Icon'),
+            decoration: InputDecoration(
+              labelText: desktopText(context, 'Icon', '图标'),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: executable,
-            decoration: const InputDecoration(
-              labelText: 'Executable / Application name',
+            decoration: InputDecoration(
+              labelText: desktopText(
+                context,
+                'Executable / Application name',
+                '可执行文件 / 应用名称',
+              ),
             ),
           ),
           const SizedBox(height: 12),
           TextFormField(
             initialValue: widget.app.layoutId,
             readOnly: true,
-            decoration: const InputDecoration(labelText: 'Shortcut Layout'),
+            decoration: InputDecoration(
+              labelText: desktopText(context, 'Shortcut Layout', '快捷键布局'),
+            ),
           ),
         ],
       ),
@@ -1594,7 +1503,7 @@ class _ApplicationEditorState extends State<_ApplicationEditor> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
+        child: Text(desktopText(context, 'Cancel', '取消')),
       ),
       FilledButton(
         onPressed: () {
@@ -1610,67 +1519,7 @@ class _ApplicationEditorState extends State<_ApplicationEditor> {
             ),
           );
         },
-        child: const Text('Save'),
-      ),
-    ],
-  );
-}
-
-class _ProfilesPage extends StatelessWidget {
-  const _ProfilesPage({required this.controller});
-
-  final DesktopController controller;
-
-  @override
-  Widget build(BuildContext context) => _PageBody(
-    children: [
-      const Text(
-        'Profiles select which desktop-owned layout is active on the phone. Automatic foreground-app switching is reserved for a future release.',
-      ),
-      const SizedBox(height: 18),
-      Card(
-        child: RadioGroup<String>(
-          groupValue: controller.manifest.currentProfileId,
-          onChanged: (value) {
-            if (value != null) controller.switchProfile(value);
-          },
-          child: Column(
-            children: controller.manifest.profiles
-                .map(
-                  (profile) => RadioListTile<String>(
-                    value: profile.id,
-                    title: Row(
-                      children: [
-                        if (desktopLibraryProfileIcon(profile)
-                            case final bytes?) ...[
-                          Image.memory(bytes, width: 24, height: 24),
-                          const SizedBox(width: 8),
-                        ] else if (profile.sourceIconId != null &&
-                            desktopAppIconAssets[profile.sourceIconId!] !=
-                                null) ...[
-                          Image.asset(
-                            'assets/app_icons/${desktopAppIconAssets[profile.sourceIconId!]}',
-                            width: 24,
-                            height: 24,
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        Expanded(child: Text(profile.name)),
-                      ],
-                    ),
-                    subtitle: Text(
-                      [
-                        'Layout: ${controller.manifest.layoutById(profile.layoutId)?.name ?? profile.layoutId}',
-                        if (profile.platform != null) profile.platform!,
-                        if (profile.applicationId != null)
-                          profile.applicationId!,
-                      ].join(' · '),
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-        ),
+        child: Text(desktopText(context, 'Save', '保存')),
       ),
     ],
   );
@@ -1706,7 +1555,7 @@ class _AboutPageState extends State<_AboutPage> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'LumiaKey',
+                'LumiaKey Desktop',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
@@ -1714,28 +1563,51 @@ class _AboutPageState extends State<_AboutPage> {
                 future: _packageInfo,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) {
-                    return const Text('Loading version…');
+                    return Text(
+                      desktopText(context, 'Loading version…', '正在读取版本…'),
+                    );
                   }
                   final version = snapshot.data?.version.trim() ?? '';
                   if (version.isEmpty) {
-                    return const Text('Version unavailable');
+                    return Text(
+                      desktopText(context, 'Version unavailable', '无法获取版本'),
+                    );
                   }
                   final build = snapshot.data?.buildNumber.trim() ?? '';
                   return Text(
-                    'Version $version${build.isEmpty ? '' : ' (build $build)'}',
+                    desktopText(
+                      context,
+                      'Version $version${build.isEmpty ? '' : ' (build $build)'}',
+                      '版本 $version${build.isEmpty ? '' : '（构建 $build）'}',
+                    ),
                   );
                 },
               ),
               const SizedBox(height: 6),
               Text(switch (widget.inputBackend) {
-                DesktopInputBackend.standard => 'Input backend: Standard',
-                DesktopInputBackend.rust => 'Input backend: Rust (selected)',
-                DesktopInputBackend.rustShortcuts =>
+                DesktopInputBackend.standard => desktopText(
+                  context,
+                  'Input backend: Standard',
+                  '输入后端：标准',
+                ),
+                DesktopInputBackend.rust => desktopText(
+                  context,
+                  'Input backend: Rust (selected)',
+                  '输入后端：已选择 Rust',
+                ),
+                DesktopInputBackend.rustShortcuts => desktopText(
+                  context,
                   'Input backend: Rust shortcuts (selected)',
+                  '输入后端：已选择 Rust（仅快捷键）',
+                ),
               }),
               const SizedBox(height: 18),
-              const Text(
-                'The desktop-driven shortcut platform for LumiaKey Android. Layouts, app definitions, profiles, icons, and execution logic live on this computer.',
+              Text(
+                desktopText(
+                  context,
+                  'Manage LumiaKey shortcut layouts, apps, profiles, and icons from this computer. Desktop actions run here.',
+                  '在此电脑上管理 LumiaKey 快捷键布局、应用、配置方案和图标。桌面操作在此电脑上执行。',
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -1820,7 +1692,13 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text('Edit ${widget.button.name}'),
+    title: Text(
+      desktopText(
+        context,
+        'Edit ${widget.button.name}',
+        '编辑 ${widget.button.name}',
+      ),
+    ),
     content: SizedBox(
       width: 560,
       child: SingleChildScrollView(
@@ -1829,17 +1707,23 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
           children: [
             TextField(
               controller: name,
-              decoration: const InputDecoration(labelText: 'Button Name'),
+              decoration: InputDecoration(
+                labelText: desktopText(context, 'Button Name', '按键名称'),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: icon,
-              decoration: const InputDecoration(labelText: 'Icon'),
+              decoration: InputDecoration(
+                labelText: desktopText(context, 'Icon', '图标'),
+              ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<RemoteTargetType>(
               initialValue: type,
-              decoration: const InputDecoration(labelText: 'Target Type'),
+              decoration: InputDecoration(
+                labelText: desktopText(context, 'Target Type', '目标类型'),
+              ),
               items: RemoteTargetType.values
                   .where(
                     (value) =>
@@ -1855,10 +1739,10 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
                           value != RemoteTargetType.script &&
                           value != RemoteTargetType.system,
                       child: Text(
-                        '${_targetTypeLabel(value)}${value == RemoteTargetType.macro || value == RemoteTargetType.script
-                            ? ' · Future'
+                        '${_targetTypeLabel(context, value)}${value == RemoteTargetType.macro || value == RemoteTargetType.script
+                            ? desktopText(context, ' · Future', ' · 未来功能')
                             : value == RemoteTargetType.system
-                            ? ' · Fixed'
+                            ? desktopText(context, ' · Fixed', ' · 固定')
                             : ''}',
                       ),
                     ),
@@ -1871,7 +1755,7 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Enabled'),
+              title: Text(desktopText(context, 'Enabled', '已启用')),
               value: enabled,
               onChanged: (value) => setState(() => enabled = value),
             ),
@@ -1879,11 +1763,14 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
               TextField(
                 key: const ValueKey('shortcut-field'),
                 controller: shortcut,
-                decoration: const InputDecoration(
-                  labelText: 'Shortcut',
+                decoration: InputDecoration(
+                  labelText: desktopText(context, 'Shortcut', '快捷键'),
                   hintText: 'PRIMARY + SHIFT + V',
-                  helperText:
-                      'PRIMARY becomes Command on macOS and Ctrl on Windows.',
+                  helperText: desktopText(
+                    context,
+                    'PRIMARY becomes Command on macOS and Ctrl on Windows.',
+                    'PRIMARY 在 macOS 上表示 Command，在 Windows 上表示 Ctrl。',
+                  ),
                 ),
               )
             else if (type == RemoteTargetType.launchApplication)
@@ -1892,7 +1779,9 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
                     widget.applications.any((app) => app.id == selectedApp)
                     ? selectedApp
                     : null,
-                decoration: const InputDecoration(labelText: 'Launch App'),
+                decoration: InputDecoration(
+                  labelText: desktopText(context, 'Launch App', '启动应用'),
+                ),
                 items: widget.applications
                     .map(
                       (app) => DropdownMenuItem(
@@ -1912,15 +1801,23 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
                 ),
               )
             else
-              const ListTile(
-                leading: Icon(Icons.schedule),
-                title: Text('Reserved for a future LumiaKey release'),
+              ListTile(
+                leading: const Icon(Icons.schedule),
+                title: Text(
+                  desktopText(
+                    context,
+                    'Reserved for a future LumiaKey release',
+                    '将在未来的 LumiaKey 版本中提供',
+                  ),
+                ),
               ),
             const SizedBox(height: 12),
             TextField(
               controller: description,
               maxLines: 2,
-              decoration: const InputDecoration(labelText: 'Description'),
+              decoration: InputDecoration(
+                labelText: desktopText(context, 'Description', '说明'),
+              ),
             ),
             if (validationError != null) ...[
               const SizedBox(height: 10),
@@ -1936,9 +1833,12 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
+        child: Text(desktopText(context, 'Cancel', '取消')),
       ),
-      FilledButton(onPressed: _save, child: const Text('Save')),
+      FilledButton(
+        onPressed: _save,
+        child: Text(desktopText(context, 'Save', '保存')),
+      ),
     ],
   );
 
@@ -1956,7 +1856,13 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
         ((type == RemoteTargetType.launchApplication ||
                 type == RemoteTargetType.openUrl) &&
             (nextTarget == null || nextTarget.isEmpty))) {
-      setState(() => validationError = 'Complete the required target fields.');
+      setState(
+        () => validationError = desktopText(
+          context,
+          'Complete the required target fields.',
+          '请填写所需的目标字段。',
+        ),
+      );
       return;
     }
     Navigator.pop(
@@ -2005,18 +1911,24 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
         context: context,
         builder: (context) => AlertDialog(
           icon: const Icon(Icons.mic),
-          title: const Text('Local Dictation'),
-          content: const Text(
-            'Local Dictation uses this computer’s microphone and the selected installed model. Audio is processed on this computer and is not saved. Phone dictation sends final text to this computer, never audio. App Voice Input is a separate shortcut that follows the selected application’s own microphone and privacy behavior. The microphone will start only after you continue.',
+          title: Text(desktopText(context, 'Local Dictation', '本地听写')),
+          content: Text(
+            desktopText(
+              context,
+              'Local Dictation uses this computer’s microphone and the selected installed model. Audio is processed on this computer and is not saved. Phone dictation sends final text to this computer, never audio. App Voice Input is a separate shortcut that follows the selected application’s own microphone and privacy behavior. The microphone will start only after you continue.',
+              '本地听写使用此电脑的麦克风和所选的已安装模型。音频在本机处理，不会保存。手机听写只向电脑发送最终文本。应用语音输入是独立的快捷键，遵循所选应用的麦克风和隐私设置。继续后才会启动麦克风。',
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
+              child: Text(desktopText(context, 'Cancel', '取消')),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('I understand — continue'),
+              child: Text(
+                desktopText(context, 'I understand — continue', '我知道了，继续'),
+              ),
             ),
           ],
         ),
@@ -2030,7 +1942,14 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(service.error ?? 'Could not start local dictation.'),
+            content: Text(
+              service.error ??
+                  desktopText(
+                    context,
+                    'Could not start local dictation.',
+                    '无法开始本地听写。',
+                  ),
+            ),
           ),
         );
       }
@@ -2043,16 +1962,21 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
     builder: (context, _) {
       final service = widget.dictation;
       final theme = Theme.of(context);
+      String text(String english, String chinese) =>
+          desktopText(context, english, chinese);
       return ListView(
         padding: const EdgeInsets.all(24),
         children: [
           Text(
-            'Private microphone dictation',
+            text('Private microphone dictation', '私密麦克风听写'),
             style: theme.textTheme.headlineSmall,
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Recognize speech on this computer and type the final text into the focused external app.',
+          Text(
+            text(
+              'Recognize speech on this computer and type the final text into the focused external app.',
+              '在此电脑上识别语音，并将最终文本输入当前获得焦点的外部应用。',
+            ),
           ),
           const SizedBox(height: 18),
           Card(
@@ -2062,18 +1986,24 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                 children: [
                   const Icon(Icons.graphic_eq, size: 30),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'App Voice Input\nRuns the selected app’s own dictation shortcut.',
+                      text(
+                        'App Voice Input\nRuns the selected app’s own dictation shortcut.',
+                        '应用语音输入\n运行所选应用自带的听写快捷键。',
+                      ),
                     ),
                   ),
                   const Icon(Icons.arrow_forward),
                   const SizedBox(width: 12),
-                  const Icon(Icons.mic, size: 30, color: Color(0xFF008C95)),
+                  Icon(Icons.mic, size: 30, color: theme.colorScheme.primary),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Local Dictation\nUses this computer’s microphone and local model.',
+                      text(
+                        'Local Dictation\nUses this computer’s microphone and local model.',
+                        '本地听写\n使用此电脑的麦克风和本地模型。',
+                      ),
                     ),
                   ),
                 ],
@@ -2089,10 +2019,10 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                 children: [
                   Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'Recognition',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                          text('Recognition', '语音识别'),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
                       DropdownButton<DictationLanguage>(
@@ -2152,8 +2082,14 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                         Expanded(
                           child: Text(
                             snapshot.data == true
-                                ? 'Model verified and ready for offline use.'
-                                : 'Model is not installed. Install or import it explicitly before starting.',
+                                ? text(
+                                    'Model verified and ready for offline use.',
+                                    '模型已验证，可离线使用。',
+                                  )
+                                : text(
+                                    'Model is not installed. Install or import it explicitly before starting.',
+                                    '模型尚未安装。请先下载或导入模型。',
+                                  ),
                           ),
                         ),
                         TextButton.icon(
@@ -2166,7 +2102,7 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                                   } catch (_) {}
                                 },
                           icon: const Icon(Icons.download),
-                          label: const Text('Download'),
+                          label: Text(text('Download', '下载')),
                         ),
                         TextButton.icon(
                           onPressed: service.busy || service.listening
@@ -2178,10 +2114,10 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                                   } catch (_) {}
                                 },
                           icon: const Icon(Icons.folder_open),
-                          label: const Text('Import'),
+                          label: Text(text('Import', '导入')),
                         ),
                         IconButton(
-                          tooltip: 'Delete installed model',
+                          tooltip: text('Delete installed model', '删除已安装的模型'),
                           onPressed:
                               service.busy ||
                                   service.listening ||
@@ -2205,7 +2141,10 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Downloading ${progress.fileName} · ${(progress.fraction * 100).round()}%',
+                      text(
+                        'Downloading ${progress.fileName} · ${(progress.fraction * 100).round()}%',
+                        '正在下载 ${progress.fileName} · ${(progress.fraction * 100).round()}%',
+                      ),
                     ),
                   ],
                 ],
@@ -2222,21 +2161,30 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                 ),
                 title: Text(
                   service.accessibilityGranted
-                      ? 'Accessibility and event permissions are ready'
-                      : 'macOS input permission required',
+                      ? text(
+                          'Accessibility and event permissions are ready',
+                          '辅助功能和事件权限已就绪',
+                        )
+                      : text(
+                          'macOS input permission required',
+                          '需要 macOS 输入权限',
+                        ),
                 ),
-                subtitle: const Text(
-                  'macOS needs Accessibility and event posting permission to type into the focused app.',
+                subtitle: Text(
+                  text(
+                    'macOS needs Accessibility and event posting permission to type into the focused app.',
+                    '在当前应用中输入文字需要 macOS 辅助功能和事件发送权限。',
+                  ),
                 ),
                 trailing: Wrap(
                   children: [
                     TextButton(
                       onPressed: service.requestAccessibility,
-                      child: const Text('Request'),
+                      child: Text(text('Request', '请求权限')),
                     ),
                     TextButton(
                       onPressed: service.openAccessibilitySettings,
-                      child: const Text('Settings'),
+                      child: Text(text('Settings', '系统设置')),
                     ),
                     IconButton(
                       onPressed: service.refreshAccessibility,
@@ -2256,12 +2204,15 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                   ),
                   title: Text(
                     service.listening
-                        ? 'Listening on this computer'
-                        : 'Local microphone is stopped',
+                        ? text('Listening on this computer', '正在此电脑上听写')
+                        : text('Local microphone is stopped', '本地麦克风已停止'),
                   ),
                   subtitle: Text(
                     service.lastText.isEmpty
-                        ? 'Audio stays in bounded memory and is never saved.'
+                        ? text(
+                            'Audio stays in bounded memory and is never saved.',
+                            '音频仅暂存于有限内存中，不会保存。',
+                          )
                         : service.lastText,
                   ),
                   trailing: FilledButton.icon(
@@ -2279,10 +2230,10 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                     ),
                     label: Text(
                       service.starting
-                          ? 'Cancel start'
+                          ? text('Cancel start', '取消启动')
                           : service.listening
-                          ? 'Stop'
-                          : 'Start local dictation',
+                          ? text('Stop', '停止')
+                          : text('Start local dictation', '开始本地听写'),
                     ),
                   ),
                 ),
@@ -2305,10 +2256,13 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.keyboard),
-                  title: const Text('Global toggle shortcut'),
+                  title: Text(text('Global toggle shortcut', '全局切换快捷键')),
                   subtitle: Text(
                     service.hotkeyError ??
-                        'Ctrl+Shift+Space starts or stops local dictation.',
+                        text(
+                          'Ctrl+Shift+Space starts or stops local dictation.',
+                          '按 Ctrl+Shift+Space 开始或停止本地听写。',
+                        ),
                   ),
                   trailing: DropdownButton<String>(
                     key: const ValueKey('dictation-hotkey'),
@@ -2341,24 +2295,57 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
   );
 }
 
-String _targetTypeLabel(RemoteTargetType type) => switch (type) {
-  RemoteTargetType.keyboardShortcut => 'Keyboard Shortcut',
-  RemoteTargetType.launchApplication => 'Launch Application',
-  RemoteTargetType.voiceInput => 'Voice Input',
-  RemoteTargetType.openUrl => 'Open URL',
-  RemoteTargetType.macro => 'Macro',
-  RemoteTargetType.script => 'Script',
-  RemoteTargetType.system => 'Desktop System Action',
-};
+String _targetTypeLabel(BuildContext context, RemoteTargetType type) =>
+    switch (type) {
+      RemoteTargetType.keyboardShortcut => desktopText(
+        context,
+        'Keyboard Shortcut',
+        '键盘快捷键',
+      ),
+      RemoteTargetType.launchApplication => desktopText(
+        context,
+        'Launch Application',
+        '启动应用',
+      ),
+      RemoteTargetType.voiceInput => desktopText(
+        context,
+        'Voice Input',
+        '语音输入',
+      ),
+      RemoteTargetType.openUrl => desktopText(context, 'Open URL', '打开网址'),
+      RemoteTargetType.macro => desktopText(context, 'Macro', '宏'),
+      RemoteTargetType.script => desktopText(context, 'Script', '脚本'),
+      RemoteTargetType.system => desktopText(
+        context,
+        'Desktop System Action',
+        '桌面系统操作',
+      ),
+    };
 
-String _buttonSummary(RemoteShortcutButton button) =>
+String _buttonSummary(BuildContext context, RemoteShortcutButton button) =>
     switch (button.targetType) {
       RemoteTargetType.keyboardShortcut => formatShortcut(button.shortcut),
-      RemoteTargetType.launchApplication => 'Launch ${button.target ?? 'app'}',
-      RemoteTargetType.voiceInput => 'Start Codex dictation',
+      RemoteTargetType.launchApplication => desktopText(
+        context,
+        'Launch ${button.target ?? 'app'}',
+        '启动${button.target ?? '应用'}',
+      ),
+      RemoteTargetType.voiceInput => desktopText(
+        context,
+        'Start Codex dictation',
+        '开始 Codex 听写',
+      ),
       RemoteTargetType.openUrl => button.target ?? 'URL',
-      RemoteTargetType.macro => 'Macro · Future',
-      RemoteTargetType.script => 'Script · Future',
+      RemoteTargetType.macro => desktopText(
+        context,
+        'Macro · Future',
+        '宏 · 未来功能',
+      ),
+      RemoteTargetType.script => desktopText(
+        context,
+        'Script · Future',
+        '脚本 · 未来功能',
+      ),
       RemoteTargetType.system => button.name,
     };
 

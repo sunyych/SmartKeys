@@ -306,13 +306,14 @@ void main() {
 
     const sections = <(int, String, String)>[
       (0, 'General', 'Current Shortcut Profile'),
-      (1, 'Bluetooth', 'Bluetooth HID'),
+      (1, 'Connections', 'Bluetooth HID'),
       (2, 'Shortcut Layout', 'Import JSON'),
       (3, 'Apps', 'Managed Applications'),
       (4, 'Profiles', 'Profiles'),
-      (5, 'About', 'LumiaKey'),
       (6, 'Local Dictation', 'Private microphone dictation'),
-      (7, 'Launcher', '快捷启动台'),
+      (7, 'Launcher', 'Quick Launcher'),
+      (8, 'Settings', 'Rust backend'),
+      (5, 'About', 'LumiaKey Desktop'),
     ];
 
     for (final (width, height, sizeName) in [
@@ -324,7 +325,9 @@ void main() {
         final navigation = tester.widget<NavigationRail>(
           find.byType(NavigationRail),
         );
-        navigation.onDestinationSelected?.call(section);
+        navigation.onDestinationSelected?.call(
+          DesktopSettingsHome.navigationOrder.indexOf(section),
+        );
         await tester.pumpAndSettle();
         if (section == 6) {
           final modelReady = await tester.runAsync(dictation.modelAvailable);
@@ -356,7 +359,7 @@ void main() {
           '$title settings · $sizeName',
           width,
           height,
-          'Flutter widget test render of the $title desktop section at $sizeName width.${title == 'General' || title == 'Bluetooth' ? ' Sync service is deliberately offline in this isolated screenshot fixture.' : ''}',
+          'Flutter widget test render of the $title desktop section at $sizeName width.${title == 'General' || title == 'Connections' ? ' Sync service is deliberately offline in this isolated screenshot fixture.' : ''}',
         );
       }
     }
@@ -365,7 +368,7 @@ void main() {
     tester
         .widget<NavigationRail>(find.byType(NavigationRail))
         .onDestinationSelected
-        ?.call(7);
+        ?.call(DesktopSettingsHome.navigationOrder.indexOf(7));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('launcher-clock-time')), findsOneWidget);
     expect(find.byKey(const ValueKey('launcher-key-11')), findsOneWidget);
@@ -381,13 +384,13 @@ void main() {
         .widget<Text>(find.byKey(const ValueKey('launcher-clock-time')))
         .data;
     expect(clockAfter, isNot(clockBefore));
-    await tester.tap(find.text('播放 / 暂停'));
+    await tester.tap(find.text('Play / Pause'));
     await tester.pumpAndSettle();
     expect(systemControls.playPauseCount, 1);
-    await tester.tap(find.text('系统静音'));
+    await tester.tap(find.text('Mute System'));
     await tester.pumpAndSettle();
     expect(systemControls.muted, isTrue);
-    expect(find.text('已静音'), findsOneWidget);
+    expect(find.text('Muted'), findsOneWidget);
     await capture(
       'desktop-launcher-muted',
       'Launcher · system output muted',
@@ -410,7 +413,7 @@ void main() {
       760,
       'Flutter widget test render of the app picker for one of twelve launcher keys.',
     );
-    await tester.tap(find.text('取消'));
+    await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('launcher-key-0')));
     await tester.pumpAndSettle();
@@ -427,7 +430,7 @@ void main() {
     tester
         .widget<NavigationRail>(find.byType(NavigationRail))
         .onDestinationSelected
-        ?.call(7);
+        ?.call(DesktopSettingsHome.navigationOrder.indexOf(7));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('launcher-key-11')), findsOneWidget);
     await capture(
@@ -441,7 +444,7 @@ void main() {
     tester
         .widget<NavigationRail>(find.byType(NavigationRail))
         .onDestinationSelected
-        ?.call(7);
+        ?.call(DesktopSettingsHome.navigationOrder.indexOf(7));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await capture(
@@ -481,7 +484,7 @@ void main() {
     tester
         .widget<NavigationRail>(find.byType(NavigationRail))
         .onDestinationSelected
-        ?.call(6);
+        ?.call(DesktopSettingsHome.navigationOrder.indexOf(6));
     dictation.firstUseAcknowledged = false;
     await tester.pumpAndSettle();
     await tester.pumpAndSettle();

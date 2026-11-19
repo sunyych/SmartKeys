@@ -667,7 +667,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pump();
-    expect(find.text('LumiaKey'), findsNWidgets(2));
+    expect(find.text('LumiaKey Desktop'), findsOneWidget);
     final aboutLogo = tester.widget<Image>(
       find.byKey(const ValueKey('desktop-about-logo-image')),
     );

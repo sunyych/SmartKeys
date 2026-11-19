@@ -36,6 +36,8 @@ dependencies:
   package_info_plus: 9.0.1
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   lumiakeys_protocol:
     path: ../packages/lumiakeys_protocol
   local_dictation:
