@@ -73,14 +73,79 @@ class _FailingLegacy implements LauncherKeyStore {
 
 class _MonitorDiscovery extends PlatformApplicationDiscovery {
   int refreshes = 0;
+  int installedRefreshes = 0;
+  String? foregroundAppId;
+
+  @override
+  void invalidateInstalledCache() {
+    super.invalidateInstalledCache();
+    installedRefreshes++;
+  }
+
   @override
   Future<List<RemoteApplication>> refresh(List<RemoteApplication> apps) async {
     refreshes++;
-    return apps.map((app) => app.copyWith(detected: true)).toList();
+    return [
+      for (final app in apps)
+        app.copyWith(
+          detected: true,
+          running: app.id == foregroundAppId,
+          foreground: app.id == foregroundAppId,
+        ),
+    ];
   }
 }
 
 void main() {
+  testWidgets(
+    'periodic refresh only revises the manifest when its content changes',
+    (tester) async {
+      final store = MemoryDesktopConfigStore();
+      final discovery = _MonitorDiscovery();
+      final controller = DesktopController(store: store, discovery: discovery);
+      DesktopManifest wireManifest() =>
+          DesktopManifest.fromJson(controller.manifest.toJson(forSync: true));
+
+      try {
+        await controller.initialize();
+        final initial = wireManifest();
+        final initialWrites = store.saveCount;
+
+        for (var refresh = 1; refresh <= 2; refresh++) {
+          await tester.pump(const Duration(seconds: 60));
+          expect(discovery.installedRefreshes, refresh);
+          expect(wireManifest().revision, initial.revision);
+          expect(store.saveCount, initialWrites);
+        }
+
+        discovery.foregroundAppId = 'chrome';
+        await tester.pump(const Duration(seconds: 3));
+        final activated = wireManifest();
+        expect(activated.revision, initial.revision + 1);
+        expect(
+          activated.applicationActivationSequence,
+          initial.applicationActivationSequence + 1,
+        );
+        expect(activated.activatedApplicationId, 'chrome');
+        expect(activated.applicationById('chrome')!.foreground, isTrue);
+        expect(store.saveCount, initialWrites + 1);
+
+        await controller.assignLauncherApp(0, 'chrome');
+        final configured = wireManifest();
+        expect(configured.revision, activated.revision + 1);
+        expect(configured.launcherApplicationIds.first, 'chrome');
+        expect(store.value!.revision, configured.revision);
+        expect(store.saveCount, initialWrites + 2);
+
+        await controller.assignLauncherApp(0, 'chrome');
+        expect(wireManifest().revision, configured.revision);
+        expect(store.saveCount, initialWrites + 2);
+      } finally {
+        controller.dispose();
+      }
+    },
+  );
+
   test(
     'deferred saves retain independent buttons, settings and launcher edits',
     () async {
