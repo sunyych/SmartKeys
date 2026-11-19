@@ -44,6 +44,8 @@ void main() {
     WidgetTester tester, {
     List<RemoteSidebarItem>? items,
     RecordingCompanionService? service,
+    Set<String> shortcutOnlyApplicationIds = const {},
+    bool autoLaunchApps = true,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(844, 390);
@@ -54,7 +56,9 @@ void main() {
     connectRegularHarness(
       h,
       manifest: base.copyWith(
+        settings: base.settings.copyWith(autoLaunchApps: autoLaunchApps),
         sidebarItems: items,
+        sidebarShortcutOnlyApplicationIds: shortcutOnlyApplicationIds,
         profiles: [...base.profiles, libraryProfile],
         layouts: [...base.layouts, libraryLayout],
       ),
@@ -138,6 +142,66 @@ void main() {
       );
     },
   );
+  testWidgets(
+    'shortcut-only App Bar entry waits for manual foreground and sends no launch',
+    (tester) async {
+      final h = await mount(
+        tester,
+        shortcutOnlyApplicationIds: const {'chrome'},
+      );
+      final shortcut = find.byKey(
+        const ValueKey('regular-button-chrome.newTab'),
+      );
+      await tester.tap(nav('chrome'));
+      await tester.pumpAndSettle();
+      expect(title(tester), 'Chrome');
+      expect(h.companion.remoteActions, isEmpty);
+      expect(
+        find.textContaining('Bring the application to the foreground'),
+        findsOneWidget,
+      );
+      await tester.tap(shortcut);
+      await tester.pumpAndSettle();
+      expect(h.companion.remoteActions, isEmpty);
+
+      void setForeground(String id) {
+        final previous = h.companion.syncedManifest.value!;
+        h.companion.syncedManifest.value = previous.copyWith(
+          applications: [
+            for (final app in previous.applications)
+              app.copyWith(foreground: app.id == id),
+          ],
+        );
+      }
+
+      setForeground('chrome');
+      await tester.pumpAndSettle();
+      await tester.tap(shortcut);
+      await tester.pumpAndSettle();
+      expect(h.companion.remoteActions.single.buttonId, 'chrome.newTab');
+
+      setForeground('chatgpt');
+      await tester.pumpAndSettle();
+      await tester.tap(shortcut);
+      await tester.pumpAndSettle();
+      expect(h.companion.remoteActions, hasLength(1));
+      await tester.tap(nav('launchpad'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('regular-launch-chrome')));
+      await tester.pumpAndSettle();
+      expect(h.companion.remoteActions.last.applicationId, 'chrome');
+      expect(title(tester), 'Chrome');
+    },
+  );
+  testWidgets('disabling global launching opens the App Bar panel directly', (
+    tester,
+  ) async {
+    final h = await mount(tester, autoLaunchApps: false);
+    await tester.tap(nav('chrome'));
+    await tester.pumpAndSettle();
+    expect(title(tester), 'Chrome');
+    expect(h.companion.remoteActions, isEmpty);
+  });
   testWidgets(
     'hiding the selected App returns safely to Launchpad without another launch',
     (tester) async {

@@ -44,6 +44,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
   bool _wasReady = false;
   String? _confirmedApplication;
   String? _confirmedSession;
+  bool _selectedWithoutActivation = false;
   late final Timer _clock;
   DateTime _now = DateTime.now();
 
@@ -83,6 +84,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     _pendingApplication = null;
     _confirmedApplication = null;
     _confirmedSession = null;
+    _selectedWithoutActivation = false;
     _error = null;
     ++_generation;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -116,7 +118,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                   ?.foreground ==
               true;
     }
-    return _confirmedApplication == _selection &&
+    return (_selectedWithoutActivation ||
+            _confirmedApplication == _selection) &&
         _confirmedSession == _session(controller) &&
         controller.desktopManifest?.applicationById(_selection)?.foreground ==
             true;
@@ -178,6 +181,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     AppController controller,
     String selection, {
     RemoteApplication? application,
+    bool fromAppBar = false,
   }) async {
     final generation = ++_generation;
     final session = _session(controller);
@@ -187,6 +191,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       _pendingApplication = application?.id;
       _confirmedApplication = null;
       _confirmedSession = null;
+      _selectedWithoutActivation = false;
       _error = null;
     });
     try {
@@ -197,6 +202,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
           session != _session(controller)) {
         return;
       }
+      var skipActivation = false;
       if (application != null) {
         if (!_ready(controller) ||
             !controller.syncedApplications.any(
@@ -204,23 +210,40 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
             )) {
           return;
         }
-        await controller.launchRemoteApplication(application);
-        if (!application.launchOnly &&
-            !await _confirmActivation(
-              controller,
-              application,
-              previousSequence,
-              session,
-              generation,
-            )) {
-          if (mounted &&
-              generation == _generation &&
-              session == _session(controller)) {
-            throw StateError(
-              'Desktop has not confirmed ${application.name} is active. Select it again to retry.',
-            );
+        if (fromAppBar) {
+          final manifest = controller.desktopManifest!;
+          if (!manifest.effectiveSidebarItems.any(
+            (item) =>
+                item.kind == RemoteSidebarKind.application &&
+                item.id == application.id,
+          )) {
+            return;
           }
-          return;
+          skipActivation =
+              !manifest.settings.autoLaunchApps ||
+              manifest.sidebarShortcutOnlyApplicationIds.contains(
+                application.id,
+              );
+        }
+        if (!skipActivation) {
+          await controller.launchRemoteApplication(application);
+          if (!application.launchOnly &&
+              !await _confirmActivation(
+                controller,
+                application,
+                previousSequence,
+                session,
+                generation,
+              )) {
+            if (mounted &&
+                generation == _generation &&
+                session == _session(controller)) {
+              throw StateError(
+                'Desktop has not confirmed ${application.name} is active. Select it again to retry.',
+              );
+            }
+            return;
+          }
         }
       }
       if (!mounted ||
@@ -231,7 +254,9 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       if (application != null && !_ready(controller)) return;
       setState(() {
         _selection = application?.launchOnly == true ? _launchpad : selection;
-        _confirmedApplication = application?.launchOnly == true
+        _selectedWithoutActivation = skipActivation;
+        _confirmedApplication =
+            skipActivation || application?.launchOnly == true
             ? null
             : application?.id;
         _confirmedSession = application == null || application.launchOnly
@@ -386,6 +411,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       _pendingApplication = null;
       _confirmedApplication = null;
       _confirmedSession = null;
+      _selectedWithoutActivation = false;
       ++_generation;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -512,6 +538,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                               controller,
                                               item.id,
                                               application: sidebarApps[item.id],
+                                              fromAppBar: true,
                                             );
                                           }
                                         }
@@ -662,9 +689,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                         _selection != _general &&
                                         !_applicationReady(controller) &&
                                         _pendingApplication == null)
-                                      const _StatusBanner(
-                                        message:
-                                            'Select the application in the left menu to activate it before sending shortcuts.',
+                                      _StatusBanner(
+                                        message: _selectedWithoutActivation
+                                            ? 'Bring the application to the foreground on your computer to use its shortcuts.'
+                                            : 'Select the application in App Bar to activate it before sending shortcuts.',
                                       ),
                                     Expanded(
                                       child: !ready

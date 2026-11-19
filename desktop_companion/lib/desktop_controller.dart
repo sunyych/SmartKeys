@@ -1118,6 +1118,27 @@ class DesktopController extends ChangeNotifier {
         next.insert(index + delta, moving);
         return current.copyWith(sidebarItems: List.unmodifiable(next));
       });
+
+  Future<void> setSidebarLaunchOnSelect(String applicationId, bool launch) =>
+      _commit((current) {
+        if (!current.effectiveSidebarItems.any(
+          (item) =>
+              item.kind == RemoteSidebarKind.application &&
+              item.id == applicationId,
+        )) {
+          throw const FormatException('Choose an application shown in App Bar');
+        }
+        final shortcutOnlyIds = {...current.sidebarShortcutOnlyApplicationIds};
+        if (launch) {
+          shortcutOnlyIds.remove(applicationId);
+        } else {
+          shortcutOnlyIds.add(applicationId);
+        }
+        return current.copyWith(
+          sidebarShortcutOnlyApplicationIds: Set.unmodifiable(shortcutOnlyIds),
+        );
+      });
+
   Future<void> restoreSidebarDefaults() =>
       _commit((current) => current.copyWith(clearSidebarConfiguration: true));
 
@@ -1354,6 +1375,11 @@ class DesktopController extends ChangeNotifier {
         nextForeground != null && nextForeground.id != previousForeground;
     return current.copyWith(
       applications: apps,
+      sidebarShortcutOnlyApplicationIds: Set.unmodifiable(
+        current.sidebarShortcutOnlyApplicationIds.where(
+          (id) => apps.any((app) => app.id == id && !app.launchOnly),
+        ),
+      ),
       applicationActivationSequence: activationChanged
           ? current.applicationActivationSequence + 1
           : current.applicationActivationSequence,

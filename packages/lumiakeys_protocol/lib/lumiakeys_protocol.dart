@@ -706,6 +706,7 @@ class DesktopManifest {
     List<String?>? launcherApplicationIds,
     bool? hasLauncherConfiguration,
     this.sidebarItems,
+    this.sidebarShortcutOnlyApplicationIds = const {},
   }) : launcherApplicationIds =
            launcherApplicationIds ??
            const <String?>[
@@ -747,6 +748,10 @@ class DesktopManifest {
 
   /// Null retains the historical automatic sidebar; empty hides optional items.
   final List<RemoteSidebarItem>? sidebarItems;
+
+  /// App Bar selections that open the shortcut panel without activating an app.
+  final Set<String> sidebarShortcutOnlyApplicationIds;
+
   List<RemoteSidebarItem> get defaultSidebarItems {
     final apps = applications.where((app) => !app.launchOnly).toList();
     int rank(String id) => id == 'chatgpt'
@@ -808,6 +813,7 @@ class DesktopManifest {
     String? activatedApplicationId,
     List<String?>? launcherApplicationIds,
     List<RemoteSidebarItem>? sidebarItems,
+    Set<String>? sidebarShortcutOnlyApplicationIds,
     bool clearSidebarConfiguration = false,
   }) => DesktopManifest(
     schemaVersion: schemaVersion,
@@ -829,6 +835,10 @@ class DesktopManifest {
     sidebarItems: clearSidebarConfiguration
         ? null
         : sidebarItems ?? this.sidebarItems,
+    sidebarShortcutOnlyApplicationIds: clearSidebarConfiguration
+        ? const {}
+        : sidebarShortcutOnlyApplicationIds ??
+              this.sidebarShortcutOnlyApplicationIds,
   );
 
   Map<String, Object?> toJson({bool forSync = false}) {
@@ -854,6 +864,20 @@ class DesktopManifest {
             syncedApplications.any((app) => app.id == activatedApplicationId)
         ? activatedApplicationId
         : null;
+    final shortcutOnlyIds = forSync
+        ? sidebarShortcutOnlyApplicationIds.where(
+            (id) =>
+                syncedApplications.any(
+                  (app) => app.id == id && !app.launchOnly,
+                ) &&
+                (sidebarItems?.any(
+                      (item) =>
+                          item.kind == RemoteSidebarKind.application &&
+                          item.id == id,
+                    ) ??
+                    true),
+          )
+        : sidebarShortcutOnlyApplicationIds;
     return {
       'schemaVersion': schemaVersion,
       'revision': revision,
@@ -873,6 +897,10 @@ class DesktopManifest {
             )
             .map((item) => item.toJson())
             .toList(growable: false),
+      if (shortcutOnlyIds.isNotEmpty)
+        'sidebarShortcutOnlyApplicationIds': shortcutOnlyIds.toList(
+          growable: false,
+        ),
       'currentProfileId': currentProfileId,
       'computerId': computerId,
       'settings': settings.toJson(),
@@ -928,6 +956,12 @@ class DesktopManifest {
       sidebarItems: json.containsKey('sidebarItems')
           ? _sidebarItemsFromJson(json['sidebarItems'])
           : null,
+      sidebarShortcutOnlyApplicationIds:
+          json.containsKey('sidebarShortcutOnlyApplicationIds')
+          ? _sidebarShortcutOnlyIdsFromJson(
+              json['sidebarShortcutOnlyApplicationIds'],
+            )
+          : const {},
       launcherApplicationIds: json.containsKey('launcherApplicationIds')
           ? _launcherSlotsFromJson(json['launcherApplicationIds'])
           : null,
@@ -950,6 +984,17 @@ class DesktopManifest {
             RemoteSidebarItem.fromJson(Map<String, Object?>.from(item as Map)),
       ),
     );
+  }
+
+  static Set<String> _sidebarShortcutOnlyIdsFromJson(Object? raw) {
+    if (raw is! List || raw.any((id) => id is! String)) {
+      throw const FormatException('Invalid App Bar launch settings');
+    }
+    final ids = Set<String>.unmodifiable(raw.cast<String>());
+    if (ids.length != raw.length) {
+      throw const FormatException('Duplicate App Bar launch settings');
+    }
+    return ids;
   }
 
   void validate() {
@@ -989,6 +1034,13 @@ class DesktopManifest {
             ))) {
       throw const FormatException(
         'Sidebar contains invalid or launch-only references',
+      );
+    }
+    if (sidebarShortcutOnlyApplicationIds.any(
+      (id) => !applications.any((app) => app.id == id && !app.launchOnly),
+    )) {
+      throw const FormatException(
+        'App Bar launch settings contain an invalid application',
       );
     }
     final layoutIds = layouts.map((layout) => layout.id).toSet();

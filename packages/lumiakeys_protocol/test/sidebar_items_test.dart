@@ -44,6 +44,55 @@ void main() {
       expect(hidden.sidebarItems, hasLength(2));
     },
   );
+  test('App Bar launch settings roundtrip separately from ordered items', () {
+    const setting = 'sidebarShortcutOnlyApplicationIds';
+    final legacy = DesktopManifest.regularStarter();
+    expect(
+      DesktopManifest.fromJson(
+        legacy.toJson(),
+      ).sidebarShortcutOnlyApplicationIds,
+      isEmpty,
+    );
+    expect(legacy.toJson(), isNot(contains(setting)));
+
+    final configured = legacy.copyWith(
+      applications: [
+        for (final app in legacy.applications)
+          app.copyWith(detected: {'chrome', 'chatgpt'}.contains(app.id)),
+      ],
+      sidebarItems: const [RemoteSidebarItem.application('chrome')],
+      sidebarShortcutOnlyApplicationIds: const {'chrome', 'chatgpt'},
+    );
+    final saved = configured.toJson();
+    expect(saved['sidebarItems'], [
+      {'kind': 'application', 'id': 'chrome'},
+    ]);
+    expect(DesktopManifest.fromJson(saved).sidebarShortcutOnlyApplicationIds, {
+      'chrome',
+      'chatgpt',
+    });
+    expect(
+      DesktopManifest.fromJson(
+        configured.toJson(forSync: true),
+      ).sidebarShortcutOnlyApplicationIds,
+      {'chrome'},
+    );
+    expect(
+      configured.copyWith(clearSidebarConfiguration: true).toJson(),
+      isNot(contains(setting)),
+    );
+    for (final invalid in [
+      'chrome',
+      [42],
+      ['chrome', 'chrome'],
+      ['missing'],
+    ]) {
+      expect(
+        () => DesktopManifest.fromJson({...saved, setting: invalid}),
+        throwsFormatException,
+      );
+    }
+  });
   test('malformed duplicate unknown and launch-only refs fail closed', () {
     final old = DesktopManifest.regularStarter();
     for (final raw in [

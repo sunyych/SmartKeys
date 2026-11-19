@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_companion/desktop_controller.dart';
+import 'package:lumiakeys_companion/main.dart' show CompanionApp;
 import 'package:lumiakeys_companion/phone_sidebar_page.dart';
 import 'package:lumiakeys_companion/app_library/app_library.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -99,6 +100,26 @@ void main() {
       );
     },
   );
+  test('saved App Bar order and launch choices survive a restart', () async {
+    final store = Store();
+    final c = await ready(store: store);
+    const chrome = RemoteSidebarItem.application('chrome');
+    await c.moveSidebarItem(chrome, -1);
+    await c.setSidebarLaunchOnSelect(chrome.id, false);
+    await c.setSidebarVisible(chrome, false);
+    await c.setSidebarVisible(chrome, true);
+    await c.moveSidebarItem(chrome, -1);
+    final expected = c.sidebarItems.map((item) => item.key).toList();
+
+    final restored = await ready(store: store);
+    expect(restored.sidebarItems.map((item) => item.key), expected);
+    expect(restored.manifest.sidebarShortcutOnlyApplicationIds, {'chrome'});
+    expect(restored.manifest.settings.autoLaunchApps, isTrue);
+
+    await restored.restoreSidebarDefaults();
+    expect(restored.sidebarItems.first.id, 'chatgpt');
+    expect(restored.manifest.sidebarShortcutOnlyApplicationIds, isEmpty);
+  });
   test(
     'failed sidebar writes keep durable list and parallel operations use latest state',
     () async {
@@ -144,10 +165,12 @@ void main() {
         const RemoteSidebarItem.application('chatgpt'),
         false,
       );
+      await c.setSidebarLaunchOnSelect('chrome', false);
       expect(c.manifest.sidebarItems!.any((i) => i.id == 'chrome'), true);
       discovery.removeChrome = true;
       await c.refreshApplications(forceInstalled: false);
       expect(c.manifest.sidebarItems!.any((i) => i.id == 'chrome'), false);
+      expect(c.manifest.sidebarShortcutOnlyApplicationIds, isEmpty);
       expect(
         () => DesktopManifest.fromJson(c.manifestForExport.toJson()),
         returnsNormally,
@@ -155,11 +178,42 @@ void main() {
     },
   );
   testWidgets(
+    'App Bar opens from desktop navigation and exposes the per-app launch switch',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1080, 720);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final c = await ready();
+      c.selectSection(0);
+      await tester.pumpWidget(CompanionApp(controller: c, startServer: false));
+      await tester.pumpAndSettle();
+      final navigation = find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('App Bar'),
+      );
+      await tester.tap(navigation);
+      await tester.pumpAndSettle();
+      final launch = find.byKey(
+        const ValueKey('desktop-sidebar-launch-application:chatgpt'),
+      );
+      expect(tester.widget<SwitchListTile>(launch).value, isTrue);
+      await tester.tap(launch);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(launch).value, isFalse);
+      expect(c.manifest.sidebarShortcutOnlyApplicationIds, {'chatgpt'});
+      expect(c.manifest.settings.autoLaunchApps, isTrue);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
     'phone sidebar offers visible hide and add without changing execution',
     (tester) async {
       final c = await ready();
       await tester.pumpWidget(
-        MaterialApp(home: PhoneSidebarPage(controller: c)),
+        MaterialApp(
+          home: Scaffold(body: PhoneSidebarPage(controller: c)),
+        ),
       );
       await tester.pumpAndSettle();
       await tester.tap(
@@ -170,7 +224,10 @@ void main() {
       final add = find.byKey(
         const ValueKey('desktop-sidebar-add-application:chatgpt'),
       );
-      await tester.scrollUntilVisible(add, 300);
+      await tester.scrollUntilVisible(add, 250);
+      await tester.ensureVisible(add);
+      await tester.pumpAndSettle();
+      expect(add.hitTestable(), findsOneWidget);
       await tester.tap(add);
       await tester.pumpAndSettle();
       expect(c.sidebarItems.last.id, 'chatgpt');

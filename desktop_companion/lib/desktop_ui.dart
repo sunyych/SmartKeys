@@ -34,6 +34,8 @@ class DesktopSettingsHome extends StatelessWidget {
   final DesktopDictationService dictation;
   final String? displayHost;
 
+  static const appBarSection = 8;
+
   static const sections = [
     (Icons.tune, 'General'),
     (Icons.bluetooth, 'Bluetooth'),
@@ -43,6 +45,7 @@ class DesktopSettingsHome extends StatelessWidget {
     (Icons.info_outline, 'About'),
     (Icons.mic, 'Local Dictation'),
     (Icons.rocket_launch_outlined, 'Launcher'),
+    (Icons.view_sidebar_outlined, 'App Bar'),
   ];
 
   @override
@@ -114,6 +117,7 @@ class DesktopSettingsHome extends StatelessWidget {
     4 => _ProfilesPage(controller: controller),
     5 => _AboutPage(inputBackend: controller.actions.inputBackend),
     6 => _LocalDictationPage(dictation: dictation),
+    appBarSection => PhoneSidebarPage(controller: controller),
     _ => _LauncherPage(controller: controller),
   };
 }
@@ -1006,12 +1010,9 @@ class _AppsPage extends StatelessWidget {
         child: OutlinedButton.icon(
           key: const ValueKey('desktop-open-phone-sidebar'),
           icon: const Icon(Icons.view_sidebar_outlined),
-          label: const Text('Phone sidebar'),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => PhoneSidebarPage(controller: controller),
-            ),
-          ),
+          label: const Text('Configure App Bar'),
+          onPressed: () =>
+              controller.selectSection(DesktopSettingsHome.appBarSection),
         ),
       ),
       const SizedBox(height: 12),
