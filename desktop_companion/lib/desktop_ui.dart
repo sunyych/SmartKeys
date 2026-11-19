@@ -47,8 +47,7 @@ class DesktopSettingsHome extends StatelessWidget {
   final bool savingPreferences;
   final bool preferencesSaveFailed;
 
-  static const appBarSection = 9;
-  static const navigationOrder = [0, 1, 2, 3, appBarSection, 4, 6, 7, 8, 5];
+  static const navigationOrder = [0, 1, 2, 3, 4, 6, 7, 8, 5];
 
   static const sections = [
     (Icons.tune, 'General', '常规'),
@@ -60,7 +59,6 @@ class DesktopSettingsHome extends StatelessWidget {
     (Icons.mic, 'Local Dictation', '本地听写'),
     (Icons.rocket_launch_outlined, 'Launcher', '启动台'),
     (Icons.settings_outlined, 'Settings', '设置'),
-    (Icons.view_sidebar_outlined, 'App Bar', '应用栏'),
   ];
 
   @override
@@ -150,7 +148,6 @@ class DesktopSettingsHome extends StatelessWidget {
       saving: savingPreferences,
       saveFailed: preferencesSaveFailed,
     ),
-    appBarSection => PhoneSidebarPage(controller: controller),
     _ => _LauncherPage(controller: controller),
   };
 }
@@ -884,17 +881,6 @@ class _AppsPage extends StatelessWidget {
           ),
         ),
       ),
-      const SizedBox(height: 18),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: OutlinedButton.icon(
-          key: const ValueKey('desktop-open-phone-sidebar'),
-          icon: const Icon(Icons.view_sidebar_outlined),
-          label: const Text('Configure App Bar'),
-          onPressed: () =>
-              controller.selectSection(DesktopSettingsHome.appBarSection),
-        ),
-      ),
       const SizedBox(height: 12),
       ...controller.applicationsForCurrentPlatform.map(
         (app) => Padding(
@@ -1013,6 +999,7 @@ class _LauncherPageState extends State<_LauncherPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final date = MaterialLocalizations.of(context).formatFullDate(_now);
+    final controller = widget.controller;
     return LayoutBuilder(
       builder: (context, constraints) {
         final contentWidth = (constraints.maxWidth - 56).clamp(
@@ -1052,11 +1039,38 @@ class _LauncherPageState extends State<_LauncherPage> {
                     ],
                   ),
                 ),
-                OutlinedButton.icon(
-                  key: const ValueKey('launcher-edit'),
-                  onPressed: () => _editKey(0),
-                  icon: const Icon(Icons.edit_outlined, size: 17),
-                  label: Text(desktopText(context, 'Edit Keys', '编辑按键')),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        key: const ValueKey('launcher-edit'),
+                        onPressed: () => _editKey(0),
+                        icon: const Icon(Icons.edit_outlined, size: 17),
+                        label: Text(desktopText(context, 'Edit Keys', '编辑按键')),
+                      ),
+                      OutlinedButton.icon(
+                        key: const ValueKey('launcher-open-app-bar'),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (context) => Scaffold(
+                              appBar: AppBar(
+                                title: Text(
+                                  desktopText(context, 'App Bar', '应用栏'),
+                                ),
+                              ),
+                              body: PhoneSidebarPage(controller: controller),
+                            ),
+                          ),
+                        ),
+                        icon: const Icon(Icons.view_sidebar_outlined, size: 17),
+                        label: Text(desktopText(context, 'App Bar', '应用栏')),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

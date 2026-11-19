@@ -84,7 +84,7 @@ define 的 Full，再区分手势未触发与发送路径失败。正常交付�
 
 ## Desktop 配置手机侧栏
 
-Desktop 的 Apps 页面 → **Phone sidebar**，可添加、隐藏和上下移动已同步的
+Desktop 的 Launcher 页面 → **App Bar**，可添加、隐藏和上下移动已同步的
 应用/已安装快捷键 profile。Launchpad 和 General 固定在顶部；**Restore default
 list** 恢复默认列表。空列表仅保留这两个固定项；旧配置缺少该字段时沿用默认显示。
 设置保存失败保留旧列表。隐藏当前选中/正在激活的项后，手机安全退回 Launchpad，

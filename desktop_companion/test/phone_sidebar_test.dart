@@ -177,23 +177,36 @@ void main() {
       );
     },
   );
-  testWidgets(
-    'App Bar opens from desktop navigation and exposes the per-app launch switch',
-    (tester) async {
+  for (final size in [const Size(1080, 720), const Size(760, 560)]) {
+    testWidgets('App Bar opens only from Launcher at ${size.width.toInt()}px', (
+      tester,
+    ) async {
       tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(1080, 720);
+      tester.view.physicalSize = size;
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
       final c = await ready();
-      c.selectSection(0);
       await tester.pumpWidget(CompanionApp(controller: c, startServer: false));
       await tester.pumpAndSettle();
-      final navigation = find.descendant(
-        of: find.byType(NavigationRail),
-        matching: find.text('App Bar'),
-      );
-      await tester.tap(navigation);
+
+      final rail = find.byType(NavigationRail);
+      Finder destination(IconData icon) =>
+          find.descendant(of: rail, matching: find.byIcon(icon));
+      expect(destination(Icons.view_sidebar_outlined), findsNothing);
+      await tester.tap(destination(Icons.apps));
       await tester.pumpAndSettle();
+      expect(find.text('Managed Applications'), findsOneWidget);
+      expect(find.text('Configure App Bar'), findsNothing);
+      expect(find.text('Phone sidebar'), findsNothing);
+      expect(find.text('App Bar'), findsNothing);
+
+      await tester.tap(destination(Icons.rocket_launch_outlined));
+      await tester.pumpAndSettle();
+      final openAppBar = find.byKey(const ValueKey('launcher-open-app-bar'));
+      expect(openAppBar.hitTestable(), findsOneWidget);
+      await tester.tap(openAppBar);
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, 'App Bar'), findsOneWidget);
       final launch = find.byKey(
         const ValueKey('desktop-sidebar-launch-application:chatgpt'),
       );
@@ -203,9 +216,15 @@ void main() {
       expect(tester.widget<SwitchListTile>(launch).value, isFalse);
       expect(c.manifest.sidebarShortcutOnlyApplicationIds, {'chatgpt'});
       expect(c.manifest.settings.autoLaunchApps, isTrue);
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('launcher-page')), findsOneWidget);
+      expect(openAppBar.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
-    },
-  );
+    });
+  }
   testWidgets(
     'phone sidebar offers visible hide and add without changing execution',
     (tester) async {

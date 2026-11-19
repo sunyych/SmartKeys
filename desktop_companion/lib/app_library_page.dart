@@ -213,7 +213,7 @@ class _DesktopAppLibraryPageState extends State<DesktopAppLibraryPage> {
                           state(() {
                             saving = false;
                             feedback =
-                                'App icon and shortcuts saved. Manage its visibility in App Bar.';
+                                'App icon and shortcuts saved. Manage its visibility in Launcher → App Bar.';
                           });
                         }
                       } catch (_) {
