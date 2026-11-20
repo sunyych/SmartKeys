@@ -56,6 +56,20 @@ Future<File> _session(
   );
 }
 
+Future<void> _appendLargeResponse(File file, int mebibytes) async {
+  final session = await file.open(mode: FileMode.append);
+  try {
+    await session.writeString('{"type":"response_item","payload":{"text":"');
+    final chunk = 'x' * (256 * 1024);
+    for (var i = 0; i < 4 * mebibytes; i++) {
+      await session.writeString(chunk);
+    }
+    await session.writeString('"}}\n');
+  } finally {
+    await session.close();
+  }
+}
+
 void main() {
   final now = DateTime.utc(2026, 11, 19, 23);
   final selected = _id(now, '000000000001');
@@ -101,6 +115,58 @@ void main() {
     expect((await reader.read(selected))?.status, CodexActivityStatus.idle);
     expect(await reader.read(unrelated), isNull);
   });
+
+  test(
+    'cold start finds the active turn behind a large unrelated record',
+    () async {
+      final reader = CodexDesktopRollout(sessions, now: () => now);
+      final file = await _session(sessions, now, selected);
+      await file.writeAsString(
+        '${jsonEncode(_event(now, 'task_started'))}\n',
+        mode: FileMode.append,
+      );
+      await _appendLargeResponse(file, 5);
+      expect(
+        (await reader.read(selected))?.status,
+        CodexActivityStatus.thinking,
+      );
+    },
+  );
+
+  test(
+    'verified append growth retains live evidence beyond the cold window',
+    () async {
+      var clock = now;
+      final reader = CodexDesktopRollout(sessions, now: () => clock);
+      final file = await _session(sessions, now, selected);
+      await file.writeAsString(
+        '${jsonEncode(_event(now, 'task_started'))}\n',
+        mode: FileMode.append,
+      );
+      await _appendLargeResponse(file, 31);
+      expect(
+        (await reader.read(selected))?.status,
+        CodexActivityStatus.thinking,
+      );
+      await _appendLargeResponse(file, 2);
+      expect(
+        (await reader.read(selected))?.status,
+        CodexActivityStatus.thinking,
+      );
+      final coldReader = CodexDesktopRollout(sessions, now: () => clock);
+      expect(await coldReader.read(selected), isNull);
+      clock = now.add(const Duration(hours: 2));
+      expect(await reader.read(selected), isNull);
+      await file.writeAsString(
+        '${jsonEncode(_event(clock, 'task_complete'))}\n',
+        mode: FileMode.append,
+      );
+      expect(
+        (await reader.read(selected))?.status,
+        CodexActivityStatus.complete,
+      );
+    },
+  );
 
   test('metadata mismatch and stale active turn fail closed', () async {
     final reader = CodexDesktopRollout(sessions, now: () => now);
