@@ -15,15 +15,14 @@ views cannot recreate their past click times.
 usage counts; ties keep position and empty buttons follow configured actions.
 It does not reorder Desktop-managed layouts or make the layout jump during use.
 **Clear local usage** confirms before deleting detailed history and counters.
-Clearing local history does not delete online contributions or Google backups;
-those have separate removal controls.
+Use **Withdraw online contributions** to remove previously shared counts.
 
 ## Private by default
 
 Detailed events, local shortcut keys/labels and precise timestamps stay in the
 mobile journal. Android stores it beneath noBackupFilesDir; iOS stores it in
-Application Support with backup exclusion. They are absent from Profile exports,
-Desktop requests and Google account backups. Submission preferences and deletion
+Application Support with backup exclusion. They are absent from Profile exports
+and Desktop requests. Submission preferences and deletion
 receipts use the same protected directory, separately from usage history.
 
 ## Optional community submissions
@@ -38,8 +37,7 @@ Contributions use random per-batch identifiers and deletion secrets rather than
 a stable installation identifier. Pending requests are saved privately and
 explicit retries use the same batch to prevent duplicate counts after an
 ambiguous network failure. Saved receipts allow **Withdraw online contributions**;
-keep them until withdrawal succeeds. Signing in to Google does not attach your
-account to public submissions. Network infrastructure can see connection IPs;
+keep them until withdrawal succeeds. Network infrastructure can see connection IPs;
 this feature provides account-free aggregate sharing, not network anonymity.
 
 Public rankings can be read without enabling sharing. A category appears after
@@ -50,8 +48,8 @@ The service is not a verified unique-person or fraud-proof popularity measure.
 
 Profession and computer proficiency tags are optional. In a submission preview you may select software
 engineering, design, video editing, office work or other, or leave the tag empty.
-This does not infer your occupation or bind it to your Google account. Public
-ranking filters independently show all professions or one selected tag. Computer
+The tags come from your selection. Public ranking filters independently show
+all professions or one selected tag. Computer
 proficiency can be omitted or set to Beginner, Intermediate or Advanced. The two
 filters can be combined; the three-contribution threshold applies to each
 filtered category as well.
@@ -61,7 +59,7 @@ now** remembers that setup was completed with neither choice. Saving only keeps
 defaults on this device: it does not enable sharing or send any data. Open
 **Settings → Community sharing setup** to change or clear the defaults. The
 submission preview can override or omit either default for that batch. These
-setup preferences are excluded from Google backups and Profile exports, and
+setup preferences are excluded from Profile exports, and
 clearing local click history leaves them intact.
 
 The service also provides a Chinese browser Dashboard at `/` and `/dashboard`.
@@ -78,6 +76,5 @@ configured and continues to provide local statistics. Production endpoints must
 use HTTPS. There is no bundled fabricated online ranking or default public host.
 Deploy the [Rust/PostgreSQL service](../community_server/README.md) to provide one.
 
-Google account backup is independent and manual. It offers selective settings,
-Profiles and custom images, preview/restore, and account-specific online deletion.
-See [GOOGLE_BACKUP.md](GOOGLE_BACKUP.md) for the required OAuth client setup.
+The service retains [legacy Google account backups](GOOGLE_BACKUP.md) separately
+from community contributions.

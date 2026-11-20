@@ -11,7 +11,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../services/companion_service.dart';
 import '../services/hid_service.dart';
 import '../services/hid_text_output_service.dart';
+import '../mobile_appearance.dart';
 import 'dictation_entry_consent.dart';
+import 'dictation_startup_setting.dart';
 import 'local_dictation_route_observer.dart';
 
 const _modelPreferenceKey = 'dictation.model.v1';
@@ -80,16 +82,19 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
   bool get isDictationRunning =>
       _panelKey.currentState?.isSessionInProgress ?? false;
 
-  Future<void> startQuickDictation() => _open(autoStart: true);
+  Future<void> startQuickDictation() {
+    if (_opening ||
+        (_entryVisible && (_autoStartCurrentEntry || isDictationRunning))) {
+      return stopQuickDictation();
+    }
+    return _open(autoStart: true);
+  }
 
   /// Stops the current quick session, or invalidates consent/start work that
   /// has not reached microphone capture yet.
   Future<void> stopQuickDictation() async {
     ++_openGeneration;
-    if (_entryVisible) {
-      _autoStartCurrentEntry = false;
-      if (mounted) setState(() {});
-    }
+    if (!_entryVisible) return;
     final panel = _panelKey.currentState;
     if (panel == null) {
       if (_entryVisible) _dismissEntry();
@@ -112,7 +117,17 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
 
   @override
   void didPushNext() {
-    _removeEntry();
+    ++_openGeneration;
+    _dismissEntry();
+  }
+
+  @override
+  void didUpdateWidget(covariant LocalDictationEntryButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entryEnabled && !widget.entryEnabled) {
+      ++_openGeneration;
+      _dismissEntry();
+    }
   }
 
   Future<void> _open({required bool autoStart}) async {
@@ -149,6 +164,7 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
   void _dismissEntry() {
     if (!_entryVisible && _historyEntry == null) return;
     _entryVisible = false;
+    _panelKey.currentState?.closeEntry();
     final historyEntry = _historyEntry;
     _historyEntry = null;
     historyEntry?.remove();
@@ -159,11 +175,8 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
     if (!identical(_historyEntry, historyEntry)) return;
     _historyEntry = null;
     _entryVisible = false;
+    _panelKey.currentState?.closeEntry();
     if (mounted) setState(() {});
-  }
-
-  void _removeEntry() {
-    _dismissEntry();
   }
 
   @override
@@ -187,12 +200,12 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
         child: Tooltip(
           triggerMode: TooltipTriggerMode.manual,
           message:
-              'Tap to quick-start with the selected output · hold for output and language options',
+              'Tap to start or stop dictation · hold for output and language settings',
           child: Semantics(
             button: true,
             label: 'Local quick dictation',
             hint:
-                'Tap to quick-start with the selected output; hold to choose Bluetooth English or multilingual LumiaKey Desktop output. Speech stays on this phone.',
+                'Tap to start or stop dictation; hold to choose the output and language. Speech stays on this phone.',
             child: IconButton.filledTonal(
               key: const ValueKey('local-quick-output'),
               tooltip: null,
@@ -206,26 +219,28 @@ class LocalDictationEntryButtonState extends State<LocalDictationEntryButton>
           ),
         ),
       ),
-      if (_entryVisible)
-        Positioned.fill(
-          child: LocalDictationPanel(
-            hid: widget.hid,
-            companion: widget.companion,
-            key: _panelKey,
-            autoStartWhenReady: _autoStartCurrentEntry,
-            forceDesktopOutput:
-                _forceDesktopOutputForCurrentEntry || widget.forceDesktopOutput,
-            liveChipTopOffset: widget.topOffset,
-            liveChipRightInset: widget.rightInset,
-            autoCollapseWhileListening: true,
-            modelManager: widget.modelManager,
-            capture: widget.capture,
-            recognizerFactory: widget.recognizerFactory,
-            enableWakeLock: widget.enableWakeLock,
-            disableWakeLock: widget.disableWakeLock,
-            onDismiss: _dismissEntry,
-          ),
+      Positioned.fill(
+        child: LocalDictationPanel(
+          hid: widget.hid,
+          companion: widget.companion,
+          key: _panelKey,
+          entryVisible: _entryVisible,
+          preloadOnStartup: true,
+          autoStartWhenReady: _autoStartCurrentEntry,
+          forceDesktopOutput: _entryVisible
+              ? _forceDesktopOutputForCurrentEntry
+              : widget.forceDesktopOutput,
+          liveChipTopOffset: widget.topOffset,
+          liveChipRightInset: widget.rightInset,
+          autoCollapseWhileListening: true,
+          modelManager: widget.modelManager,
+          capture: widget.capture,
+          recognizerFactory: widget.recognizerFactory,
+          enableWakeLock: widget.enableWakeLock,
+          disableWakeLock: widget.disableWakeLock,
+          onDismiss: _dismissEntry,
         ),
+      ),
     ],
   );
 }
@@ -235,6 +250,8 @@ class LocalDictationPanel extends StatefulWidget {
     super.key,
     required this.hid,
     this.companion,
+    this.entryVisible = true,
+    this.preloadOnStartup = false,
     this.autoStartWhenReady = false,
     this.autoCollapseWhileListening = false,
     this.forceDesktopOutput = false,
@@ -251,6 +268,8 @@ class LocalDictationPanel extends StatefulWidget {
 
   final HidService hid;
   final CompanionService? companion;
+  final bool entryVisible;
+  final bool preloadOnStartup;
   final bool autoStartWhenReady;
   final bool autoCollapseWhileListening;
   final bool forceDesktopOutput;
@@ -279,8 +298,11 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
   late final DictationCapture _capture;
   late final HidTextOutputService _textOutput;
   late final bool _ownsTextOutput;
+  late final Future<void> _initialization;
   LocalAsrModel _model = LocalAsrModel.senseVoice;
   DictationOutputMode _outputMode = DictationOutputMode.bluetoothEnglish;
+  DictationOutputMode _preferredOutputMode =
+      DictationOutputMode.bluetoothEnglish;
   DictationLanguage _language = DictationLanguage.english;
   DictationLanguage _desktopLanguage = DictationLanguage.chinese;
   bool _initialized = false;
@@ -292,11 +314,15 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
   bool _stopping = false;
   bool _cancelling = false;
   bool _configuring = false;
+  bool _openingQuick = false;
+  bool _migratedPreferences = false;
   bool _wakeLockHeld = false;
+  int _entryGeneration = 0;
   int _startGeneration = 0;
   ModelDownloadProgress? _progress;
   HidTextOutputSession? _textSession;
   HidHost? _sessionHost;
+  int _hidConnectionEpoch = 0;
   CompanionHost? _sessionCompanionHost;
   int _sessionCompanionEpoch = 0;
   int _companionHostEpoch = 0;
@@ -304,14 +330,21 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
   String? _desktopSessionId;
   int _desktopSequence = 0;
   String? _panelError;
-  bool _autoStartCancelled = false;
   Future<bool>? _stopFuture;
   Future<Object?>? _cancelFuture;
 
-  bool get isSessionInProgress => _sessionInProgress;
+  bool get isSessionInProgress => _openingQuick || _sessionInProgress;
+
+  void closeEntry() {
+    ++_entryGeneration;
+    _openingQuick = false;
+    if (_downloading) _models.cancelDownload();
+    if (_sessionInProgress) unawaited(_cancelCurrentSession());
+  }
 
   Future<void> stopQuickDictation() async {
-    _autoStartCancelled = true;
+    ++_entryGeneration;
+    _openingQuick = false;
     if (_stopping) {
       final succeeded = await _stop();
       if (mounted && succeeded) widget.onDismiss?.call();
@@ -388,6 +421,8 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
   @override
   void initState() {
     super.initState();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _appResumed = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     _models = widget.modelManager ?? ModelManager();
     _capture = widget.capture ?? RecordDictationCapture();
@@ -407,10 +442,22 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
     widget.hid.connectionStatus.addListener(_handleConnectionChanged);
     widget.companion?.activeHost.addListener(_handleCompanionHostChanged);
     _dictation.addListener(_handleDictationChanged);
-    unawaited(_initialize());
+    _initialization = _readPreferences();
+    if (widget.entryVisible) _openEntry();
   }
 
-  Future<void> _initialize() async {
+  @override
+  void didUpdateWidget(covariant LocalDictationPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.entryVisible == oldWidget.entryVisible) return;
+    if (widget.entryVisible) {
+      _openEntry();
+    } else {
+      closeEntry();
+    }
+  }
+
+  Future<void> _readPreferences() async {
     try {
       final preferences = await SharedPreferences.getInstance();
       final modelName = preferences.getString(_modelPreferenceKey);
@@ -431,44 +478,23 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
         (value) => value.name == outputModeName,
         orElse: () => DictationOutputMode.bluetoothEnglish,
       );
-      final effectiveOutputMode = widget.forceDesktopOutput || Platform.isIOS
-          ? DictationOutputMode.desktopMultilingual
-          : outputMode;
+      final effectiveOutputMode = _effectiveOutputMode(outputMode);
       final language =
           effectiveOutputMode == DictationOutputMode.bluetoothEnglish
           ? DictationLanguage.english
           : desktopLanguage;
       await _dictation.configure(model: model, language: language);
-      await preferences.setString(_languagePreferenceKey, 'english');
-      await preferences.setString(_legacyTextProfilePreferenceKey, 'usAscii');
-      await preferences.setString(
-        _desktopLanguagePreferenceKey,
-        desktopLanguage.name,
-      );
-      if (!widget.forceDesktopOutput) {
-        await preferences.setString(
-          _outputModePreferenceKey,
-          effectiveOutputMode.name,
-        );
-      }
-      final permission = await _capture.hasPermission();
-      final ready = await _models.areModelsAvailable(model: model);
       if (!mounted) return;
       setState(() {
         _model = model;
         _outputMode = effectiveOutputMode;
+        _preferredOutputMode = outputMode;
         _language = language;
         _desktopLanguage = desktopLanguage;
-        _permissionGranted = permission;
-        _modelReady = ready;
-        _initialized = true;
       });
-      if (widget.autoStartWhenReady &&
-          !_autoStartCancelled &&
-          ready &&
-          _outputReady &&
-          _appResumed) {
-        unawaited(_start());
+      if (widget.preloadOnStartup &&
+          preferences.getBool(dictationStartupPreloadPreferenceKey) == true) {
+        unawaited(_preloadAtStartup(model, language));
       }
     } catch (error) {
       if (!mounted) return;
@@ -477,6 +503,104 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
         _panelError = 'Dictation could not initialize: $error';
       });
     }
+  }
+
+  DictationOutputMode _effectiveOutputMode(DictationOutputMode preferred) =>
+      widget.forceDesktopOutput || Platform.isIOS
+      ? DictationOutputMode.desktopMultilingual
+      : preferred;
+
+  Future<void> _preloadAtStartup(
+    LocalAsrModel model,
+    DictationLanguage language,
+  ) async {
+    try {
+      await _dictation.preload();
+      if (mounted && _model == model && _language == language) {
+        setState(() => _modelReady = true);
+      }
+    } catch (_) {
+      // The user's next tap can retry or open model setup.
+    }
+  }
+
+  bool _isCurrentEntry(int generation) =>
+      mounted && widget.entryVisible && generation == _entryGeneration;
+
+  void _openEntry() {
+    _openingQuick =
+        widget.autoStartWhenReady && widget.autoCollapseWhileListening;
+    _initialized = false;
+    _panelError = null;
+    final generation = ++_entryGeneration;
+    unawaited(_prepareEntry(generation));
+  }
+
+  Future<void> _prepareEntry(int generation) async {
+    final hidHost = _currentHost;
+    final hidEpoch = _hidConnectionEpoch;
+    final companionHost = _currentCompanionHost;
+    final companionEpoch = _companionHostEpoch;
+    try {
+      await _initialization;
+      if (!_isCurrentEntry(generation)) return;
+      final output = _effectiveOutputMode(_preferredOutputMode);
+      if (output != _outputMode) {
+        final language = output == DictationOutputMode.bluetoothEnglish
+            ? DictationLanguage.english
+            : _desktopLanguage;
+        await _dictation.configure(language: language);
+        _outputMode = output;
+        _language = language;
+      }
+      await _migrateVisiblePreferences();
+      if (!_isCurrentEntry(generation)) return;
+      if (widget.autoStartWhenReady && _appResumed && _outputReady) {
+        await _dictation.preload();
+        if (!_isCurrentEntry(generation) || !_appResumed) return;
+        _modelReady = true;
+        final sameTarget = _outputMode == DictationOutputMode.bluetoothEnglish
+            ? hidEpoch == _hidConnectionEpoch &&
+                  _sameHostIdentity(hidHost, _currentHost)
+            : companionEpoch == _companionHostEpoch &&
+                  _sameCompanionHostIdentity(
+                    companionHost,
+                    _currentCompanionHost,
+                  );
+        if (!sameTarget) return;
+        await _start();
+      } else if (!_modelReady) {
+        final ready = await _models.areModelsAvailable(model: _model);
+        if (_isCurrentEntry(generation)) _modelReady = ready;
+      }
+    } catch (error) {
+      if (_isCurrentEntry(generation)) {
+        _modelReady = false;
+        _panelError = '$error';
+      }
+    } finally {
+      if (_isCurrentEntry(generation)) {
+        setState(() {
+          _openingQuick = false;
+          _initialized = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _migrateVisiblePreferences() async {
+    if (_migratedPreferences) return;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_languagePreferenceKey, 'english');
+    await preferences.setString(_legacyTextProfilePreferenceKey, 'usAscii');
+    await preferences.setString(
+      _desktopLanguagePreferenceKey,
+      _desktopLanguage.name,
+    );
+    if (!widget.forceDesktopOutput) {
+      await preferences.setString(_outputModePreferenceKey, _outputMode.name);
+    }
+    _migratedPreferences = true;
   }
 
   Future<void> _deliverText(String text) async {
@@ -634,6 +758,7 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
   }
 
   void _handleConnectionChanged() {
+    _hidConnectionEpoch++;
     if (_outputMode == DictationOutputMode.bluetoothEnglish &&
         _sessionHost != null &&
         _sessionInProgress &&
@@ -737,6 +862,11 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appResumed = state == AppLifecycleState.resumed;
+    if (!_appResumed && _openingQuick && !_sessionInProgress) {
+      ++_entryGeneration;
+      _openingQuick = false;
+      widget.onDismiss?.call();
+    }
     if (!_appResumed && _sessionInProgress) {
       unawaited(_cancelForBackground());
     }
@@ -923,6 +1053,7 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
 
   bool _canStartGeneration(int generation) =>
       mounted &&
+      widget.entryVisible &&
       _appResumed &&
       _sessionOutputValid &&
       generation == _startGeneration;
@@ -1067,6 +1198,7 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
       if (mounted) {
         setState(() {
           _outputMode = mode;
+          _preferredOutputMode = mode;
           _language = language;
           _panelError = null;
         });
@@ -1193,13 +1325,32 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
           .whenComplete(_dictation.dispose)
           .catchError((Object _) {}),
     );
-    unawaited(widget.disableWakeLock?.call().catchError((Object _) {}));
+    if (_wakeLockHeld) {
+      unawaited(widget.disableWakeLock?.call().catchError((Object _) {}));
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.entryVisible) return const SizedBox.shrink();
     final listening = _dictation.listening;
+    if (widget.autoCollapseWhileListening &&
+        (listening || _stopping || _openingQuick || _cancelling)) {
+      return Stack(
+        key: const ValueKey('dictation-live-overlay'),
+        children: [
+          Positioned(
+            top: widget.liveChipTopOffset,
+            right:
+                MediaQuery.paddingOf(context).right + widget.liveChipRightInset,
+            child: listening || _stopping
+                ? _buildLiveLevelStopChip()
+                : _buildStartingChip(context),
+          ),
+        ],
+      );
+    }
     final descriptor = _models.descriptor(_model);
     final modelBytes = descriptor.files.fold<int>(
       0,
@@ -1510,19 +1661,6 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
       ),
     );
     if (!widget.autoCollapseWhileListening) return panel;
-    if (listening || _stopping) {
-      return Stack(
-        key: const ValueKey('dictation-live-overlay'),
-        children: [
-          Positioned(
-            top: widget.liveChipTopOffset,
-            right:
-                MediaQuery.paddingOf(context).right + widget.liveChipRightInset,
-            child: _buildLiveLevelStopChip(),
-          ),
-        ],
-      );
-    }
     return Stack(
       key: const ValueKey('dictation-setup-overlay'),
       children: [
@@ -1535,6 +1673,28 @@ class LocalDictationPanelState extends State<LocalDictationPanel>
       ],
     );
   }
+
+  Widget _buildStartingChip(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    elevation: 5,
+    borderRadius: BorderRadius.circular(12),
+    child: IconButton(
+      key: const ValueKey('cancel-dictation-start'),
+      tooltip: context.mobileText('Cancel starting dictation', '取消启动听写'),
+      onPressed: _cancelling ? null : stopQuickDictation,
+      icon: const Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 25,
+            height: 25,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          Icon(Icons.stop_rounded, size: 15),
+        ],
+      ),
+    ),
+  );
 
   Widget _buildLiveLevelStopChip() => ValueListenableBuilder<double>(
     valueListenable: _dictation.audioLevel,

@@ -110,6 +110,54 @@ void main() {
   });
 
   test(
+    'preload during a language change never uses the old recognizer',
+    () async {
+      final capture = FakeCapture()..permission = false;
+      final languages = <DictationLanguage>[];
+      final first = FakeRecognizer((_, _) async => '');
+      final firstStarted = Completer<void>();
+      final firstFinished = Completer<DictationRecognizer>();
+      final controller = LocalDictationController(
+        modelManager: manager,
+        capture: capture,
+        recognizerFactory: (_, language) {
+          languages.add(language);
+          if (languages.length == 1) {
+            firstStarted.complete();
+            return firstFinished.future;
+          }
+          return Future.value(FakeRecognizer((_, _) async => ''));
+        },
+        onText: (_) async {},
+      );
+      addTearDown(controller.close);
+      final oldPreload = controller.preload();
+      final wasCancelled = expectLater(oldPreload, throwsStateError);
+      await firstStarted.future;
+      final didPublish = Completer<void>();
+      late Future<void> newPreload;
+      controller.addListener(() {
+        if (controller.language == DictationLanguage.english &&
+            !didPublish.isCompleted) {
+          newPreload = controller.preload();
+          didPublish.complete();
+        }
+      });
+      final updating = controller.configure(
+        language: DictationLanguage.english,
+      );
+      await didPublish.future;
+      firstFinished.complete(first);
+      await wasCancelled;
+      await updating;
+      await newPreload;
+      expect(languages, [DictationLanguage.chinese, DictationLanguage.english]);
+      expect(first.disposeCalls, 1);
+      expect(capture.startCalls, 0);
+    },
+  );
+
+  test(
     'audio level is throttled normalized RMS across odd PCM chunks',
     () async {
       final capture = FakeCapture();

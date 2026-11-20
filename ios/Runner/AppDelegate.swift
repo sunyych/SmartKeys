@@ -43,18 +43,6 @@ import UIKit
         result(FlutterError(code: "PRIVATE_USAGE_PATH", message: error.localizedDescription, details: nil))
       }
     }
-    let googleChannel = FlutterMethodChannel(
-      name: "smart_keys/google_sign_in",
-      binaryMessenger: engineBridge.applicationRegistrar.messenger()
-    )
-    googleChannel.setMethodCallHandler { call, result in
-      guard call.method == "isUrlSchemeRegistered", let expected = call.arguments as? String else {
-        result(FlutterMethodNotImplemented); return
-      }
-      let schemes = (Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? [])
-        .flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
-      result(schemes.contains(expected))
-    }
     let channel = FlutterMethodChannel(
       name: "smart_keys/power",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()

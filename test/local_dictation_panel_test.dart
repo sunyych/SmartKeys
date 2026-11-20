@@ -12,6 +12,7 @@ import 'package:smart_keys/services/hid_service.dart';
 import 'package:smart_keys/services/hid_text_output_service.dart';
 import 'package:smart_keys/models/config.dart';
 import 'package:smart_keys/ui/dictation_entry_consent.dart';
+import 'package:smart_keys/ui/dictation_startup_setting.dart';
 import 'package:smart_keys/ui/local_dictation_panel.dart';
 import 'package:smart_keys/ui/local_dictation_route_observer.dart';
 
@@ -551,7 +552,7 @@ void main() {
   );
 
   testWidgets(
-    'entry owner prevents duplicate overlays and closes capture with its route',
+    'entry owner closes capture with Back or another route and can reopen',
     (tester) async {
       SharedPreferences.setMockInitialValues({
         dictationConsentPreferenceKey: true,
@@ -593,7 +594,6 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.byKey(const ValueKey('local-quick-output')));
       await tester.tap(find.byKey(const ValueKey('local-quick-output')));
       await tester.pumpAndSettle();
       for (var frame = 0; frame < 30 && capture.startCount == 0; frame++) {
@@ -868,7 +868,12 @@ void main() {
         );
       }
       expect(factoryStarted.isCompleted, isTrue);
-      final stopping = entryKey.currentState!.stopQuickDictation();
+      expect(find.byKey(const ValueKey('local-dictation-panel')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('cancel-dictation-start')),
+        findsOneWidget,
+      );
+      final stopping = entryKey.currentState!.startQuickDictation();
       finishFactory.complete(_FakeRecognizer());
       await stopping;
       await tester.pumpAndSettle();
@@ -880,6 +885,86 @@ void main() {
       hid.dispose();
     },
   );
+
+  for (final preload in [false, true]) {
+    testWidgets(
+      'quick entry reuses the recognizer (startup preload: $preload)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          dictationConsentPreferenceKey: true,
+          dictationStartupPreloadPreferenceKey: preload,
+          'dictation.model.v1': LocalAsrModel.cohere.name,
+        });
+        final capture = _FakeCapture();
+        final model = _FakeModelManager();
+        final hid = _readyHid();
+        final entry = GlobalKey<LocalDictationEntryButtonState>();
+        final loaded = <LocalAsrModel>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: LocalDictationEntryButton(
+                key: entry,
+                hid: hid,
+                modelManager: model,
+                capture: capture,
+                recognizerFactory: (files, _) async {
+                  loaded.add(files.model);
+                  return _FakeRecognizer();
+                },
+                enableWakeLock: () async {},
+                disableWakeLock: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(model.installedChecks, preload ? 1 : 0);
+        expect(model.availabilityChecks, 0);
+        expect(loaded, preload ? [LocalAsrModel.cohere] : isEmpty);
+        expect(model.prepareCount, 0);
+        expect(capture.permissionChecks, 0);
+        expect(capture.startCount, 0);
+        expect(entry.currentState!.isEntryOpen, isFalse);
+
+        for (var session = 1; session <= 2; session++) {
+          unawaited(entry.currentState!.startQuickDictation());
+          await tester.pump();
+          expect(
+            find.byKey(const ValueKey('local-dictation-panel')),
+            findsNothing,
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('stop-dictation-compact')),
+            findsOneWidget,
+          );
+          expect(capture.startCount, session);
+          unawaited(entry.currentState!.startQuickDictation());
+          await tester.pumpAndSettle();
+          for (
+            var frame = 0;
+            frame < 30 && entry.currentState!.isEntryOpen;
+            frame++
+          ) {
+            await tester.pump(const Duration(milliseconds: 20));
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 1)),
+            );
+          }
+          expect(capture.stopCount, session);
+          expect(entry.currentState!.isEntryOpen, isFalse);
+        }
+        expect(loaded, [LocalAsrModel.cohere]);
+        expect(model.installedChecks, 1);
+        expect(model.availabilityChecks, 0);
+        expect(model.prepareCount, 0);
+        await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+        await tester.pumpAndSettle();
+        hid.dispose();
+      },
+    );
+  }
 
   testWidgets('repeated public Stop calls share one final flush', (
     tester,
@@ -1912,19 +1997,27 @@ class _FakeModelManager extends ModelManager {
 
   int prepareCount = 0;
   int deleteCount = 0;
+  int installedChecks = 0;
+  int availabilityChecks = 0;
 
   @override
   Future<bool> areModelsAvailable({
     LocalAsrModel model = LocalAsrModel.senseVoice,
-  }) async => ready;
+  }) async {
+    availabilityChecks++;
+    return ready;
+  }
 
   @override
-  Future<LocalAsrModelFiles> installedModel(LocalAsrModel model) async =>
-      LocalAsrModelFiles(
-        model: model,
-        modelPath: 'model.onnx',
-        tokensPath: 'tokens.txt',
-      );
+  Future<LocalAsrModelFiles> installedModel(LocalAsrModel model) async {
+    installedChecks++;
+    if (!ready) throw StateError('Dictation model not installed');
+    return LocalAsrModelFiles(
+      model: model,
+      modelPath: 'model.onnx',
+      tokensPath: 'tokens.txt',
+    );
+  }
 
   @override
   Future<LocalAsrModelFiles> prepareModel(
@@ -1953,10 +2046,14 @@ class _FakeCapture implements DictationCapture {
   StreamController<List<int>> audio = StreamController<List<int>>.broadcast();
   int startCount = 0;
   int stopCount = 0;
+  int permissionChecks = 0;
   bool permitted = true;
 
   @override
-  Future<bool> hasPermission() async => permitted;
+  Future<bool> hasPermission() async {
+    permissionChecks++;
+    return permitted;
+  }
 
   @override
   Future<Stream<List<int>>> start() async {

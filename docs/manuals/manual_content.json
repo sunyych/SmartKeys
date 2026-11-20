@@ -111,7 +111,7 @@
       "steps": [
         {"zh": "在按钮编辑器打开图标选择器，按关键词搜索或按分类筛选；可使用最近选择、收藏、预览、尺寸和颜色设置。自定义图片会复制到应用私有目录，可调整适配、缩放、位置和文字覆盖。", "en": "Open the icon picker from the button editor. Search by keyword or filter by category; use recent choices, favorites, preview, size and color controls. Custom images are copied into app-private storage and support fit, scale, position and label overlays."},
         {"zh": "打开 Settings → Shortcut Community，选择内置包，或粘贴／导入 Profile JSON。查看预览并确认替换槽位；未确认前不会覆盖当前配置。", "en": "Open Settings → Shortcut Community, choose a built-in pack or paste/import Profile JSON. Review it and confirm the replacement slot before changing the current configuration."},
-        {"zh": "使用 Copy active Profile JSON 复制配置，或导出 .smartkeys.json 文件。私有图片文件不会因复制 JSON 自动传到另一台设备；跨设备恢复图片可使用包含图片的账户备份。", "en": "Use Copy active Profile JSON or export a .smartkeys.json file. Copying JSON does not transfer private image files to another device; use an account backup that includes images when needed."}
+        {"zh": "使用 Copy active Profile JSON 复制配置，或导出 .smartkeys.json 文件。若要在另一台设备使用同一张自定义图片，请在目标设备重新选择图片。", "en": "Use Copy active Profile JSON or export a .smartkeys.json file. To use the same custom image on another device, select the image again on that device."}
       ],
       "paragraphs": [{"zh": "图片缺失时显示明确占位符，需重新导入或从备份恢复。这里的离线配置包与在线使用排行榜是不同功能；使用离线包不需要部署社区服务器。", "en": "Missing images display a placeholder and must be reimported or restored. Offline packs and online usage rankings are separate features; offline packs do not require a community server."}],
       "imageHeight": 4.45,
@@ -214,19 +214,16 @@
       ]
     },
     {
-      "id": "backup-installers",
-      "title": {"zh": "15 备份恢复与桌面安装包", "en": "15 Backup Restore and Desktop Installers"},
-      "intro": {"zh": "账户备份与社区分享相互独立。当前设置入口名称为 Google Drive backup，实际通过 Google 登录访问独立备份服务，并不把文件写到你的 Google Drive。", "en": "Account backup is separate from community sharing. The settings entry currently says Google Drive backup, but Google sign-in accesses a separate backup service rather than storing files in your Google Drive."},
+      "id": "desktop-installers",
+      "title": {"zh": "15 桌面安装包", "en": "15 Desktop Installers"},
+      "intro": {"zh": "Android 版可将正式发布的桌面安装包保存到共享存储，供电脑安装。", "en": "The Android app can save bundled Desktop installers to shared storage for installation on a computer."},
       "paragraphs": [
-        {"zh": "配置服务和 Google OAuth 后，可登录、选择应用设置、指定 Profile 以及可选自定义图片，预览后手动备份。每个账户保存最新一份快照。恢复时选择项目并确认，Profile 总数仍受四个槽位限制，恢复不会执行快捷键。", "en": "Once the service and Google OAuth are configured, sign in, select app settings, Profiles and optional custom images, preview and back up manually. Each account stores its latest snapshot. Restore selected items within the four-profile limit; restoration does not execute shortcuts."},
-        {"zh": "配对信息、点击历史、分享回执和登录凭据不进入备份。退出登录不会删除线上快照，需单独选择 Delete online backup。当前未配置构建会显示不可用提示，不提供模拟登录或虚构备份。", "en": "Pairing, click history, sharing receipts and login credentials are excluded. Signing out does not delete the online snapshot; use Delete online backup separately. An unconfigured build shows an unavailable message rather than simulated sign-in or fabricated backups."},
         {"zh": "Android 的 Settings → Desktop installers 显示正式发布时内置的 Windows 安装器和 macOS DMG，可查看版本、来源提交、大小与 SHA-256 并验证。开发构建可能没有安装包。", "en": "On Android, Settings → Desktop installers shows the Windows installer and macOS DMG bundled in a release. Review version, source commit, size and SHA-256, and verify them. Development builds may contain no installers."},
         {"zh": "导出时在系统目录选择器选择共享存储位置，不覆盖已有文件；保存完成后校验大小与哈希。通过 USB 选择文件传输 MTP，将文件复制到电脑后安装；手机不会变成 USB 大容量磁盘。", "en": "Choose a shared-storage destination in the system folder picker. Export does not overwrite an existing file and verifies stored size and hash. Use USB file transfer/MTP to copy the package to the computer, then install it; the phone does not become a USB mass-storage drive."}
       ],
       "imageHeight": 4.25,
       "images": [
-        {"file": "usage-account-backup-oauth-unconfigured.png", "caption": {"zh": "图 23 备份未配置提示", "en": "Figure 23 Backup configuration message"}},
-        {"file": "phone-installer-release-top.png", "caption": {"zh": "图 24 安装包展示示例，包信息为测试数据", "en": "Figure 24 Installer catalog with test package metadata"}}
+        {"file": "phone-installer-release-top.png", "caption": {"zh": "图 23 安装包展示示例，包信息为测试数据", "en": "Figure 23 Installer catalog with test package metadata"}}
       ]
     },
     {
@@ -236,7 +233,7 @@
       "paragraphs": [
         {"zh": "蓝牙列表找不到电脑时，先完成系统配对，再刷新列表。Desktop 未连接时，确认双方在同一局域网、电脑端仍在运行且防火墙允许通信。iPhone 或 iPad 的连接失效后可重新复制连接码。", "en": "If a computer is missing from the Bluetooth list, pair it in system settings and refresh. For Desktop connection issues, check that both devices are on the same network, Desktop is running and the firewall allows access. Copy a fresh code if iPhone or iPad pairing expires."},
         {"zh": "应用未启动时，蓝牙直连应重新测试电脑的全局启动键。高级模式请检查 Enable Apps Sync 和 Auto Launch Apps。按键效果不符时，检查电脑前台、Shortcut Platform 和已保存的组合键。多语言听写需选择 LumiaKey Desktop 并确认连接。", "en": "If an app does not open, retest its global launch shortcut in Bluetooth mode, or check Enable Apps Sync and Auto Launch Apps in advanced mode. For an unexpected key action, check foreground focus, Shortcut Platform and the saved chord. Multilingual dictation needs a live LumiaKey Desktop connection."},
-        {"zh": "模型或麦克风不可用：先完成模型校验，再检查系统麦克风权限；删除模型前会停止收音。排行榜或备份提示未配置：属于发布服务配置条件，仍可使用本机统计与离线配置，不代表有已上线服务。", "en": "Model or microphone unavailable: complete model verification and check system microphone permission. Deleting a model stops capture first. Unconfigured rankings or backup need release-service configuration; local statistics and offline profiles remain usable."},
+        {"zh": "模型或麦克风不可用时，先完成模型校验，再检查系统麦克风权限。删除模型前会停止收音。使用在线排行榜需要已配置的服务，本机统计和离线配置仍可使用。", "en": "If the model or microphone is unavailable, verify the model and check system microphone permission. Deleting a model stops capture first. Online rankings require a configured service. Local statistics and offline profiles remain available."},
         {"zh": "本说明书核对了源码和测试界面。Android 真机蓝牙输入、语音准确率与延迟、Windows/macOS 权限与文字输出，以及 iPhone/iPad 真机安装和配对需在对应设备上验证。", "en": "This guide checks source behavior and rendered test screens. Physical Android Bluetooth input, speech accuracy and latency, Windows/macOS permissions and text delivery, and iPhone/iPad installation and pairing need device testing."}
       ]
     }

@@ -164,11 +164,8 @@ acceptance.
   Settings can reopen it, and every upload still needs its own confirmation.
   Public rankings do not require sharing and support combined tag filters.
   The Rust service also serves a responsive browser Dashboard at `/`.
-  Selected settings, Profiles and optional custom images can be backed up
-  separately with Google sign-in. Click history and sharing receipts are never
-  included in account backups or Profile exports. See
+  Click history and sharing receipts are excluded from Profile exports. See
   [usage and sharing](docs/SHORTCUT_USAGE.md),
-  [Google backup setup](docs/GOOGLE_BACKUP.md),
   [Rust/PostgreSQL service deployment](community_server/README.md), and
   [validation evidence](docs/SHORTCUT_USAGE_VALIDATION.md), and
   [Dashboard/setup validation](docs/WEB_DASHBOARD_ONBOARDING_VALIDATION.md).

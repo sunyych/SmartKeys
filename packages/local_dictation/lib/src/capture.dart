@@ -9,13 +9,18 @@ abstract interface class DictationCapture {
 
 /// Mono 16 kHz PCM16 capture; audio is exposed only as a stream in memory.
 class RecordDictationCapture implements DictationCapture {
-  RecordDictationCapture({AudioRecorder? recorder})
-    : _recorder = recorder ?? AudioRecorder();
-  final AudioRecorder _recorder;
+  RecordDictationCapture({AudioRecorder? recorder}) {
+    if (recorder != null) _recorder = recorder;
+  }
+
+  AudioRecorder? _recorder;
+  AudioRecorder get _activeRecorder => _recorder ??= AudioRecorder();
+
   @override
-  Future<bool> hasPermission() => _recorder.hasPermission();
+  Future<bool> hasPermission() => _activeRecorder.hasPermission();
+
   @override
-  Future<Stream<List<int>>> start() => _recorder.startStream(
+  Future<Stream<List<int>>> start() => _activeRecorder.startStream(
     const RecordConfig(
       encoder: AudioEncoder.pcm16bits,
       sampleRate: 16000,
@@ -27,9 +32,9 @@ class RecordDictationCapture implements DictationCapture {
   );
   @override
   Future<void> stop() async {
-    await _recorder.stop();
+    await _recorder?.stop();
   }
 
   @override
-  Future<void> dispose() => _recorder.dispose();
+  Future<void> dispose() async => await _recorder?.dispose();
 }

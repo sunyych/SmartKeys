@@ -13,12 +13,12 @@ import 'shortcut_community_screen.dart';
 import 'desktop_installers_screen.dart';
 import 'desktop_connection_panel.dart';
 import 'usage_dashboard_screen.dart';
-import 'account_backup_screen.dart';
 import 'community_setup_screen.dart';
 import 'lite_shortcut_settings_screen.dart';
 import '../diagnostics/diagnostics_service.dart';
 import 'error_log_screen.dart';
 import 'app_icon_library_screen.dart';
+import 'dictation_startup_setting.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -281,6 +281,9 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+        const Divider(),
+        const _SectionLabel('DICTATION', '听写'),
+        const DictationStartupSetting(),
         const Divider(),
         const _SectionLabel('CHARGING DISPLAY', '充电时的屏幕设置'),
         RadioGroup<ChargingBrightnessMode>(
@@ -639,21 +642,6 @@ class _ShortcutUsageSection extends StatelessWidget {
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const UsageDashboardScreen(),
-              ),
-            ),
-          ),
-          ListTile(
-            key: const ValueKey('open-account-backup'),
-            leading: const Icon(Icons.cloud_outlined),
-            title: const MobileText('Google Drive backup', 'Google Drive 备份'),
-            subtitle: const MobileText(
-              'Back up and restore your profiles',
-              '备份和恢复你的快捷键配置',
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AccountBackupScreen(),
               ),
             ),
           ),

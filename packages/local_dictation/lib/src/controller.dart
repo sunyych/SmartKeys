@@ -58,7 +58,8 @@ class LocalDictationController extends ChangeNotifier {
   bool _listening = false, _busy = false, _disposed = false, _closing = false;
   bool _audioMeterAccepting = false;
   Future<void>? _closeFuture, _stopFuture;
-  Future<void>? _startFuture;
+  Future<void>? _startFuture, _preloadFuture, _recognizerReleaseFuture;
+  int _recognizerGeneration = 0;
   String? _error;
   String _lastText = '';
 
@@ -85,13 +86,47 @@ class LocalDictationController extends ChangeNotifier {
     final nextModel = model ?? this.model;
     final nextLanguage = language ?? this.language;
     if (nextModel == this.model && nextLanguage == this.language) return;
-    final old = _recognizer;
-    _recognizer = null;
+    final releasing = _releaseRecognizer();
     this.model = nextModel;
     this.language = nextLanguage;
     _error = null;
     _notify();
-    await old?.dispose(flush: true);
+    await releasing;
+  }
+
+  /// Loads the selected installed model without accessing audio capture.
+  Future<void> preload() {
+    if (_disposed || _closing) {
+      throw StateError('Dictation controller is closed.');
+    }
+    final releasing = _recognizerReleaseFuture;
+    if (releasing != null) return releasing.then((_) => preload());
+    if (_recognizer != null) return Future<void>.value();
+    final pending = _preloadFuture;
+    if (pending != null) return pending;
+    final generation = _recognizerGeneration;
+    late final Future<void> loading;
+    loading = _loadRecognizer(model, language, generation).whenComplete(() {
+      if (identical(_preloadFuture, loading)) _preloadFuture = null;
+    });
+    return _preloadFuture = loading;
+  }
+
+  Future<void> _loadRecognizer(
+    LocalAsrModel selectedModel,
+    DictationLanguage selectedLanguage,
+    int generation,
+  ) async {
+    final files = await modelManager.installedModel(selectedModel);
+    if (generation != _recognizerGeneration || _closing) {
+      throw StateError('Recognizer load was cancelled.');
+    }
+    final recognizer = await recognizerFactory(files, selectedLanguage);
+    if (generation != _recognizerGeneration || _closing) {
+      await recognizer.dispose(flush: false);
+      throw StateError('Recognizer load was cancelled.');
+    }
+    _recognizer = recognizer;
   }
 
   /// Releases native handles before a cached model is removed from disk.
@@ -101,8 +136,28 @@ class LocalDictationController extends ChangeNotifier {
         'Stop dictation and wait for pending recognition before releasing the model.',
       );
     }
+    await _releaseRecognizer();
+  }
+
+  Future<void> _releaseRecognizer() {
+    final releasing = _recognizerReleaseFuture;
+    if (releasing != null) return releasing;
+    ++_recognizerGeneration;
+    final pending = _preloadFuture;
     final recognizer = _recognizer;
     _recognizer = null;
+    final operation = _disposeRecognizer(
+      pending,
+      recognizer,
+    ).whenComplete(() => _recognizerReleaseFuture = null);
+    return _recognizerReleaseFuture = operation;
+  }
+
+  Future<void> _disposeRecognizer(
+    Future<void>? pending,
+    DictationRecognizer? recognizer,
+  ) async {
+    if (pending != null) await pending.catchError((_) {});
     await recognizer?.dispose(flush: true);
   }
 
@@ -136,16 +191,11 @@ class LocalDictationController extends ChangeNotifier {
       if (!await capture.hasPermission()) {
         throw StateError('Microphone permission was not granted.');
       }
-      final files = await modelManager.installedModel(model);
       if (startGeneration != _generation || _closing) return;
-      var recognizer = _recognizer;
-      if (recognizer == null) {
-        recognizer = await recognizerFactory(files, language);
-        if (startGeneration != _generation || _closing) {
-          await recognizer.dispose(flush: false);
-          return;
-        }
-        _recognizer = recognizer;
+      await preload();
+      if (startGeneration != _generation || _closing) return;
+      if (_recognizer == null) {
+        throw StateError('Recognizer is unavailable.');
       }
       _segmenter.reset();
       final stream = await capture.start();
@@ -356,7 +406,7 @@ class LocalDictationController extends ChangeNotifier {
         _error ??= 'Microphone cleanup failed: $e';
       }
       try {
-        await _recognizer?.dispose(flush: true);
+        await _releaseRecognizer();
       } catch (e) {
         _error ??= 'Recognizer cleanup failed: $e';
       }

@@ -32,7 +32,6 @@ dependencies:
   crypto: ^3.0.7
   diagnostics_core:
     path: packages/diagnostics_core
-  google_sign_in: ^7.2.0
   image: ^4.7.2
   image_picker: ^1.2.1
   mobile_scanner: 7.4.2

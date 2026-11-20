@@ -2,12 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_keys/app.dart';
-import 'package:smart_keys/data/account_backup_client.dart';
 import 'package:smart_keys/data/community_setup_repository.dart';
 import 'package:smart_keys/data/shortcut_community_client.dart';
 import 'package:smart_keys/data/shortcut_community_store.dart';
-import 'package:smart_keys/services/google_account_auth_service.dart';
-import 'package:smart_keys/ui/account_backup_screen.dart';
 import 'package:smart_keys/ui/settings_screen.dart';
 import 'package:smart_keys/ui/usage_dashboard_screen.dart';
 
@@ -19,7 +16,7 @@ void main() {
   setUpAll(ScreenshotSupport.prepareFonts);
 
   testWidgets(
-    'Settings links to Dashboard and Dashboard starts with sharing off',
+    'Settings keeps private Dashboard without a cloud backup entry',
     (tester) async {
       final harness = await TestHarness.create();
       addTearDown(harness.dispose);
@@ -50,6 +47,7 @@ void main() {
       );
       await _settleDashboard(tester);
       expect(find.text('Usage Dashboard'), findsOneWidget);
+      expect(find.byKey(const ValueKey('open-account-backup')), findsNothing);
       await tester.tap(find.byKey(const ValueKey('open-usage-dashboard')));
       await _settleDashboard(tester);
       expect(find.text('Shortcut usage'), findsOneWidget);
@@ -257,60 +255,6 @@ void main() {
       const Size(1366, 1024),
       'usage-dashboard-tablet',
       'landscape',
-    );
-  });
-
-  testWidgets('Account backup shows disabled state before OAuth setup', (
-    tester,
-  ) async {
-    final shots = ScreenshotSupport(tester);
-    final harness = await TestHarness.create();
-    final auth = GoogleAccountAuthService(webClientId: '');
-    final client = AccountBackupClient(auth: auth, endpoint: '');
-    addTearDown(() async {
-      await shots.unmount();
-      shots.resetViewport();
-      client.dispose();
-      await harness.dispose();
-    });
-    await shots.setViewport(const Size(412, 915));
-    final key = GlobalKey();
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: _screenshotTheme,
-        home: SmartKeysScope(
-          controller: harness.controller,
-          child: RepaintBoundary(
-            key: key,
-            child: AccountBackupScreen(auth: auth, client: client),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Google sign-in is not available in this build.'),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Online backup service is not configured for this build.'),
-      findsOneWidget,
-    );
-    expect(
-      tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Sign in with Google'),
-          )
-          .onPressed,
-      isNull,
-    );
-    await shots.capture(
-      id: 'usage-account-backup-oauth-unconfigured',
-      title: 'Google account backup · OAuth not configured',
-      orientation: 'portrait',
-      notes:
-          'Backup controls remain disabled until OAuth configuration exists.',
-      boundaryKey: key,
     );
   });
 

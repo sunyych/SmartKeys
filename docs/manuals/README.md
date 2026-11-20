@@ -11,6 +11,8 @@ America/Los_Angeles.
 Both guides cover Bluetooth-only and Desktop advanced modes, first-connection
 setup, iPhone/iPad pairing and Vibe Coding. The Chinese guide retains visible
 English control names. The DOCX files in this folder are from the October edition.
+The published PDFs are release snapshots. The manual source reflects retirement
+of Google account backup from current phone builds.
 
 ## Screenshot provenance
 
@@ -72,7 +74,6 @@ intermediate files and logs in ignored `build/manual-qa/`.
 - [Project overview](../../README.md)
 - [Tablet support](../TABLET_SUPPORT.md)
 - [Usage and sharing](../SHORTCUT_USAGE.md)
-- [Google account backup](../GOOGLE_BACKUP.md)
 - [Local dictation](../../README.md#local-quick-dictation)
 - [October UI review](UI_REVIEW.md)
 
