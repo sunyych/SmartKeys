@@ -258,8 +258,7 @@ void main() {
     await page(
       id: 'phone-settings',
       title: 'Settings',
-      note:
-          'Settings list, including connection, orientation, and charging controls.',
+      note: 'Settings list with connection and shortcut controls.',
       child: const SettingsScreen(),
       expected: find.text('SHORTCUT PLATFORM'),
     );
@@ -274,21 +273,6 @@ void main() {
           matching: find.byType(Scrollable),
         )
         .first;
-    await tester.scrollUntilVisible(
-      find.text('SCREEN ORIENTATION'),
-      240,
-      scrollable: settingsScrollable,
-      maxScrolls: 20,
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('SCREEN ORIENTATION'), findsOneWidget);
-    await shots.capture(
-      id: 'phone-settings-orientation-charging',
-      title: 'Settings · orientation and charging display',
-      orientation: 'portrait',
-      notes: 'Scrolled middle section showing screen orientation controls.',
-      boundaryKey: settingsMidKey,
-    );
     await tester.scrollUntilVisible(
       find.text('Fixed while charging'),
       240,

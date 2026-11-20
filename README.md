@@ -214,8 +214,7 @@ manifest, controller, or UI layers.
 - Rotation clears held-button state, cancels active wheel/mouse input, and
   invokes `releaseAllKeys()` without recreating the Profile or connection
   controller.
-- LumiaKey starts in Landscape by default. Portrait and Auto remain available
-  only through Screen Orientation in Settings, and the choice persists.
+- The Full control surface uses landscape.
 - Configuration schema v7 owns an ordered list of independent Profiles, each
   with 15 buttons, navigation actions, icon, optional target application,
   accent color, and timestamps.

@@ -232,15 +232,13 @@
     {
       "id": "help",
       "title": {"zh": "16 显示设置与常见问题", "en": "16 Display Settings and Troubleshooting"},
-      "intro": {"zh": "Settings 可选择 Landscape、Portrait 或 Auto，默认横屏；还可设置充电亮度及保持唤醒行为。进行听写时保持唤醒，停止或取消听写后释放相应唤醒状态。", "en": "Settings offers Landscape, Portrait and Auto, with landscape as the default, plus charging-brightness and wake options. Dictation keeps the screen awake while active and releases its wake state when stopped or cancelled."},
+      "intro": {"zh": "Full 版的控制面板使用横屏。可在 Settings 中设置充电亮度和充电时保持屏幕常亮。听写期间屏幕保持唤醒，停止或取消听写时恢复正常。", "en": "The Full control surface uses landscape. Use Settings to adjust brightness and keep the screen awake while charging. Dictation keeps the screen awake until you stop or cancel it."},
       "paragraphs": [
         {"zh": "蓝牙列表找不到电脑时，先完成系统配对，再刷新列表。Desktop 未连接时，确认双方在同一局域网、电脑端仍在运行且防火墙允许通信。iPhone 或 iPad 的连接失效后可重新复制连接码。", "en": "If a computer is missing from the Bluetooth list, pair it in system settings and refresh. For Desktop connection issues, check that both devices are on the same network, Desktop is running and the firewall allows access. Copy a fresh code if iPhone or iPad pairing expires."},
         {"zh": "应用未启动时，蓝牙直连应重新测试电脑的全局启动键。高级模式请检查 Enable Apps Sync 和 Auto Launch Apps。按键效果不符时，检查电脑前台、Shortcut Platform 和已保存的组合键。多语言听写需选择 LumiaKey Desktop 并确认连接。", "en": "If an app does not open, retest its global launch shortcut in Bluetooth mode, or check Enable Apps Sync and Auto Launch Apps in advanced mode. For an unexpected key action, check foreground focus, Shortcut Platform and the saved chord. Multilingual dictation needs a live LumiaKey Desktop connection."},
         {"zh": "模型或麦克风不可用：先完成模型校验，再检查系统麦克风权限；删除模型前会停止收音。排行榜或备份提示未配置：属于发布服务配置条件，仍可使用本机统计与离线配置，不代表有已上线服务。", "en": "Model or microphone unavailable: complete model verification and check system microphone permission. Deleting a model stops capture first. Unconfigured rankings or backup need release-service configuration; local statistics and offline profiles remain usable."},
         {"zh": "本说明书核对了源码和测试界面。Android 真机蓝牙输入、语音准确率与延迟、Windows/macOS 权限与文字输出，以及 iPhone/iPad 真机安装和配对需在对应设备上验证。", "en": "This guide checks source behavior and rendered test screens. Physical Android Bluetooth input, speech accuracy and latency, Windows/macOS permissions and text delivery, and iPhone/iPad installation and pairing need device testing."}
-      ],
-      "imageHeight": 3.6,
-      "images": [{"file": "phone-settings-orientation-charging.png", "caption": {"zh": "图 25 屏幕方向与充电显示设置", "en": "Figure 25 Screen orientation and charging display settings"}}]
+      ]
     }
   ]
 }

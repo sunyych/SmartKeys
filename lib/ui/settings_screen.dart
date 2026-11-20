@@ -282,35 +282,6 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
         const Divider(),
-        const _SectionLabel('SCREEN ORIENTATION', '屏幕方向'),
-        if (!isLite)
-          const ListTile(
-            leading: Icon(Icons.screen_lock_landscape_outlined),
-            title: MobileText('Landscape only', '仅横屏'),
-            subtitle: MobileText(
-              'The control surface always stays horizontal.',
-              '控制面板始终保持横屏。',
-            ),
-          ),
-        if (isLite)
-          RadioGroup<OrientationMode>(
-            groupValue: preferences.orientationMode,
-            onChanged: (value) {
-              if (value != null) controller.updateOrientationMode(value);
-            },
-            child: Column(
-              children: OrientationMode.values
-                  .map(
-                    (mode) => RadioListTile<OrientationMode>(
-                      title: Text(_orientationTitle(mode)),
-                      subtitle: Text(_orientationSubtitle(mode)),
-                      value: mode,
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        const Divider(),
         const _SectionLabel('CHARGING DISPLAY', '充电时的屏幕设置'),
         RadioGroup<ChargingBrightnessMode>(
           groupValue: preferences.chargingBrightnessMode,
@@ -467,12 +438,6 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  static String _orientationTitle(OrientationMode mode) => switch (mode) {
-    OrientationMode.auto => 'Auto',
-    OrientationMode.portrait => 'Portrait',
-    OrientationMode.landscape => 'Landscape',
-  };
-
   static String _controlSurfaceLayoutTitle(ControlSurfaceLayout layout) =>
       switch (layout) {
         ControlSurfaceLayout.automatic => 'Automatic',
@@ -488,12 +453,6 @@ class SettingsScreen extends StatelessWidget {
         ControlSurfaceLayout.shortcutBoard =>
           'Use the full-screen keyboard-only board',
       };
-
-  static String _orientationSubtitle(OrientationMode mode) => switch (mode) {
-    OrientationMode.auto => 'Follow the physical device orientation',
-    OrientationMode.portrait => 'Lock to portrait',
-    OrientationMode.landscape => 'Allow landscape left and landscape right',
-  };
 
   static String _shortcutPlatformTitle(ShortcutPlatform platform) =>
       switch (platform) {
