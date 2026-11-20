@@ -50,6 +50,32 @@ void main() {
       expect(button.target, action);
     }
   });
+
+  test('the eighth General key syncs the current host close shortcut', () {
+    final defaults = DesktopManifest.regularStarter();
+    for (final platform in RemoteShortcutPlatform.values) {
+      final projected = defaults.copyWith(
+        layouts: [
+          for (final layout in defaults.layouts)
+            projectGeneralLayout(layout, platform),
+        ],
+      );
+      final synced = DesktopManifest.fromJson(projected.toJson(forSync: true));
+      final general = synced.layoutById('keyboard')!;
+      expect(general.buttons, hasLength(12));
+      final close = general.buttons[7];
+      expect(close.id, generalCloseAppShortcutId);
+      expect(close.name, 'Close App');
+      expect(close.targetType, RemoteTargetType.keyboardShortcut);
+      expect(
+        close.shortcut,
+        platform == RemoteShortcutPlatform.apple
+            ? ['COMMAND', 'Q']
+            : ['ALT', 'F4'],
+      );
+      expect(synced.buttonById('keyboard.escape'), isNull);
+    }
+  });
   test(
     'Chrome keeps navigation, clipboard and address controls in twelve keys',
     () {

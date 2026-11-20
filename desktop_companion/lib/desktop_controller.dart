@@ -649,16 +649,19 @@ class DesktopController extends ChangeNotifier {
 
   DesktopManifest get manifest {
     final layouts = _manifest.layouts
-        .map(
-          (layout) => projectChatGptLayout(
-            layout,
-            _shortcutPlatform,
-            firstPageSize: regularShortcutCount,
-          ),
-        )
+        .map(_projectLayout)
         .toList(growable: false);
     return _manifest.copyWith(layouts: layouts);
   }
+
+  RemoteShortcutLayout _projectLayout(RemoteShortcutLayout layout) =>
+      layout.id == 'keyboard'
+      ? projectGeneralLayout(layout, _shortcutPlatform)
+      : projectChatGptLayout(
+          layout,
+          _shortcutPlatform,
+          firstPageSize: regularShortcutCount,
+        );
 
   /// Unprojected settings used by portable shortcut export.
   DesktopManifest get manifestForExport => _manifest;
@@ -847,16 +850,14 @@ class DesktopController extends ChangeNotifier {
             final buttons = layout.buttons
                 .map((button) {
                   if (button.id != updated.id) return button;
-                  final projected =
-                      projectChatGptLayout(
-                        layout,
-                        _shortcutPlatform,
-                      ).buttons.firstWhere(
-                        (candidate) => candidate.id == button.id,
-                        orElse: () => button,
-                      );
+                  final projected = _projectLayout(layout).buttons.firstWhere(
+                    (candidate) => candidate.id == button.id,
+                    orElse: () => button,
+                  );
                   final preservesPortableBinding =
-                      layoutId == 'chatgpt' &&
+                      (layoutId == 'chatgpt' ||
+                          (layoutId == 'keyboard' &&
+                              button.id == generalCloseAppShortcutId)) &&
                       _sameKeys(projected.shortcut, updated.shortcut);
                   final saved = preservesPortableBinding
                       ? updated.copyWith(shortcut: button.shortcut)
@@ -1202,7 +1203,10 @@ class DesktopController extends ChangeNotifier {
           }
         }
       }
-      final importedById = {for (final layout in imported) layout.id: layout};
+      final importedById = {
+        for (final layout in imported)
+          layout.id: migrateLegacyGeneralEscape(layout),
+      };
       final legacyLayouts = imported.where(
         (layout) => isLegacyCodexLayoutId(layout.id),
       );
@@ -1587,7 +1591,7 @@ class DesktopController extends ChangeNotifier {
                 )) {
               return compactDesktopLayout(layout);
             }
-            return saved;
+            return migrateLegacyGeneralEscape(saved);
           })
           .toList(growable: false),
     );

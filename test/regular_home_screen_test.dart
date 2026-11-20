@@ -821,6 +821,67 @@ void main() {
     },
   );
 
+  testWidgets('General sends only the close action synced by Desktop', (
+    tester,
+  ) async {
+    final defaults = DesktopManifest.regularStarter();
+    final windows = defaults.copyWith(
+      layouts: [
+        for (final layout in defaults.layouts)
+          projectGeneralLayout(layout, RemoteShortcutPlatform.windows),
+      ],
+    );
+    final harness = await mountRegular(tester, manifest: windows);
+    await tester.tap(find.byKey(const ValueKey('regular-nav-general')));
+    await tester.pumpAndSettle();
+    final cell = find.byKey(const ValueKey('regular-cell-7'));
+    final close = find.descendant(
+      of: cell,
+      matching: find.byKey(
+        const ValueKey('regular-button-$generalCloseAppShortcutId'),
+      ),
+    );
+    expect(
+      find.descendant(of: close, matching: find.text('Close App')),
+      findsOneWidget,
+    );
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(
+      harness.companion.remoteActions.single.buttonId,
+      generalCloseAppShortcutId,
+    );
+    expect(harness.hid.pressedActions, isEmpty);
+
+    final synced = harness.companion.syncedManifest.value!;
+    final general = synced.layoutById('keyboard')!;
+    final buttons = [...general.buttons]
+      ..[7] = const RemoteShortcutButton(
+        id: 'keyboard.escape',
+        name: 'Escape',
+        icon: 'close',
+        targetType: RemoteTargetType.keyboardShortcut,
+        shortcut: ['ESC'],
+      );
+    harness.companion.syncedManifest.value = synced.copyWith(
+      layouts: [
+        for (final layout in synced.layouts)
+          layout.id == general.id ? general.copyWith(buttons: buttons) : layout,
+      ],
+    );
+    await tester.pumpAndSettle();
+    expect(close, findsNothing);
+    expect(
+      find.descendant(of: cell, matching: find.text('Escape')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('regular-button-keyboard.escape')),
+    );
+    await tester.pumpAndSettle();
+    expect(harness.companion.remoteActions.last.buttonId, 'keyboard.escape');
+  });
+
   testWidgets('custom layouts retain buttons beyond twelve through paging', (
     tester,
   ) async {

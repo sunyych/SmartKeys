@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
@@ -15,6 +17,20 @@ class _BrokenStore extends MemoryDesktopConfigStore {
   @override
   Future<DesktopManifest?> load() async =>
       throw const FormatException('broken settings');
+}
+
+class _ShortcutRunner implements DesktopProcessRunner {
+  final calls = <(String, List<String>)>[];
+
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async {
+    calls.add((executable, arguments));
+    return ProcessResult(1, 0, '', '');
+  }
+
+  @override
+  Future<Process> start(String executable, List<String> arguments) =>
+      throw UnsupportedError('Unexpected process launch');
 }
 
 void main() {
@@ -134,6 +150,153 @@ void main() {
         saved.buttons.singleWhere((button) => button.id == 'chrome.copy').name,
         'My Copy',
       );
+    },
+  );
+
+  test('General replaces only the untouched Escape button in place', () async {
+    const escape = RemoteShortcutButton(
+      id: 'keyboard.escape',
+      name: 'Escape',
+      icon: 'close',
+      targetType: RemoteTargetType.keyboardShortcut,
+      shortcut: ['ESC'],
+      description: 'ESC',
+    );
+    final defaults = DesktopManifest.regularStarter();
+    final general = defaults.layoutById('keyboard')!;
+
+    for (final oldButton in [
+      escape,
+      escape.copyWith(name: 'My Escape'),
+      escape.copyWith(shortcut: const ['SHIFT', 'ESC']),
+      escape.copyWith(enabled: false),
+    ]) {
+      final buttons = [
+        ...general.buttons.take(7),
+        oldButton,
+        ...general.buttons.skip(8),
+      ]..[0] = general.buttons.first.copyWith(name: 'My Copy');
+      final store = MemoryDesktopConfigStore()
+        ..value = defaults.copyWith(
+          layouts: [
+            for (final layout in defaults.layouts)
+              layout.id == general.id
+                  ? general.copyWith(buttons: buttons)
+                  : layout,
+          ],
+        );
+      final controller = DesktopController(
+        store: store,
+        discovery: _Discovery(),
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      final saved = store.value!.layoutById(general.id)!.buttons;
+      expect(saved, hasLength(12));
+      if (identical(oldButton, escape)) {
+        expect(saved[7].id, generalCloseAppShortcutId);
+        await expectLater(
+          controller.executeRemote(
+            const RemoteActionRequest.button('keyboard.escape'),
+          ),
+          throwsFormatException,
+        );
+      } else {
+        expect(saved[7].toJson(), oldButton.toJson());
+      }
+      expect(saved.first.name, 'My Copy');
+    }
+  });
+
+  test(
+    'General close sends the normal keyboard shortcut on every host',
+    () async {
+      final manifest = DesktopManifest.regularStarter();
+      final general = manifest.layoutById('keyboard')!;
+      final runner = _ShortcutRunner();
+      for (final (os, platform) in [
+        (TargetPlatform.windows, RemoteShortcutPlatform.windows),
+        (TargetPlatform.macOS, RemoteShortcutPlatform.apple),
+        (TargetPlatform.linux, RemoteShortcutPlatform.other),
+      ]) {
+        runner.calls.clear();
+        final actions = DesktopActions(
+          runner: runner,
+          platformOverride: os,
+          environment: const {'DISPLAY': ':99'},
+        );
+        final button = projectGeneralLayout(general, platform).buttons[7];
+        await actions.executeButton(button, manifest);
+        final (executable, arguments) = runner.calls.single;
+        switch (os) {
+          case TargetPlatform.windows:
+            expect(executable, 'powershell.exe');
+            expect(arguments.last, "'%{F4}'");
+          case TargetPlatform.macOS:
+            expect(executable, '/usr/bin/osascript');
+            expect(
+              arguments.last,
+              contains('keystroke "q" using {command down}'),
+            );
+          case TargetPlatform.linux:
+            expect(executable, 'xdotool');
+            expect(arguments, ['key', '--clearmodifiers', 'alt+F4']);
+          default:
+            fail('Unexpected test platform');
+        }
+      }
+    },
+  );
+
+  test(
+    'General Close App edits and portable exports preserve the chord',
+    () async {
+      final store = MemoryDesktopConfigStore();
+      final controller = DesktopController(
+        store: store,
+        discovery: _Discovery(),
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      const transfer = DesktopShortcutTransferService();
+      const id = generalCloseAppShortcutId;
+      Future<void> transferShortcuts() => controller.importShortcutLayouts(
+        transfer.decode(transfer.encode(controller.manifestForExport)),
+      );
+
+      final initial = controller.manifest.buttonById(id)!;
+      await controller.updateButton(
+        'keyboard',
+        initial.copyWith(name: 'Close'),
+      );
+      await transferShortcuts();
+      final portable = store.value!.layoutById('keyboard')!;
+      expect(
+        projectGeneralLayout(
+          portable,
+          RemoteShortcutPlatform.apple,
+        ).buttons[7].shortcut,
+        ['COMMAND', 'Q'],
+      );
+      expect(
+        projectGeneralLayout(
+          portable,
+          RemoteShortcutPlatform.windows,
+        ).buttons[7].shortcut,
+        ['ALT', 'F4'],
+      );
+      final renamed = controller.manifest.buttonById(id)!;
+      expect(renamed.name, 'Close');
+      await controller.updateButton(
+        'keyboard',
+        renamed.copyWith(shortcut: const ['CTRL', 'ALT', 'Q']),
+      );
+      await transferShortcuts();
+      expect(controller.manifest.buttonById(id)!.shortcut, [
+        'CTRL',
+        'ALT',
+        'Q',
+      ]);
     },
   );
   test(

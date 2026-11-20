@@ -1282,6 +1282,9 @@ class _TwelveKeyGrid extends StatelessWidget {
                   ? context.mobileText('Dictation', '听写')
                   : button == null
                   ? ''
+                  : button.id == generalCloseAppShortcutId &&
+                        button.name == 'Close App'
+                  ? context.mobileText('Close App', '关闭软件')
                   : button.id == chatGptNativeVoiceShortcutId &&
                         button.name == 'Voice Mode'
                   ? context.mobileText('Voice Mode', '语音模式')

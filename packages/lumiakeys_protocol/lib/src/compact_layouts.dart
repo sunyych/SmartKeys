@@ -1,6 +1,64 @@
 part of '../lumiakeys_protocol.dart';
 
 const int regularShortcutCount = 12;
+const generalCloseAppShortcutId = 'keyboard.closeApp';
+const _closeAppDefault = 'CLOSE_APP';
+const _generalCloseAppShortcut = RemoteShortcutButton(
+  id: generalCloseAppShortcutId,
+  name: 'Close App',
+  icon: 'close',
+  targetType: RemoteTargetType.keyboardShortcut,
+  shortcut: [_closeAppDefault],
+  description: 'Close the active application.',
+);
+
+/// Resolves the portable General default before displaying or sending it.
+RemoteShortcutLayout projectGeneralLayout(
+  RemoteShortcutLayout layout,
+  RemoteShortcutPlatform platform,
+) {
+  if (layout.id != 'keyboard') return layout;
+  return layout.copyWith(
+    buttons: [
+      for (final button in layout.buttons)
+        if (button.id == generalCloseAppShortcutId &&
+            button.targetType == RemoteTargetType.keyboardShortcut &&
+            _sameShortcut(button.shortcut, const [_closeAppDefault]))
+          button.copyWith(
+            shortcut: platform == RemoteShortcutPlatform.apple
+                ? const ['COMMAND', 'Q']
+                : const ['ALT', 'F4'],
+          )
+        else
+          button,
+    ],
+  );
+}
+
+/// Updates the shipped Escape button in place while preserving saved edits.
+RemoteShortcutLayout migrateLegacyGeneralEscape(RemoteShortcutLayout layout) {
+  if (layout.id != 'keyboard' ||
+      layout.buttons.any((button) => button.id == generalCloseAppShortcutId)) {
+    return layout;
+  }
+  return layout.copyWith(
+    buttons: [
+      for (final button in layout.buttons)
+        if (button.id == 'keyboard.escape' &&
+            button.name == 'Escape' &&
+            button.icon == 'close' &&
+            button.targetType == RemoteTargetType.keyboardShortcut &&
+            button.target == null &&
+            button.shortcut.length == 1 &&
+            button.shortcut.single == 'ESC' &&
+            button.description == 'ESC' &&
+            button.enabled)
+          _generalCloseAppShortcut
+        else
+          button,
+    ],
+  );
+}
 
 /// Selects built-in twelve-key defaults, retaining catalog action IDs/bindings.
 /// Only use for defaults; saved custom layouts keep their full contents.
@@ -118,7 +176,7 @@ RemoteShortcutLayout _regularGeneralLayout(RemoteShortcutLayout catalog) {
         'A',
       ]),
       shortcut('keyboard.delete', 'Delete', 'backspace', ['BACKSPACE']),
-      shortcut('keyboard.escape', 'Escape', 'close', ['ESC']),
+      _generalCloseAppShortcut,
       media('mute', 'Mute', 'volume_off'),
       media('volumeDown', 'Volume Down', 'volume_down'),
       media('volumeUp', 'Volume Up', 'volume_up'),

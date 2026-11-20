@@ -711,7 +711,10 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                               ),
                               const Spacer(),
                               Text(
-                                button.name,
+                                button.id == generalCloseAppShortcutId &&
+                                        button.name == 'Close App'
+                                    ? desktopText(context, 'Close App', '关闭软件')
+                                    : button.name,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.titleMedium,
