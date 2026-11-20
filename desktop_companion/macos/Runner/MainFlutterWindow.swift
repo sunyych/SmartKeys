@@ -3,6 +3,128 @@ import FlutterMacOS
 import ApplicationServices
 import Carbon
 
+enum MacInputPermissions {
+  #if LUMIAKEY_TESTFLIGHT
+  static let testFlight = true
+  #else
+  static let testFlight = false
+  #endif
+
+  static func canPostPointer(testFlight: Bool, eventPosting: Bool, accessibility: Bool) -> Bool {
+    eventPosting && (testFlight || accessibility)
+  }
+
+  static var pointerAllowed: Bool {
+    canPostPointer(testFlight: testFlight, eventPosting: CGPreflightPostEventAccess(),
+                   accessibility: !testFlight && AXIsProcessTrusted())
+  }
+
+  static var status: [String: Bool] {
+    [
+      "testFlight": testFlight,
+      "eventPosting": CGPreflightPostEventAccess(),
+      "accessibility": !testFlight && AXIsProcessTrusted(),
+    ]
+  }
+
+  static func request() {
+    if !testFlight {
+      let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+      _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
+    }
+    _ = CGRequestPostEventAccess()
+  }
+}
+
+struct MacShortcutChord {
+  let keyCode: CGKeyCode
+  let flags: CGEventFlags
+
+  static func parse(
+    _ keys: [String],
+    characterKey: (String) -> (code: CGKeyCode, flags: CGEventFlags)? = layoutKey
+  ) -> Self? {
+    guard (1...5).contains(keys.count) else { return nil }
+    var flags: CGEventFlags = []
+    var keyCode: CGKeyCode?
+    for key in keys {
+      switch key {
+      case "CTRL", "CONTROL": flags.insert(.maskControl)
+      case "ALT", "OPTION": flags.insert(.maskAlternate)
+      case "SHIFT": flags.insert(.maskShift)
+      case "META", "COMMAND", "WIN": flags.insert(.maskCommand)
+      default:
+        guard keyCode == nil else { return nil }
+        if let special = specialKeyCodes[key] {
+          keyCode = special
+        } else if key.utf8.count == 1,
+                  "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789[]`/\\-=".contains(key),
+                  let character = characterKey(key.lowercased()) {
+          keyCode = character.code
+          flags.formUnion(character.flags)
+        } else {
+          return nil
+        }
+      }
+    }
+    guard let keyCode else { return nil }
+    return Self(keyCode: keyCode, flags: flags)
+  }
+
+  private static let specialKeyCodes: [String: CGKeyCode] = [
+    "ENTER": 36, "RETURN": 36, "TAB": 48, "SPACE": 49, "BACKSPACE": 51,
+    "ESC": 53, "ESCAPE": 53, "DELETE": 117, "HOME": 115, "END": 119,
+    "PAGEUP": 116, "PAGEDOWN": 121, "LEFT": 123, "RIGHT": 124, "DOWN": 125, "UP": 126,
+    "F1": 122, "F2": 120, "F3": 99, "F4": 118, "F5": 96, "F6": 97,
+    "F7": 98, "F8": 100, "F9": 101, "F10": 109, "F11": 103, "F12": 111,
+  ]
+
+  // Translate the user's active layout so character shortcuts work on a
+  // non-US keyboard without accidentally posting the US physical key.
+  static func layoutKey(_ character: String) -> (code: CGKeyCode, flags: CGEventFlags)? {
+    guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+          let value = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData),
+          let bytes = CFDataGetBytePtr(Unmanaged<CFData>.fromOpaque(value).takeUnretainedValue()) else {
+      return nil
+    }
+    let layout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+    let variants: [(UInt32, CGEventFlags)] = [
+      (0, []),
+      (UInt32(shiftKey >> 8), .maskShift),
+      (UInt32(optionKey >> 8), .maskAlternate),
+      (UInt32((shiftKey | optionKey) >> 8), [.maskShift, .maskAlternate]),
+    ]
+    for (modifiers, flags) in variants {
+      for code in UInt16(0)...UInt16(127) {
+        var deadKey: UInt32 = 0
+        var length = 0
+        var output = [UniChar](repeating: 0, count: 4)
+        let status = UCKeyTranslate(
+          layout, code, UInt16(kUCKeyActionDown), modifiers,
+          UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysMask),
+          &deadKey, output.count, &length, &output
+        )
+        if status == noErr, length > 0,
+           String(decoding: output.prefix(length), as: UTF16.self).lowercased() == character {
+          return (code, flags)
+        }
+      }
+    }
+    return nil
+  }
+
+  func events() -> (down: CGEvent, up: CGEvent)? {
+    guard let source = CGEventSource(stateID: .privateState),
+          let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+          let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
+      return nil
+    }
+    down.flags = flags
+    up.flags = flags
+    return (down, up)
+  }
+}
+
 struct PointerEventFactory {
   static func move(
     from location: CGPoint,
@@ -48,6 +170,7 @@ class MainFlutterWindow: NSWindow {
   private var systemControlChannel: FlutterMethodChannel?
   private var dictationChannel: FlutterMethodChannel?
   private var pointerChannel: FlutterMethodChannel?
+  private var inputChannel: FlutterMethodChannel?
   private var vibeSystemChannel: FlutterMethodChannel?
   private var appIconChannel: FlutterMethodChannel?
   private var installedAppsChannel: FlutterMethodChannel?
@@ -107,6 +230,37 @@ class MainFlutterWindow: NSWindow {
       }
     }
     installedAppsChannel = installedApps
+    let input = FlutterMethodChannel(
+      name: "lumiakeys/mac_input",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    input.setMethodCallHandler { call, result in
+      switch call.method {
+      case "usesTestFlightInput":
+        result(MacInputPermissions.testFlight)
+      case "frontmostMatches":
+        guard let arguments = call.arguments as? [String: Any],
+              let appId = arguments["appId"] as? String,
+              let app = NSWorkspace.shared.frontmostApplication else {
+          result(false)
+          return
+        }
+        result(Self.matchesShortcutApp(appId, bundleId: app.bundleIdentifier, name: app.localizedName))
+      case "postShortcut":
+        guard MacInputPermissions.testFlight,
+              let arguments = call.arguments as? [String: Any],
+              let keys = arguments["keys"] as? [String],
+              arguments["appId"] == nil || arguments["appId"] is String else {
+          result(FlutterError(code: "shortcut_unavailable", message: "The native shortcut route is unavailable.", details: nil))
+          return
+        }
+        result(Self.postShortcut(keys, expectedAppId: arguments["appId"] as? String))
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    inputChannel = input
+
     let channel = FlutterMethodChannel(
       name: "lumiakeys/system_control",
       binaryMessenger: flutterViewController.engine.binaryMessenger
@@ -119,11 +273,15 @@ class MainFlutterWindow: NSWindow {
           result(FlutterError(code: "invalid_arguments", message: "Missing enabled flag.", details: nil))
           return
         }
+        if MacInputPermissions.testFlight, !CGPreflightPostEventAccess() {
+          result(Self.eventPermissionError())
+          return
+        }
         self?.setDark(enabled)
         result(nil)
       case "playPause", "volumeUp", "volumeDown":
         guard CGPreflightPostEventAccess() else {
-          result(FlutterError(code: "accessibility_permission_missing", message: "Allow LumiaKey in System Settings → Privacy & Security → Accessibility, then retry.", details: nil))
+          result(Self.eventPermissionError())
           return
         }
         guard self?.postAuxiliaryKey(call.method == "volumeUp" ? 0 : (call.method == "volumeDown" ? 1 : 16)) == true else {
@@ -132,6 +290,10 @@ class MainFlutterWindow: NSWindow {
         }
         result(nil)
       case "getOutputMuted", "toggleOutputMute":
+        if MacInputPermissions.testFlight {
+          result(FlutterError(code: "sandbox_system_control_unavailable", message: "System mute is unavailable in this TestFlight build.", details: nil))
+          return
+        }
         do {
           let muted = try self?.runVolumeScript(
             call.method == "getOutputMuted"
@@ -205,6 +367,10 @@ class MainFlutterWindow: NSWindow {
         }
         result(Self.insertText(text))
       case "validateTarget":
+        if MacInputPermissions.testFlight {
+          result(Self.focusVerificationUnavailable)
+          return
+        }
         guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else {
           result(["status": "rejected", "reason": "accessibility_permission_missing"])
           return
@@ -217,12 +383,15 @@ class MainFlutterWindow: NSWindow {
       case "modifiersHeld":
         result(Self.hasHeldModifier())
       case "accessibilityStatus":
-        result(AXIsProcessTrusted() && CGPreflightPostEventAccess())
+        result(!MacInputPermissions.testFlight && AXIsProcessTrusted() && CGPreflightPostEventAccess())
+      case "inputPermissionStatus":
+        result(MacInputPermissions.status)
+      case "requestInputPermissions":
+        MacInputPermissions.request()
+        result(MacInputPermissions.status)
       case "requestAccessibilityPermission":
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
-        _ = CGRequestPostEventAccess()
-        result(AXIsProcessTrusted() && CGPreflightPostEventAccess())
+        MacInputPermissions.request()
+        result(!MacInputPermissions.testFlight && AXIsProcessTrusted() && CGPreflightPostEventAccess())
       case "openAccessibilitySettings":
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
           result(FlutterError(code: "settings_unavailable", message: nil, details: nil))
@@ -256,7 +425,7 @@ class MainFlutterWindow: NSWindow {
         result(FlutterError(code: "pointer_rejected", message: "Invalid pointer batch", details: nil))
         return
       }
-      guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else {
+      guard MacInputPermissions.pointerAllowed else {
         result(FlutterError(code: "pointer_permission_missing", message: "Allow LumiaKey Desktop in macOS Accessibility settings", details: nil))
         return
       }
@@ -340,6 +509,62 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
   }
 
+  private static let focusVerificationUnavailable = [
+    "status": "rejected",
+    "reason": "focus_verification_unavailable",
+  ]
+
+  private static func eventPermissionError() -> FlutterError {
+    FlutterError(code: "event_permission_missing",
+                 message: "Grant LumiaKey permission to send keyboard and mouse events in System Settings, then retry.",
+                 details: nil)
+  }
+
+  static func matchesShortcutApp(_ appId: String, bundleId: String?, name: String? = nil) -> Bool {
+    guard let id = bundleId?.lowercased() else { return false }
+    switch appId {
+    case "codex": return ["com.openai.codex", "com.openai.chatgpt", "com.openai.chat"].contains(id)
+    case "chatgpt":
+      return ["com.openai.chatgpt", "com.openai.chat"].contains(id) ||
+        (id == "com.openai.codex" && name?.caseInsensitiveCompare("ChatGPT") == .orderedSame)
+    case "claude": return id == "com.anthropic.claudefordesktop"
+    case "cursor": return id == "com.todesktop.230313mzl4w4u92"
+    case "chrome": return id == "com.google.chrome"
+    case "edge": return id == "com.microsoft.edgemac"
+    case "firefox": return id == "org.mozilla.firefox"
+    case "safari": return id == "com.apple.safari"
+    case "teams": return ["com.microsoft.teams", "com.microsoft.teams2"].contains(id)
+    case "zoom": return id == "us.zoom.xos"
+    case "photoshop": return id == "com.adobe.photoshop"
+    case "illustrator": return id == "com.adobe.illustrator"
+    case "vscode": return id == "com.microsoft.vscode"
+    case "premiere": return id == "com.adobe.premierepro"
+    case "appleMusic": return id == "com.apple.music"
+    case "finder": return id == "com.apple.finder"
+    default: return false
+    }
+  }
+
+  private static func postShortcut(_ keys: [String], expectedAppId: String?) -> FlutterError? {
+    guard CGPreflightPostEventAccess() else { return eventPermissionError() }
+    guard let chord = MacShortcutChord.parse(keys), let events = chord.events() else {
+      return FlutterError(code: "shortcut_rejected", message: "The shortcut is unavailable on the active keyboard layout.", details: nil)
+    }
+    if let expectedAppId {
+      guard let app = NSWorkspace.shared.frontmostApplication,
+            app.processIdentifier > 0,
+            matchesShortcutApp(expectedAppId, bundleId: app.bundleIdentifier, name: app.localizedName) else {
+        return FlutterError(code: "wrong_foreground_app", message: "Switch to the selected app before using this shortcut.", details: nil)
+      }
+      events.down.postToPid(app.processIdentifier)
+      events.up.postToPid(app.processIdentifier)
+    } else {
+      events.down.post(tap: .cghidEventTap)
+      events.up.post(tap: .cghidEventTap)
+    }
+    return nil
+  }
+
   deinit { unregisterToggleHotkey() }
 
   private func registerToggleHotkey(_ shortcut: String) throws {
@@ -390,6 +615,7 @@ class MainFlutterWindow: NSWindow {
     expectedAppId: String? = nil,
     moveCaretLeft: Bool = false
   ) -> [String: String] {
+    if MacInputPermissions.testFlight { return focusVerificationUnavailable }
     guard AXIsProcessTrusted() else { return ["status": "rejected", "reason": "accessibility_permission_missing"] }
     guard CGPreflightPostEventAccess() else { return ["status": "rejected", "reason": "event_permission_missing"] }
     guard !text.isEmpty, text.utf16.count <= 8000 else { return ["status": "rejected", "reason": text.isEmpty ? "empty_text" : "text_too_long"] }
@@ -458,6 +684,18 @@ class MainFlutterWindow: NSWindow {
     guard ["comma", "period", "exclamation", "quote", "screenshot"].contains(actionId) else {
       return ["status": "rejected", "reason": "unsupported_action"]
     }
+    if MacInputPermissions.testFlight {
+      guard actionId == "screenshot" else { return focusVerificationUnavailable }
+      guard let app = NSWorkspace.shared.frontmostApplication,
+            matchesShortcutApp(appId, bundleId: app.bundleIdentifier, name: app.localizedName),
+            !hasHeldModifier() else {
+        return ["status": "rejected", "reason": "foreground_changed_or_modifier_held"]
+      }
+      guard CGPreflightScreenCaptureAccess() else {
+        return ["status": "rejected", "reason": "screen_capture_permission_missing"]
+      }
+      return launchRegionScreenshot()
+    }
     guard let target = focusedTarget(), target.pid != ProcessInfo.processInfo.processIdentifier else {
       return ["status": "rejected", "reason": "own_or_invalid_foreground"]
     }
@@ -473,15 +711,7 @@ class MainFlutterWindow: NSWindow {
             !hasHeldModifier() else {
         return ["status": "rejected", "reason": "foreground_changed_or_modifier_held"]
       }
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-      process.arguments = ["-i", "-c"]
-      do {
-        try process.run()
-        return ["status": "launched"]
-      } catch {
-        return ["status": "rejected", "reason": "screenshot_launch_failed"]
-      }
+      return launchRegionScreenshot()
     }
     let text: String
     switch actionId {
@@ -495,6 +725,18 @@ class MainFlutterWindow: NSWindow {
       return ["status": "delivered"]
     }
     return insertion
+  }
+
+  private static func launchRegionScreenshot() -> [String: String] {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    process.arguments = ["-i", "-c"]
+    do {
+      try process.run()
+      return ["status": "launched"]
+    } catch {
+      return ["status": "rejected", "reason": "screenshot_launch_failed"]
+    }
   }
 
   private static func matchesVibeApp(_ expectedAppId: String, pid: pid_t) -> Bool {

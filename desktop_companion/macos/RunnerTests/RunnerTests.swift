@@ -4,6 +4,41 @@ import XCTest
 @testable import LumiaKey
 
 class RunnerTests: XCTestCase {
+  func testTestFlightPostingDoesNotRequireAXTrust() {
+    XCTAssertTrue(MacInputPermissions.canPostPointer(
+      testFlight: true, eventPosting: true, accessibility: false))
+    XCTAssertFalse(MacInputPermissions.canPostPointer(
+      testFlight: true, eventPosting: false, accessibility: true))
+    XCTAssertFalse(MacInputPermissions.canPostPointer(
+      testFlight: false, eventPosting: true, accessibility: false))
+    XCTAssertTrue(MacInputPermissions.canPostPointer(
+      testFlight: false, eventPosting: true, accessibility: true))
+  }
+
+  func testShortcutChordUsesActiveLayoutAndRejectsMultipleKeys() throws {
+    let translate: (String) -> (code: CGKeyCode, flags: CGEventFlags)? = {
+      $0 == "z" ? (6, .maskAlternate) : nil
+    }
+    let chord = try XCTUnwrap(MacShortcutChord.parse(["COMMAND", "Z"], characterKey: translate))
+    XCTAssertEqual(chord.keyCode, 6)
+    XCTAssertEqual(chord.flags, [.maskCommand, .maskAlternate])
+    XCTAssertEqual(MacShortcutChord.parse(["LEFT"], characterKey: translate)?.keyCode, 123)
+    XCTAssertNil(MacShortcutChord.parse(["COMMAND"], characterKey: translate))
+    XCTAssertNil(MacShortcutChord.parse(["COMMAND", "Z", "LEFT"], characterKey: translate))
+    XCTAssertNil(MacShortcutChord.parse(["COMMAND", "!" ], characterKey: translate))
+  }
+
+  func testGuardRecognizesChatGPTWithTheCurrentAndHistoricalBundleIdentifiers() {
+    XCTAssertTrue(MainFlutterWindow.matchesShortcutApp(
+      "chatgpt", bundleId: "com.openai.codex", name: "ChatGPT"))
+    XCTAssertTrue(MainFlutterWindow.matchesShortcutApp("chatgpt", bundleId: "com.openai.chat"))
+    XCTAssertTrue(MainFlutterWindow.matchesShortcutApp("chatgpt", bundleId: "com.openai.chatgpt"))
+    XCTAssertFalse(MainFlutterWindow.matchesShortcutApp(
+      "chatgpt", bundleId: "com.openai.codex", name: "Codex"))
+    XCTAssertFalse(MainFlutterWindow.matchesShortcutApp("chatgpt", bundleId: "com.fake.chatgpt"))
+    XCTAssertFalse(MainFlutterWindow.matchesShortcutApp("unknown", bundleId: "com.openai.codex"))
+  }
+
   func testMovementCGEventUsesAbsoluteDestinationAndAccumulatesBatch() throws {
     let displays = [CGRect(x: 0, y: 0, width: 100, height: 100)]
     var location = CGPoint(x: 20, y: 30)

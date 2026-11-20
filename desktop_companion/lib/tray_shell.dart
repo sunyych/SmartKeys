@@ -71,7 +71,9 @@ class DesktopTrayShell with TrayListener, WindowListener {
           MenuItem(key: 'launcher', label: _text('Open Launcher', '打开启动台')),
           MenuItem(
             key: 'dictation',
-            label: dictation.listening
+            label: dictation.testFlightInput
+                ? _text('Open Local Dictation', '打开本地听写')
+                : dictation.listening
                 ? _text('Stop Local Dictation', '停止本地听写')
                 : _text('Start Local Dictation', '开始本地听写'),
           ),
@@ -126,6 +128,10 @@ class DesktopTrayShell with TrayListener, WindowListener {
   }
 
   Future<void> toggleDictation() async {
+    if (dictation.testFlightInput) {
+      await showSection(6);
+      return;
+    }
     if (!dictation.firstUseAcknowledged) {
       await showSection(6);
       return;
@@ -134,6 +140,9 @@ class DesktopTrayShell with TrayListener, WindowListener {
     // start() hides the window itself and restores it only when setup fails.
     await dictation.toggle();
   }
+
+  @override
+  void onWindowFocus() => unawaited(dictation.refreshAccessibility());
 
   @override
   void onWindowClose() => unawaited(_hideWindow());

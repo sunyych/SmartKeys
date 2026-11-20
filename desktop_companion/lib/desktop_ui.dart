@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -296,9 +297,8 @@ class _BrandLogo extends StatelessWidget {
               child: Text(
                 'LumiaKey',
                 maxLines: 1,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
           ),
@@ -355,7 +355,7 @@ class _GeneralPage extends StatelessWidget {
           server: server,
           displayHost: displayHost,
         ),
-        if (Platform.isMacOS) ...[
+        if (dictation.usesMacInputPermissions) ...[
           const SizedBox(height: 16),
           _MacPointerPermissionCard(service: dictation),
         ],
@@ -466,12 +466,12 @@ class _MacPointerPermissionCard extends StatelessWidget {
       key: const ValueKey('mac-pointer-permission-card'),
       child: ListTile(
         leading: Icon(
-          service.accessibilityGranted
+          service.inputPermissionsGranted
               ? Icons.check_circle_outline
               : Icons.accessibility_new,
         ),
         title: Text(
-          service.accessibilityGranted
+          service.inputPermissionsGranted
               ? desktopText(
                   context,
                   'Mouse and keyboard permissions are ready',
@@ -484,11 +484,17 @@ class _MacPointerPermissionCard extends StatelessWidget {
                 ),
         ),
         subtitle: Text(
-          desktopText(
-            context,
-            'In System Settings → Privacy & Security → Accessibility, allow LumiaKey Desktop. This permission also enables event posting. If it is already enabled but input still fails, remove the old LumiaKey Desktop entry and add the current app again.',
-            '打开「系统设置 → 隐私与安全性 → 辅助功能」，允许 LumiaKey Desktop 控制电脑。该权限也用于发送输入事件。如果已授权但仍无法输入，请移除旧的 LumiaKey Desktop 条目，再添加当前应用。',
-          ),
+          service.testFlightInput
+              ? desktopText(
+                  context,
+                  'Request permission to send keyboard and mouse events. Follow the macOS prompt, then refresh the permission status.',
+                  '请求发送键盘和鼠标事件的权限。按 macOS 提示操作后，刷新权限状态。',
+                )
+              : desktopText(
+                  context,
+                  'In System Settings → Privacy & Security → Accessibility, allow LumiaKey Desktop. This permission also enables event posting. If it is already enabled but input still fails, remove the old LumiaKey Desktop entry and add the current app again.',
+                  '打开「系统设置 → 隐私与安全性 → 辅助功能」，允许 LumiaKey Desktop 控制电脑。该权限也用于发送输入事件。如果已授权但仍无法输入，请移除旧的 LumiaKey Desktop 条目，再添加当前应用。',
+                ),
         ),
         trailing: Wrap(
           children: [
@@ -536,9 +542,8 @@ class _StatusCard extends StatelessWidget {
         : 'Linux';
     return Card(
       color: server.running
-          ? Theme.of(
-              context,
-            ).colorScheme.primaryContainer.withValues(alpha: 0.45)
+          ? Theme.of(context).colorScheme.primaryContainer
+                .withValues(alpha: 0.45)
           : Theme.of(context).colorScheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -786,9 +791,8 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
   }
 
   void _showTransferMessage(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _editButton(
@@ -940,10 +944,7 @@ class _AppsPage extends StatelessWidget {
 }
 
 class _LauncherPage extends StatefulWidget {
-  const _LauncherPage({
-    required this.controller,
-    required this.codexActivity,
-  });
+  const _LauncherPage({required this.controller, required this.codexActivity});
 
   final DesktopController controller;
   final CodexActivityMonitor codexActivity;
@@ -1945,8 +1946,12 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
           content: Text(
             desktopText(
               context,
-              'Local Dictation uses this computer’s microphone and the selected installed model. Audio is processed on this computer and is not saved. Phone dictation sends final text to this computer, never audio. App Voice Input is a separate shortcut that follows the selected application’s own microphone and privacy behavior. The microphone will start only after you continue.',
-              '本地听写使用此电脑的麦克风和所选的已安装模型。音频在本机处理，不会保存。手机听写只向电脑发送最终文本。应用语音输入是独立的快捷键，遵循所选应用的麦克风和隐私设置。继续后才会启动麦克风。',
+              service.testFlightInput
+                  ? 'Audio is processed on this Mac and is never saved. Review the transcript here and copy it when you need it. The microphone will start after you continue.'
+                  : 'Local Dictation uses this computer’s microphone and the selected installed model. Audio is processed on this computer and is not saved. Phone dictation sends final text to this computer, never audio. App Voice Input is a separate shortcut that follows the selected application’s own microphone and privacy behavior. The microphone will start only after you continue.',
+              service.testFlightInput
+                  ? '音频在这台 Mac 上处理，不会保存。识别结果会显示在这里，需要时可手动复制。继续后会启动麦克风。'
+                  : '本地听写使用此电脑的麦克风和所选的已安装模型。音频在本机处理，不会保存。手机听写只向电脑发送最终文本。应用语音输入是独立的快捷键，遵循所选应用的麦克风和隐私设置。继续后才会启动麦克风。',
             ),
           ),
           actions: [
@@ -2003,10 +2008,15 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
           ),
           const SizedBox(height: 6),
           Text(
-            text(
-              'Recognize speech on this computer and type the final text into the focused external app.',
-              '在此电脑上识别语音，并将最终文本输入当前获得焦点的外部应用。',
-            ),
+            service.testFlightInput
+                ? text(
+                    'TestFlight shows the transcript here for manual copying. It cannot verify a text field in another app.',
+                    'TestFlight 版会在这里显示识别文字，供手动复制。此版本无法验证其他应用中的文本框。',
+                  )
+                : text(
+                    'Recognize speech on this computer and type the final text into the focused external app.',
+                    '在此电脑上识别语音，并将最终文本输入当前获得焦点的外部应用。',
+                  ),
           ),
           const SizedBox(height: 18),
           Card(
@@ -2181,7 +2191,7 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
               ),
             ),
           ),
-          if (Platform.isMacOS)
+          if (service.usesMacInputPermissions && !service.testFlightInput)
             Card(
               child: ListTile(
                 leading: Icon(
@@ -2238,7 +2248,7 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                         : text('Local microphone is stopped', '本地麦克风已停止'),
                   ),
                   subtitle: Text(
-                    service.lastText.isEmpty
+                    service.lastText.isEmpty || service.testFlightInput
                         ? text(
                             'Audio stays in bounded memory and is never saved.',
                             '音频仅暂存于有限内存中，不会保存。',
@@ -2267,6 +2277,24 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
                     ),
                   ),
                 ),
+                if (service.testFlightInput && service.lastText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SelectableText(service.lastText),
+                        TextButton.icon(
+                          key: const ValueKey('testflight-copy-transcript'),
+                          onPressed: () => Clipboard.setData(
+                            ClipboardData(text: service.lastText),
+                          ),
+                          icon: const Icon(Icons.copy),
+                          label: Text(text('Copy transcript', '复制识别文字')),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (service.error != null)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -2281,44 +2309,45 @@ class _LocalDictationPageState extends State<_LocalDictationPage> {
               ],
             ),
           ),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.keyboard),
-                  title: Text(text('Global toggle shortcut', '全局切换快捷键')),
-                  subtitle: Text(
-                    service.hotkeyError ??
-                        text(
-                          'Ctrl+Shift+Space starts or stops local dictation.',
-                          '按 Ctrl+Shift+Space 开始或停止本地听写。',
+          if (!service.testFlightInput)
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.keyboard),
+                    title: Text(text('Global toggle shortcut', '全局切换快捷键')),
+                    subtitle: Text(
+                      service.hotkeyError ??
+                          text(
+                            'Ctrl+Shift+Space starts or stops local dictation.',
+                            '按 Ctrl+Shift+Space 开始或停止本地听写。',
+                          ),
+                    ),
+                    trailing: DropdownButton<String>(
+                      key: const ValueKey('dictation-hotkey'),
+                      value: service.hotkey,
+                      onChanged: (value) {
+                        if (value != null) unawaited(service.setHotkey(value));
+                      },
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'ctrlShiftSpace',
+                          child: Text('Ctrl + Shift + Space'),
                         ),
+                        DropdownMenuItem(
+                          value: 'ctrlAltSpace',
+                          child: Text('Ctrl + Alt + Space'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'altShiftSpace',
+                          child: Text('Alt + Shift + Space'),
+                        ),
+                      ],
+                    ),
                   ),
-                  trailing: DropdownButton<String>(
-                    key: const ValueKey('dictation-hotkey'),
-                    value: service.hotkey,
-                    onChanged: (value) {
-                      if (value != null) unawaited(service.setHotkey(value));
-                    },
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'ctrlShiftSpace',
-                        child: Text('Ctrl + Shift + Space'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'ctrlAltSpace',
-                        child: Text('Ctrl + Alt + Space'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'altShiftSpace',
-                        child: Text('Alt + Shift + Space'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
         ],
       );
     },
@@ -2354,9 +2383,10 @@ String _targetTypeLabel(BuildContext context, RemoteTargetType type) =>
 
 String _buttonSummary(BuildContext context, RemoteShortcutButton button) =>
     switch (button.targetType) {
-      RemoteTargetType.keyboardShortcut => isUnassignedChatGptShortcut(button)
-          ? desktopText(context, 'Unassigned', '未设置')
-          : formatShortcut(button.shortcut),
+      RemoteTargetType.keyboardShortcut =>
+        isUnassignedChatGptShortcut(button)
+            ? desktopText(context, 'Unassigned', '未设置')
+            : formatShortcut(button.shortcut),
       RemoteTargetType.launchApplication => desktopText(
         context,
         'Launch ${button.target ?? 'app'}',
@@ -2378,9 +2408,10 @@ String _buttonSummary(BuildContext context, RemoteShortcutButton button) =>
         'Script · Future',
         '脚本 · 未来功能',
       ),
-      RemoteTargetType.system => isChatGptLocalDictationShortcut(button)
-          ? desktopText(context, 'Phone control', '手机操作')
-          : button.name,
+      RemoteTargetType.system =>
+        isChatGptLocalDictationShortcut(button)
+            ? desktopText(context, 'Phone control', '手机操作')
+            : button.name,
     };
 
 IconData desktopIcon(String id) => switch (id) {

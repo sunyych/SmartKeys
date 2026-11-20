@@ -94,6 +94,7 @@ class DesktopActions {
     WindowsDesktopBackend? windowsDesktopBackend,
     WindowsShortcutBackend Function()? loadWindowsShortcutBackend,
     this.mediaChannel = const MethodChannel('lumiakeys/system_control'),
+    this.macInputChannel = const MethodChannel('lumiakeys/mac_input'),
   }) : _hasPointerOverride = pointerInput != null,
        environment = environment ?? Platform.environment,
        _useRustWindowsShortcuts =
@@ -156,7 +157,8 @@ class DesktopActions {
       ? 'macos'
       : 'linux';
   DesktopInputBackend get inputBackend {
-    if (!_hasPointerOverride &&
+    if (!usesTestFlightMacInput &&
+        !_hasPointerOverride &&
         _desktopBackend is RustDesktopBackend &&
         (_isWindows || _isMacOS || _isLinux)) {
       return DesktopInputBackend.rust;
@@ -167,7 +169,23 @@ class DesktopActions {
     return DesktopInputBackend.standard;
   }
 
-  bool get supportsNativeDictation => _isWindows || _isMacOS;
+  bool get supportsNativeDictation =>
+      _isWindows || (_isMacOS && !usesTestFlightMacInput);
+
+  bool _usesTestFlightMacInput = false;
+  bool get usesTestFlightMacInput => _usesTestFlightMacInput;
+
+  Future<void> readMacInputMode() async {
+    if (!_isMacOS) return;
+    try {
+      _usesTestFlightMacInput =
+          await macInputChannel.invokeMethod<bool>('usesTestFlightInput') ??
+          false;
+    } on MissingPluginException {
+      // Older desktop runners only have the original input routes.
+    }
+  }
+
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;
   final DesktopPointerInput pointerInput;
@@ -192,6 +210,7 @@ class DesktopActions {
   Future<void> activateInstalledApplication(String id) =>
       _installedLauncher.launch(id, authorize: installedLaunchAuthorizer);
   final MethodChannel mediaChannel;
+  final MethodChannel macInputChannel;
   int? _windowsBrightnessBeforeDark;
 
   Future<Uint8List?> getApplicationIcon(RemoteApplication app) =>
@@ -199,6 +218,9 @@ class DesktopActions {
 
   Future<void> applyPointerInputs(List<PointerInput> inputs) async {
     if (_hasPointerOverride) return pointerInput.apply(inputs);
+    if (usesTestFlightMacInput) {
+      return pointerInput.apply(inputs);
+    }
     if (_isLinux) _requireLinuxX11();
     if (_desktopBackend case final backend?
         when _isWindows || _isMacOS || _isLinux) {
@@ -368,6 +390,7 @@ class DesktopActions {
     if (_hasPointerOverride) return true;
     try {
       _requireLinuxX11();
+      if (usesTestFlightMacInput) return true;
       if (_desktopBackend case final backend?
           when _isWindows || _isMacOS || _isLinux) {
         return await backend.supportsPointer().timeout(
@@ -1085,7 +1108,14 @@ public static class LumiaWindowActivation {
     if (_isWindows) {
       await _sendWindowsShortcut(keys, expectedAppId: expectedAppId);
     } else if (_isMacOS) {
-      await _sendMacShortcut(keys, expectedAppId: expectedAppId);
+      if (usesTestFlightMacInput) {
+        await macInputChannel.invokeMethod<void>('postShortcut', {
+          'keys': keys,
+          'appId': ?expectedAppId,
+        });
+      } else {
+        await _sendMacShortcut(keys, expectedAppId: expectedAppId);
+      }
     } else {
       _requireLinuxX11();
       if (expectedAppId != null && !await _foregroundMatches(expectedAppId)) {
@@ -1252,32 +1282,20 @@ Add-Type -AssemblyName System.Windows.Forms
         ? 'keystroke "${_escapeAppleScript(normal.single.toLowerCase())}"$suffix'
         : 'key code $keyCode$suffix';
     final guard = switch (expectedAppId) {
-      'codex' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Codex" and frontName is not "ChatGPT" then error "Switch to Codex before using this shortcut."\n',
+      'codex' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "Codex" and frontName is not "ChatGPT" then error "Switch to Codex before using this shortcut."\n',
       'chrome' || 'edge' || 'firefox' || 'safari' =>
         'set frontName to name of first application process whose frontmost is true\nif frontName is not "${_macApplicationName(expectedAppId!)}" then error "Switch to the selected app before using this shortcut."\n',
-      'teams' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Microsoft Teams" and frontName is not "Microsoft Teams classic" then error "Switch to the selected app before using this shortcut."\n',
-      'photoshop' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Photoshop" then error "Switch to Photoshop before using this shortcut."\n',
-      'illustrator' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Illustrator" then error "Switch to Illustrator before using this shortcut."\n',
-      'vscode' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Code" and frontName is not "Visual Studio Code" then error "Switch to VS Code before using this shortcut."\n',
-      'premiere' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Premiere Pro" then error "Switch to Premiere before using this shortcut."\n',
-      'appleMusic' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Music" and frontName is not "Apple Music" then error "Switch to Apple Music before using this shortcut."\n',
-      'finder' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Finder" then error "Switch to Finder before using this shortcut."\n',
-      'zoom' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "zoom.us" and frontName is not "Zoom Workplace" then error "Switch to the selected app before using this shortcut."\n',
-      'chatgpt' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "ChatGPT" then error "Switch to ChatGPT before using this shortcut."\n',
-      'claude' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Claude" and frontName is not "Claude Code" then error "Switch to Claude before using this shortcut."\n',
-      'cursor' =>
-        'set frontName to name of first application process whose frontmost is true\nif frontName is not "Cursor" then error "Switch to Cursor before using this shortcut."\n',
+      'teams' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "Microsoft Teams" and frontName is not "Microsoft Teams classic" then error "Switch to the selected app before using this shortcut."\n',
+      'photoshop' => 'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Photoshop" then error "Switch to Photoshop before using this shortcut."\n',
+      'illustrator' => 'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Illustrator" then error "Switch to Illustrator before using this shortcut."\n',
+      'vscode' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "Code" and frontName is not "Visual Studio Code" then error "Switch to VS Code before using this shortcut."\n',
+      'premiere' => 'set frontName to name of first application process whose frontmost is true\nif frontName does not contain "Premiere Pro" then error "Switch to Premiere before using this shortcut."\n',
+      'appleMusic' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "Music" and frontName is not "Apple Music" then error "Switch to Apple Music before using this shortcut."\n',
+      'finder' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "Finder" then error "Switch to Finder before using this shortcut."\n',
+      'zoom' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "zoom.us" and frontName is not "Zoom Workplace" then error "Switch to the selected app before using this shortcut."\n',
+      'chatgpt' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "ChatGPT" then error "Switch to ChatGPT before using this shortcut."\n',
+      'claude' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "Claude" and frontName is not "Claude Code" then error "Switch to Claude before using this shortcut."\n',
+      'cursor' => 'set frontName to name of first application process whose frontmost is true\nif frontName is not "Cursor" then error "Switch to Cursor before using this shortcut."\n',
       _ => '',
     };
     await _run('/usr/bin/osascript', [
@@ -1315,6 +1333,12 @@ Add-Type -AssemblyName System.Windows.Forms
       return false; // Windows is checked atomically in SendKeys.
     }
     if (_isMacOS) {
+      if (usesTestFlightMacInput) {
+        return await macInputChannel.invokeMethod<bool>('frontmostMatches', {
+              'appId': appId,
+            }) ??
+            false;
+      }
       final result = await runner.run('/usr/bin/osascript', const [
         '-e',
         'tell application "System Events" to get name of first application process whose frontmost is true',

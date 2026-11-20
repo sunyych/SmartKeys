@@ -82,6 +82,46 @@ void main() {
     runner: _NoProcess(),
   );
 
+  test('TestFlight macOS uses the OS-authorized Swift input route', () async {
+    const channel = MethodChannel('lumiakeys/mac_input');
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      if (call.method == 'usesTestFlightInput') return true;
+      throw PlatformException(code: 'wrong_foreground_app');
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final native = _RecordingNativeDesktop();
+    final actions = macActions(native);
+
+    await actions.readMacInputMode();
+    expect(actions.supportsNativeDictation, isFalse);
+    expect(await actions.probePointerSupport(), isTrue);
+    await actions.applyPointerInputs(_mixedInputs);
+    expect(native.probes, 0);
+    expect(native.batches, isEmpty);
+    expect(swiftCalls.single.method, 'apply');
+
+    await expectLater(
+      actions.sendShortcut(['PRIMARY', 'Z'], expectedAppId: 'chatgpt'),
+      throwsA(
+        isA<PlatformException>().having(
+          (error) => error.code,
+          'code',
+          'wrong_foreground_app',
+        ),
+      ),
+    );
+    expect(calls.map((call) => call.method), [
+      'usesTestFlightInput',
+      'postShortcut',
+    ]);
+    expect(calls.last.arguments, {
+      'keys': ['COMMAND', 'Z'],
+      'appId': 'chatgpt',
+    });
+  });
+
   test('Mac Rust route passes a mixed pointer batch in caller order', () async {
     final native = _RecordingNativeDesktop();
     final actions = macActions(native);

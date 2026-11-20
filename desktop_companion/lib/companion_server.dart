@@ -58,7 +58,9 @@ class CompanionServer extends ChangeNotifier {
     'launcher-pad-v1',
     codexActivityCapability,
     if (controller.actions.supportsInstalledLauncher) 'installed-launcher-v1',
-    if (controller.actions.supportsNativeDictation || _hasProvidedDictationSink)
+    if (!controller.actions.usesTestFlightMacInput &&
+        (controller.actions.supportsNativeDictation ||
+            _hasProvidedDictationSink))
       'local-dictation-v1',
     if (_pointerReady) 'mouse-control-v1',
   ];
@@ -181,6 +183,14 @@ class CompanionServer extends ChangeNotifier {
       return;
     }
     if (request.method == 'POST' && request.uri.path == '/dictation') {
+      if (controller.actions.usesTestFlightMacInput) {
+        await _reject(
+          request,
+          HttpStatus.notImplemented,
+          'focus_verification_unavailable',
+        );
+        return;
+      }
       if (!capabilities.contains('local-dictation-v1')) {
         await _reject(
           request,

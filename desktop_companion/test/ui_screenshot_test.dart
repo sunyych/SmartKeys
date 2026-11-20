@@ -25,8 +25,10 @@ class _Discovery implements ApplicationDiscovery {
 }
 
 class _TextSink implements DictationTextSink {
+  final inserted = <String>[];
+
   @override
-  Future<void> insertText(String text) async {}
+  Future<void> insertText(String text) async => inserted.add(text);
 }
 
 class _Window implements DesktopWindowControl {
@@ -68,7 +70,17 @@ class _ScreenshotMacSystemControl implements MacSystemControl {
 }
 
 class _Capture implements DictationCapture {
-  final StreamController<List<int>> _samples = StreamController.broadcast();
+  final StreamController<List<int>> _samples = StreamController.broadcast(
+    sync: true,
+  );
+
+  void emitSpeech() {
+    final pcm = ByteData(6400);
+    for (var offset = 0; offset < pcm.lengthInBytes; offset += 2) {
+      pcm.setInt16(offset, 10000, Endian.little);
+    }
+    _samples.add(pcm.buffer.asUint8List());
+  }
 
   @override
   Future<bool> hasPermission() async => true;
@@ -90,7 +102,7 @@ class _Recognizer implements DictationRecognizer {
   Future<String> transcribe(
     Float32List samples, {
     DictationLanguage? language,
-  }) async => '';
+  }) async => 'This transcript stays on the Mac.';
 
   @override
   Future<void> dispose({bool flush = true}) async {}
@@ -223,24 +235,42 @@ void main() {
       LocalAsrModel.cohere: true,
     });
 
+    var testFlightInput = false;
+    var postingGranted = false;
+    final inputCalls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
+          inputCalls.add(call.method);
+          if (call.method == 'requestInputPermissions') postingGranted = true;
+          if (call.method == 'inputPermissionStatus' ||
+              call.method == 'requestInputPermissions') {
+            return {
+              'testFlight': testFlightInput,
+              'eventPosting': postingGranted,
+              'accessibility': false,
+            };
+          }
           if (call.method == 'validateTarget') return {'status': 'ready'};
           if (call.method == 'modifiersHeld') return false;
           return true;
         });
-    final dictation = DesktopDictationService(
-      textSink: _TextSink(),
-      modelManager: _ScreenshotModelManager(
-        verifiedModelManager,
-        availability!,
-      ),
-      capture: _Capture(),
-      recognizerFactory: (_, _) async => _Recognizer(),
-      preferences: MemoryDictationSettingsStore(),
-      channel: channel,
-      windowControl: _Window(),
-    );
+    final textSink = _TextSink();
+    DesktopDictationService makeDictation(_Capture microphone) =>
+        DesktopDictationService(
+          textSink: textSink,
+          modelManager: _ScreenshotModelManager(
+            verifiedModelManager,
+            availability!,
+          ),
+          capture: microphone,
+          recognizerFactory: (_, _) async => _Recognizer(),
+          preferences: MemoryDictationSettingsStore(),
+          channel: channel,
+          windowControl: _Window(),
+          inputPlatform: TargetPlatform.macOS,
+        );
+    final dictation = makeDictation(_Capture());
+    var displayedDictation = dictation;
     final home = RepaintBoundary(
       key: screenshotBoundaryKey,
       child: MaterialApp(
@@ -251,7 +281,7 @@ void main() {
           builder: (context, _) => DesktopSettingsHome(
             controller: controller,
             server: server,
-            dictation: dictation,
+            dictation: displayedDictation,
             displayHost: 'Screenshot Desktop',
           ),
         ),
@@ -338,7 +368,7 @@ void main() {
             findsOneWidget,
           );
         }
-        if (section == 0 && Platform.isMacOS) {
+        if (section == 0) {
           expect(
             find.byKey(const ValueKey('mac-pointer-permission-card')),
             findsOneWidget,
@@ -612,5 +642,99 @@ void main() {
       760,
       'Windows Flutter widget render showing a microphone permission/startup error.',
     );
+
+    testFlightInput = true;
+    // Use a fresh service for the signed-edition fixture. Its recognizer
+    // queue and simulated microphone run together outside the widget clock.
+    final (testFlightDictation, microphone) = (await tester.runAsync(() async {
+      final microphone = _Capture();
+      final service = makeDictation(microphone);
+      await service.initialize();
+      await service.acknowledgeFirstUse();
+      return (service, microphone);
+    }))!;
+    displayedDictation = testFlightDictation;
+    addTearDown(() async {
+      await tester.runAsync(testFlightDictation.shutdown);
+      testFlightDictation.dispose();
+    });
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final copied = <Object?>[];
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied.add(call.arguments);
+      return null;
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+    tester
+        .widget<NavigationRail>(find.byType(NavigationRail))
+        .onDestinationSelected
+        ?.call(DesktopSettingsHome.navigationOrder.indexOf(0));
+    await tester.pumpAndSettle();
+    expect(find.text('Allow Mac mouse and keyboard control'), findsOneWidget);
+    await capture(
+      'desktop-testflight-event-permission',
+      'TestFlight mouse and keyboard permission',
+      1080,
+      760,
+      'Fixture for the TestFlight build before macOS allows event posting.',
+    );
+    await tester.tap(find.text('Request'));
+    await tester.pumpAndSettle();
+    expect(inputCalls, contains('requestInputPermissions'));
+    expect(testFlightDictation.inputPermissionsGranted, isTrue);
+    expect(testFlightDictation.accessibilityGranted, isFalse);
+    expect(
+      find.text('Mouse and keyboard permissions are ready'),
+      findsOneWidget,
+    );
+    await capture(
+      'desktop-testflight-event-permission-granted',
+      'TestFlight mouse and keyboard permission granted',
+      1080,
+      760,
+      'Fixture where macOS allows event posting without granting Accessibility inspection.',
+    );
+
+    tester
+        .widget<NavigationRail>(find.byType(NavigationRail))
+        .onDestinationSelected
+        ?.call(DesktopSettingsHome.navigationOrder.indexOf(6));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('TestFlight shows the transcript here'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('dictation-hotkey')), findsNothing);
+    inputCalls.clear();
+    await tester.runAsync(() async {
+      await testFlightDictation.start();
+      expect(testFlightDictation.listening, isTrue);
+      microphone.emitSpeech();
+      await testFlightDictation.stop();
+      expect(testFlightDictation.lastText, 'This transcript stays on the Mac.');
+    });
+    await tester.pumpAndSettle();
+    expect(inputCalls, isNot(contains('validateTarget')));
+    expect(textSink.inserted, isEmpty);
+    expect(copied, isEmpty);
+    expect(find.text('This transcript stays on the Mac.'), findsOneWidget);
+    final copy = find.byKey(const ValueKey('testflight-copy-transcript'));
+    await tester.ensureVisible(copy);
+    await tester.pumpAndSettle();
+    await capture(
+      'desktop-testflight-local-transcript',
+      'TestFlight local transcript',
+      1080,
+      760,
+      'The local microphone transcript stays in the app until the user copies it.',
+    );
+    await tester.tap(copy);
+    await tester.pumpAndSettle();
+    expect(copied, [
+      {'text': 'This transcript stays on the Mac.'},
+    ]);
   });
 }

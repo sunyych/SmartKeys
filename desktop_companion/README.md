@@ -40,6 +40,42 @@ Linux builds need `clang`, `cmake`, `ninja-build`, `pkg-config`,
 The Linux Rust backend uses the XCB and XCB XTEST runtime libraries.
 Shared protocol models are in `../packages/lumiakeys_protocol/`.
 
+## macOS TestFlight
+
+Select **Runner-TestFlight** in Xcode to archive the native macOS app with
+App Sandbox. The **Runner** scheme builds the DMG edition. Both schemes use
+the existing macOS bundle identifier, `com.lumiaiq.smartkey`.
+
+```sh
+flutter build macos --release --config-only
+xcodebuild -workspace macos/Runner.xcworkspace \
+  -scheme Runner-TestFlight -destination 'generic/platform=macOS' \
+  -archivePath build/LumiaKey-TestFlight.xcarchive archive
+```
+
+Use the signing team that owns the macOS platform in App Store Connect.
+Export the archive for TestFlight once that platform and its signing are
+configured.
+
+In the TestFlight build, **General → Request** asks macOS for permission to
+post keyboard and pointer events. Return to LumiaKey or select **Refresh
+permission status** after granting access. The indicator reflects macOS
+authorization. Verify clicks and shortcuts in a signed build against an
+actual target app before releasing to testers.
+
+Shortcuts assigned to a specific app check its bundle identifier while it is
+frontmost. App Sandbox blocks verification of a focused text field in another
+app. Local dictation keeps recognized text in the window for manual copying.
+Phone-to-Mac dictation insertion and the global dictation hotkey are disabled
+in this build. Vibe punctuation shortcuts and System Mute report an error.
+The region screenshot action checks the expected app and macOS screen capture
+permission before launching the capture UI.
+
+Run `flutter test test/ui_screenshot_test.dart` to capture the TestFlight
+permission and transcript states. The shared screenshot index generator at
+`../scripts/generate_screenshot_index.dart` includes these states in the same
+HTML page as the other current UI screenshots.
+
 ## Rust desktop backend
 
 Quit LumiaKey Desktop and launch the bundled executable with

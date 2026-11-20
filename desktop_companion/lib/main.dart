@@ -192,6 +192,8 @@ class _CompanionAppState extends State<CompanionApp> {
   }
 
   Future<void> _initialize() async {
+    if (ownsController) await controller.actions.readMacInputMode();
+    if (!mounted) return;
     await controller.initialize();
     if (!mounted) return;
     if (widget.startServer) await server.start();

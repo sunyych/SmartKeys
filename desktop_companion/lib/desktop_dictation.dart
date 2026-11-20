@@ -76,6 +76,7 @@ class DesktopDictationService extends ChangeNotifier {
     DesktopDictationSettingsStore? preferences,
     MethodChannel? channel,
     DesktopWindowControl? windowControl,
+    this.inputPlatform,
   }) : modelManager = modelManager ?? ModelManager(),
        preferences = preferences ?? SharedPreferencesDictationSettingsStore(),
        channel = channel ?? const MethodChannel('lumiakeys/dictation'),
@@ -84,7 +85,9 @@ class DesktopDictationService extends ChangeNotifier {
       modelManager: this.modelManager,
       capture: capture ?? RecordDictationCapture(),
       recognizerFactory: recognizerFactory ?? _startRecognizer,
-      onText: textSink.insertText,
+      onText: (text) async {
+        if (!testFlightInput) await textSink.insertText(text);
+      },
     )..addListener(_changed);
   }
 
@@ -98,13 +101,16 @@ class DesktopDictationService extends ChangeNotifier {
   final DesktopDictationSettingsStore preferences;
   final MethodChannel channel;
   final DesktopWindowControl windowControl;
+  final TargetPlatform? inputPlatform;
   late final LocalDictationController controller;
 
   bool ready = false;
   bool firstUseAcknowledged = false;
   bool busy = false;
   bool starting = false;
-  bool accessibilityGranted = false;
+  bool _testFlightInput = false;
+  bool _eventPostingGranted = false;
+  bool _axGranted = false;
   String hotkey = 'ctrlShiftSpace';
   String? hotkeyError;
   String? operationError;
@@ -115,6 +121,13 @@ class DesktopDictationService extends ChangeNotifier {
   int _hotkeyGeneration = 0;
 
   bool get listening => controller.listening;
+  bool get usesMacInputPermissions => inputPlatform != null
+      ? inputPlatform == TargetPlatform.macOS
+      : Platform.isMacOS;
+  bool get testFlightInput => _testFlightInput;
+  bool get accessibilityGranted => _axGranted && _eventPostingGranted;
+  bool get inputPermissionsGranted =>
+      _eventPostingGranted && (_testFlightInput || _axGranted);
   String get lastText => controller.lastText;
   String? get error => operationError ?? controller.error;
   LocalAsrModel get model => controller.model;
@@ -139,7 +152,9 @@ class DesktopDictationService extends ChangeNotifier {
     firstUseAcknowledged = await preferences.getBool(_ackKey) ?? false;
     hotkey = await preferences.getString(_hotkeyKey) ?? 'ctrlShiftSpace';
     if (_shutdownStarted) return;
-    if (Platform.isMacOS || Platform.isWindows) {
+    if (usesMacInputPermissions) await refreshAccessibility();
+    if (_shutdownStarted) return;
+    if ((usesMacInputPermissions || Platform.isWindows) && !testFlightInput) {
       channel.setMethodCallHandler((call) async {
         if (!_shutdownStarted && call.method == 'toggleHotkeyPressed') {
           unawaited(handleToggleHotkeyPressed());
@@ -155,7 +170,6 @@ class DesktopDictationService extends ChangeNotifier {
       } catch (e) {
         hotkeyError = '$e';
       }
-      if (Platform.isMacOS) await refreshAccessibility();
     }
     ready = true;
     _notify();
@@ -229,22 +243,25 @@ class DesktopDictationService extends ChangeNotifier {
     starting = true;
     busy = true;
     operationError = null;
+    final insertsExternally = !testFlightInput;
     _notify();
     try {
-      await windowControl.hide();
-      final target = await channel.invokeMapMethod<String, Object?>(
-        'validateTarget',
-      );
-      if (target?['status'] != 'ready') {
-        throw StateError(
-          'Cannot start dictation: ${target?['reason'] ?? 'no safe external target'}',
+      if (insertsExternally) {
+        await windowControl.hide();
+        final target = await channel.invokeMapMethod<String, Object?>(
+          'validateTarget',
         );
+        if (target?['status'] != 'ready') {
+          throw StateError(
+            'Cannot start dictation: ${target?['reason'] ?? 'no safe external target'}',
+          );
+        }
       }
       if (generation != _startGeneration || _shutdownStarted) return;
       await controller.start();
     } catch (e) {
       operationError = '$e';
-      await windowControl.restore();
+      if (insertsExternally) await windowControl.restore();
       rethrow;
     } finally {
       starting = false;
@@ -348,7 +365,7 @@ class DesktopDictationService extends ChangeNotifier {
       modelManager.areModelsAvailable(model: target ?? model);
 
   Future<void> setHotkey(String value) async {
-    if (_shutdownStarted) return;
+    if (_shutdownStarted || testFlightInput) return;
     hotkeyError = null;
     try {
       await channel.invokeMethod<bool>('registerToggleHotkey', {
@@ -364,25 +381,23 @@ class DesktopDictationService extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> refreshAccessibility() async {
-    if (!Platform.isMacOS || _shutdownStarted) return;
-    try {
-      accessibilityGranted =
-          await channel.invokeMethod<bool>('accessibilityStatus') ?? false;
-    } catch (_) {
-      accessibilityGranted = false;
-    }
-    _notify();
-  }
+  Future<void> refreshAccessibility() =>
+      _updateMacInputPermissions('inputPermissionStatus');
 
-  Future<void> requestAccessibility() async {
-    if (!Platform.isMacOS || _shutdownStarted) return;
+  Future<void> requestAccessibility() =>
+      _updateMacInputPermissions('requestInputPermissions');
+
+  Future<void> _updateMacInputPermissions(String method) async {
+    if (!usesMacInputPermissions || _shutdownStarted) return;
     try {
-      accessibilityGranted =
-          await channel.invokeMethod<bool>('requestAccessibilityPermission') ??
-          false;
+      final status = await channel.invokeMapMethod<String, bool>(method);
+      if (_shutdownStarted) return;
+      _testFlightInput = status?['testFlight'] ?? _testFlightInput;
+      _eventPostingGranted = status?['eventPosting'] ?? false;
+      _axGranted = status?['accessibility'] ?? false;
     } catch (_) {
-      accessibilityGranted = false;
+      _eventPostingGranted = false;
+      _axGranted = false;
     }
     _notify();
   }
