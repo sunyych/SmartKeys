@@ -56,7 +56,13 @@ class DesktopShortcutTransferService {
     if (layouts.isEmpty ||
         layouts.length > maxLayouts ||
         totalButtons > maxTotalButtons ||
-        layouts.any((layout) => layout.buttons.length > maxButtonsPerLayout) ||
+        layouts.any(
+          (layout) =>
+              layout.buttons.length >
+              (layout.id == 'chatgpt'
+                  ? 3 * maxButtonsPerLayout
+                  : maxButtonsPerLayout),
+        ) ||
         layouts.map((layout) => layout.id).toSet().length != layouts.length) {
       throw const FormatException('Invalid Desktop shortcut layout set.');
     }

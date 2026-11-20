@@ -29,7 +29,7 @@ void main() {
     expect(controller.error, isNotNull);
     expect(
       controller.manifestForExport.layouts.every(
-        (layout) => layout.buttons.length <= 12,
+        (layout) => layout.id == 'chatgpt' || layout.buttons.length <= 12,
       ),
       isTrue,
     );
@@ -50,16 +50,24 @@ void main() {
       await controller.initialize();
       expect(controller.error, isNull);
       expect(store.value!.layoutById('keyboard')!.buttons, hasLength(12));
-      expect(store.value!.layoutById('chatgpt')!.buttons, hasLength(12));
+      expect(
+        store.value!.layoutById('chatgpt')!.buttons.length,
+        greaterThan(12),
+      );
       expect(store.value!.layoutById('app.chrome')!.buttons, hasLength(12));
       expect(
-        store.value!.layouts.every((layout) => layout.buttons.length <= 12),
+        store.value!.layouts.every(
+          (layout) => layout.id == 'chatgpt' || layout.buttons.length <= 12,
+        ),
         isTrue,
       );
       final reloaded = DesktopController(store: store, discovery: _Discovery());
       addTearDown(reloaded.dispose);
       await reloaded.initialize();
-      expect(store.value!.layoutById('chatgpt')!.buttons, hasLength(12));
+      expect(
+        store.value!.layoutById('chatgpt')!.buttons.length,
+        greaterThan(12),
+      );
     },
   );
   test(
@@ -74,7 +82,9 @@ void main() {
       addTearDown(controller.dispose);
       await controller.initialize();
       expect(
-        store.value!.layouts.every((layout) => layout.buttons.length <= 12),
+        store.value!.layouts.every(
+          (layout) => layout.id == 'chatgpt' || layout.buttons.length <= 12,
+        ),
         isTrue,
       );
       expect(store.value!.buttonById('keyboard.volumeUp'), isNotNull);
@@ -126,6 +136,98 @@ void main() {
       );
     },
   );
+  test(
+    'old twelve-key ChatGPT layout and Codex profile merge without data loss',
+    () async {
+      final old = DesktopManifest.starter();
+      final chatGpt = old.layoutById('chatgpt')!;
+      const oldIds = [
+        'chatgpt.newChat',
+        'chatgpt.codex.send',
+        'chatgpt.codex.copy',
+        'chatgpt.codex.paste',
+        'chatgpt.codex.cut',
+        'chatgpt.codex.focusInput',
+        'chatgpt.codex.backspace',
+        'chatgpt.codex.alternateSend',
+        'chatgpt.find',
+        'chatgpt.sidebar',
+        'chatgpt.chatView',
+        'chatgpt.codexMode',
+      ];
+      final savedChatGpt = chatGpt.copyWith(
+        buttons: [
+          for (final id in oldIds)
+            if (id == 'chatgpt.codex.send')
+              old.buttonById(id)!.copyWith(shortcut: const ['ALT', 'S'])
+            else
+              old.buttonById(id)!,
+        ],
+      );
+      final legacyCodex = old
+          .layoutById('codex')!
+          .copyWith(
+            buttons: [
+              old
+                  .buttonById('codex.send')!
+                  .copyWith(shortcut: const ['ALT', 'K']),
+              const RemoteShortcutButton(
+                id: 'my.unique',
+                name: 'My unique action',
+                icon: 'star',
+                targetType: RemoteTargetType.keyboardShortcut,
+                shortcut: ['ALT', 'F9'],
+              ),
+            ],
+          );
+      final store = MemoryDesktopConfigStore()
+        ..value = old.copyWith(
+          layouts: [
+            for (final layout in old.layouts)
+              switch (layout.id) {
+                'chatgpt' => savedChatGpt,
+                'codex' => legacyCodex,
+                _ => layout,
+              },
+          ],
+          profiles: [
+            ...old.profiles,
+            const RemoteProfile(
+              id: 'my-profile',
+              name: 'My old Codex setup',
+              layoutId: 'vibe.codex',
+            ),
+          ],
+          currentProfileId: 'my-profile',
+        );
+      final controller = DesktopController(
+        store: store,
+        discovery: _Discovery(),
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      final manifest = controller.manifestForExport;
+      manifest.validate();
+      final merged = manifest.layoutById('chatgpt')!;
+      expect(merged.buttons.map((button) => button.id), containsAll(oldIds));
+      expect(merged.buttons.map((button) => button.id), contains('my.unique'));
+      expect(manifest.buttonById('chatgpt.codex.send')!.shortcut, ['ALT', 'S']);
+      expect(manifest.buttonById('chatgpt.legacy.codex.codex.send')!.shortcut, [
+        'ALT',
+        'K',
+      ]);
+      expect(manifest.layoutById('codex'), isNull);
+      expect(manifest.layoutById('vibe.codex'), isNull);
+      expect(manifest.currentProfile!.layoutId, 'chatgpt');
+      expect(manifest.currentProfile!.name, 'My old Codex setup');
+      final saved = manifest.toJson();
+      final reloaded = DesktopController(store: store, discovery: _Discovery());
+      addTearDown(reloaded.dispose);
+      await reloaded.initialize();
+      expect(reloaded.manifestForExport.toJson(), saved);
+    },
+  );
+
   test(
     'legacy release flags cannot reorder or refill custom Chrome and ChatGPT boards',
     () async {
@@ -202,14 +304,33 @@ void main() {
       addTearDown(controller.dispose);
       await controller.initialize();
       for (final custom in customLayouts) {
-        expect(
-          store.value!.layoutById(custom.id)!.toJson(),
-          custom.toJson(),
-          reason: custom.id,
-        );
+        final saved = store.value!.layoutById(custom.id)!;
+        if (custom.id == 'chatgpt') {
+          expect(
+            saved.buttons
+                .take(custom.buttons.length)
+                .map((button) => button.toJson()),
+            custom.buttons.map((button) => button.toJson()),
+          );
+          expect(
+            saved.buttons.any(
+              (button) => button.id == chatGptFastModeShortcutId,
+            ),
+            isTrue,
+          );
+        } else {
+          expect(saved.toJson(), custom.toJson(), reason: custom.id);
+        }
       }
       store.value!.validate();
       expect(store.value!.buttonById('user.unique')!.name, 'Saved custom key');
+      expect(
+        store.value!
+            .layoutById('chatgpt')!
+            .buttons
+            .any((button) => button.id == 'user.unique'),
+        isTrue,
+      );
     },
   );
   test(
@@ -261,7 +382,10 @@ void main() {
       addTearDown(controller.dispose);
       await controller.initialize();
       expect(store.value!.layoutById('app.chrome')!.buttons, hasLength(12));
-      expect(store.value!.layoutById('chatgpt')!.buttons, hasLength(12));
+      expect(
+        store.value!.layoutById('chatgpt')!.buttons.length,
+        greaterThan(12),
+      );
       final custom = apple(old.layoutById('app.chrome')!).copyWith(
         buttons: apple(old.layoutById('app.chrome')!).buttons
             .map(

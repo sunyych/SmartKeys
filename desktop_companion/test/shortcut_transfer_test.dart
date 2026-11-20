@@ -80,7 +80,7 @@ void main() {
         ]),
         throwsFormatException,
       );
-      final codex = controller.manifest.layoutById('codex')!;
+      final codex = DesktopManifest.starter().layoutById('codex')!;
       await expectLater(
         controller.importShortcutLayouts([
           codex.copyWith(

@@ -108,48 +108,56 @@ void main() {
     },
   );
 
-  testWidgets('ChatGPT keeps the same two pages in tablet board mode', (
-    tester,
-  ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(920, 760);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
-    final harness = await TestHarness.create();
-    addTearDown(() => _dispose(tester, harness));
-    await _setDesktop(
-      harness,
-      installed: const {'chatgpt'},
-      running: const {'chatgpt'},
-      foreground: 'chatgpt',
-    );
+  testWidgets(
+    'ChatGPT keeps primary controls and Review on successive tablet pages',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(920, 760);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final harness = await TestHarness.create();
+      addTearDown(() => _dispose(tester, harness));
+      await _setDesktop(
+        harness,
+        installed: const {'chatgpt'},
+        running: const {'chatgpt'},
+        foreground: 'chatgpt',
+      );
 
-    await tester.pumpWidget(
-      SmartKeysApp(
-        controller: harness.controller,
-        homeOverride: const HomeScreen(),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('shortcut-board-layout')), findsOneWidget);
-    expect(find.text('Bank 1 of 2'), findsOneWidget);
-    expect(
-      find
-          .byKey(const ValueKey('remote-button-chatgpt.codex.send'))
-          .hitTestable(),
-      findsOneWidget,
-    );
-    final review = find.byKey(
-      const ValueKey('remote-button-chatgpt.codex.review'),
-    );
-    expect(review, findsNothing);
-    await tester.tap(find.byKey(const ValueKey('board-bank-next')));
-    await tester.pumpAndSettle();
-    expect(find.text('Bank 2 of 2'), findsOneWidget);
-    expect(review.hitTestable(), findsOneWidget);
-  });
+      await tester.pumpWidget(
+        SmartKeysApp(
+          controller: harness.controller,
+          homeOverride: const HomeScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('workspace-app-chatgpt')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('shortcut-board-layout')),
+        findsOneWidget,
+      );
+      expect(find.text('Bank 1 of 3'), findsOneWidget);
+      for (final id in ['send', 'copy', 'paste', 'fastMode', 'branchOff']) {
+        expect(
+          find.byKey(ValueKey('remote-button-chatgpt.codex.$id')).hitTestable(),
+          findsOneWidget,
+        );
+      }
+      final review = find.byKey(
+        const ValueKey('remote-button-chatgpt.codex.review'),
+      );
+      expect(review, findsNothing);
+      await tester.tap(find.byKey(const ValueKey('board-bank-next')));
+      await tester.pumpAndSettle();
+      expect(find.text('Bank 2 of 3'), findsOneWidget);
+      expect(review.hitTestable(), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('board-bank-next')));
+      await tester.pumpAndSettle();
+      expect(find.text('Bank 3 of 3'), findsOneWidget);
+      expect(review, findsNothing);
+    },
+  );
 
   testWidgets('another Desktop app opens its own shortcut layout', (
     tester,

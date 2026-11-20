@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import 'codex_activity.dart';
 import 'desktop_controller.dart';
+import 'desktop_localizations.dart';
 
 class PhoneSidebarPage extends StatefulWidget {
-  const PhoneSidebarPage({super.key, required this.controller});
+  const PhoneSidebarPage({
+    super.key,
+    required this.controller,
+    this.codexActivity,
+  });
   final DesktopController controller;
+  final CodexActivityMonitor? codexActivity;
   @override
   State<PhoneSidebarPage> createState() => _PhoneSidebarPageState();
 }
@@ -84,13 +91,31 @@ class _PhoneSidebarPageState extends State<PhoneSidebarPage> {
         ),
         Align(
           alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            key: const ValueKey('desktop-sidebar-reset'),
-            onPressed: busy
-                ? null
-                : () => _run(controller.restoreSidebarDefaults),
-            icon: const Icon(Icons.restore),
-            label: const Text('Restore App Bar defaults'),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                key: const ValueKey('desktop-sidebar-reset'),
+                onPressed: busy
+                    ? null
+                    : () => _run(controller.restoreSidebarDefaults),
+                icon: const Icon(Icons.restore),
+                label: const Text('Restore App Bar defaults'),
+              ),
+              if (widget.codexActivity case final activity?)
+                OutlinedButton.icon(
+                  key: const ValueKey('desktop-sidebar-codex-activity'),
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => _CodexActivityDialog(activity: activity),
+                  ),
+                  icon: const Icon(Icons.circle_outlined),
+                  label: Text(
+                    desktopText(context, 'Codex status dot', 'Codex 状态点'),
+                  ),
+                ),
+            ],
           ),
         ),
         if (error != null)
@@ -226,5 +251,125 @@ class _PhoneSidebarPageState extends State<PhoneSidebarPage> {
           ),
       ],
     );
+  }
+}
+
+class _CodexActivityDialog extends StatefulWidget {
+  const _CodexActivityDialog({required this.activity});
+
+  final CodexActivityMonitor activity;
+
+  @override
+  State<_CodexActivityDialog> createState() => _CodexActivityDialogState();
+}
+
+class _CodexActivityDialogState extends State<_CodexActivityDialog> {
+  late final TextEditingController _endpoint = TextEditingController(
+    text: widget.activity.target?.endpoint.toString(),
+  );
+  late final TextEditingController _chat = TextEditingController(
+    text: widget.activity.target?.threadId,
+  );
+  bool _saving = false;
+  String? _error;
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final endpoint = _endpoint.text.trim();
+    final chat = _chat.text.trim();
+    final CodexActivityTarget? target;
+    try {
+      target = endpoint.isEmpty && chat.isEmpty
+          ? null
+          : CodexActivityTarget(endpoint, chat);
+    } on FormatException {
+      setState(() {
+        _error = desktopText(
+          context,
+          'Enter a local WebSocket address and a chat ID or link.',
+          '请输入本机 WebSocket 地址及聊天 ID 或链接。',
+        );
+      });
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.activity.setTarget(target);
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = desktopText(
+          context,
+          'Could not save the status dot settings.',
+          '无法保存状态点设置。',
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(desktopText(context, 'Codex status dot', 'Codex 状态点')),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            desktopText(
+              context,
+              'Follow one chat from an existing App Server on this computer. '
+                  'Clear both fields to hide the dot.',
+              '通过本机已运行的 App Server 跟踪一个聊天。清空两项即可隐藏状态点。',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _endpoint,
+            enabled: !_saving,
+            decoration: InputDecoration(
+              labelText: desktopText(context, 'App Server address', '服务器地址'),
+              hintText: 'ws://127.0.0.1:7337',
+            ),
+          ),
+          TextField(
+            controller: _chat,
+            enabled: !_saving,
+            decoration: InputDecoration(
+              labelText: desktopText(context, 'Chat ID or link', '聊天 ID 或链接'),
+            ),
+          ),
+          if (_error case final error?) ...[
+            const SizedBox(height: 8),
+            Text(
+              error,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.pop(context),
+        child: Text(desktopText(context, 'Cancel', '取消')),
+      ),
+      FilledButton(
+        onPressed: _saving ? null : _save,
+        child: Text(desktopText(context, 'Save', '保存')),
+      ),
+    ],
+  );
+
+  @override
+  void dispose() {
+    _endpoint.dispose();
+    _chat.dispose();
+    super.dispose();
   }
 }

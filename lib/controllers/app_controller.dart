@@ -1028,9 +1028,15 @@ class AppController extends ChangeNotifier {
         !manifest.settings.enableAppsSync) {
       return const [];
     }
-    return manifest.applications
-        .where((application) => application.detected)
-        .toList(growable: false);
+    final installed = manifest.applications.where((app) => app.detected);
+    final hasChatGpt = installed.any((app) => app.id == 'chatgpt');
+    return [
+      for (final app in installed)
+        if (app.id != 'codex')
+          app
+        else if (!hasChatGpt)
+          app.copyWith(name: 'ChatGPT', icon: 'chatgpt'),
+    ];
   }
 
   List<RemoteApplication> get runningApplications => syncedApplications
@@ -1096,23 +1102,33 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  RemoteShortcutLayout? layoutForApplication(RemoteApplication application) =>
-      _layoutForActiveDesktop(
-        desktopManifest?.layoutById(application.layoutId),
-      );
+  RemoteShortcutLayout? layoutForApplication(
+    RemoteApplication application, {
+    int chatGptPageSize = chatGptShortcutsPerPage,
+  }) => _layoutForActiveDesktop(
+    desktopManifest?.layoutById(application.layoutId),
+    chatGptPageSize: chatGptPageSize,
+  );
 
-  RemoteShortcutLayout? _layoutForActiveDesktop(RemoteShortcutLayout? layout) {
+  RemoteShortcutLayout? _layoutForActiveDesktop(
+    RemoteShortcutLayout? layout, {
+    int chatGptPageSize = chatGptShortcutsPerPage,
+  }) {
     if (layout == null || layout.id != 'chatgpt') return layout;
     final host = companion.activeHost.value;
     if (host?.capabilities.contains('chatgpt-platform-layout-v1') == true) {
-      return orderChatGptLayout(layout);
+      return orderChatGptLayout(layout, firstPageSize: chatGptPageSize);
     }
     final platform = switch (host?.platform) {
       'macos' => RemoteShortcutPlatform.apple,
       'windows' => RemoteShortcutPlatform.windows,
       _ => RemoteShortcutPlatform.other,
     };
-    return projectChatGptLayout(layout, platform);
+    return projectChatGptLayout(
+      layout,
+      platform,
+      firstPageSize: chatGptPageSize,
+    );
   }
 
   List<ProfileConfig> get orderedProfiles {
@@ -1325,11 +1341,18 @@ class AppController extends ChangeNotifier {
     await hid.sendPress(resolvedAction);
   }
 
-  Future<void> executeRemoteButton(RemoteShortcutButton button) async {
+  Future<void> executeRemoteButton(
+    RemoteShortcutButton button, {
+    bool confirmedApproval = false,
+  }) async {
     if (_computerSwitchPendingId != null) return;
     _recordShortcutUsage('desktop:button:${button.id}', button.name);
     try {
-      await companion.executeRemote(RemoteActionRequest.button(button.id));
+      final id =
+          confirmedApproval && chatGptApprovalShortcutIds.contains(button.id)
+          ? confirmedChatGptApprovalShortcutId(button.id)
+          : button.id;
+      await companion.executeRemote(RemoteActionRequest.button(id));
     } catch (_) {
       _report(DiagnosticCode.shortcutDeliveryFailed);
       rethrow;

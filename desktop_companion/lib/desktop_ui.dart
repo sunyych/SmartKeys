@@ -6,6 +6,7 @@ import 'package:local_dictation/local_dictation.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'codex_activity.dart';
 import 'companion_server.dart';
 import 'desktop_actions.dart';
 import 'desktop_connections.dart';
@@ -148,7 +149,10 @@ class DesktopSettingsHome extends StatelessWidget {
       saving: savingPreferences,
       saveFailed: preferencesSaveFailed,
     ),
-    _ => _LauncherPage(controller: controller),
+    _ => _LauncherPage(
+      controller: controller,
+      codexActivity: server.codexActivity,
+    ),
   };
 }
 
@@ -931,9 +935,13 @@ class _AppsPage extends StatelessWidget {
 }
 
 class _LauncherPage extends StatefulWidget {
-  const _LauncherPage({required this.controller});
+  const _LauncherPage({
+    required this.controller,
+    required this.codexActivity,
+  });
 
   final DesktopController controller;
+  final CodexActivityMonitor codexActivity;
 
   @override
   State<_LauncherPage> createState() => _LauncherPageState();
@@ -1062,7 +1070,10 @@ class _LauncherPageState extends State<_LauncherPage> {
                                   desktopText(context, 'App Bar', '应用栏'),
                                 ),
                               ),
-                              body: PhoneSidebarPage(controller: controller),
+                              body: PhoneSidebarPage(
+                                controller: controller,
+                                codexActivity: widget.codexActivity,
+                              ),
                             ),
                           ),
                         ),
@@ -2338,7 +2349,9 @@ String _targetTypeLabel(BuildContext context, RemoteTargetType type) =>
 
 String _buttonSummary(BuildContext context, RemoteShortcutButton button) =>
     switch (button.targetType) {
-      RemoteTargetType.keyboardShortcut => formatShortcut(button.shortcut),
+      RemoteTargetType.keyboardShortcut => isUnassignedChatGptShortcut(button)
+          ? desktopText(context, 'Unassigned', '未设置')
+          : formatShortcut(button.shortcut),
       RemoteTargetType.launchApplication => desktopText(
         context,
         'Launch ${button.target ?? 'app'}',
@@ -2364,6 +2377,8 @@ String _buttonSummary(BuildContext context, RemoteShortcutButton button) =>
     };
 
 IconData desktopIcon(String id) => switch (id) {
+  'bolt' => Icons.bolt,
+  'call_split' => Icons.call_split,
   'copy' => Icons.copy,
   'paste' => Icons.paste,
   'undo' => Icons.undo,

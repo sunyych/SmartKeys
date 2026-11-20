@@ -110,12 +110,17 @@ void main() {
       await tester.pump();
       expect(harness.companion.remoteActions.last.buttonId, 'chatgpt.newChat');
       if (!authoritative) {
-        await tester.tap(find.byTooltip('Next bank'));
-        await tester.pumpAndSettle();
+        final voice = find.byKey(
+          const ValueKey('remote-button-chatgpt.startVoice'),
+        );
+        expect(voice, findsOneWidget);
         expect(
-          find.byKey(const ValueKey('remote-button-chatgpt.startVoice')),
+          find.descendant(of: voice, matching: find.text('Ctrl + Shift + V')),
           apple ? findsOneWidget : findsNothing,
         );
+        await tester.tap(find.byTooltip('Next bank'));
+        await tester.pumpAndSettle();
+        expect(voice, findsNothing);
         expect(
           find.byKey(const ValueKey('remote-button-chatgpt.codex.searchChats')),
           findsNothing,

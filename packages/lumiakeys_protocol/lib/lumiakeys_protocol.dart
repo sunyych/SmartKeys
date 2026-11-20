@@ -54,6 +54,29 @@ enum RemoteLayoutKind { keyboard, application, codex }
 enum RemoteShortcutPlatform { apple, windows, other }
 
 const int chatGptShortcutsPerPage = 15;
+const chatGptNativeVoiceShortcutId = 'chatgpt.startVoice';
+const chatGptFastModeShortcutId = 'chatgpt.codex.fastMode';
+const chatGptBranchOffShortcutId = 'chatgpt.codex.branchOff';
+const chatGptApproveShortcutId = 'chatgpt.codex.approve';
+const chatGptDeclineShortcutId = 'chatgpt.codex.decline';
+const chatGptApprovalShortcutIds = {
+  chatGptApproveShortcutId,
+  chatGptDeclineShortcutId,
+};
+
+String confirmedChatGptApprovalShortcutId(String id) => '$id.confirmed';
+
+bool isLegacyCodexLayoutId(String id) => id == 'codex' || id == 'vibe.codex';
+
+bool isUnassignedChatGptShortcut(RemoteShortcutButton button) =>
+    const {
+      chatGptNativeVoiceShortcutId,
+      chatGptFastModeShortcutId,
+      chatGptBranchOffShortcutId,
+    }.contains(button.id) &&
+    button.targetType == RemoteTargetType.keyboardShortcut &&
+    !button.enabled &&
+    button.shortcut.isEmpty;
 
 /// Fixed page-one controls, ordered by expected everyday use. IDs remain the
 /// source of truth so custom names and shortcut bindings do not affect order.
@@ -62,21 +85,26 @@ const List<String> chatGptPrimaryShortcutIds = <String>[
   'chatgpt.codex.send',
   'chatgpt.codex.copy',
   'chatgpt.codex.paste',
-  'chatgpt.codex.alternateSend',
+  chatGptFastModeShortcutId,
+  chatGptApproveShortcutId,
+  chatGptDeclineShortcutId,
+  chatGptBranchOffShortcutId,
+  chatGptNativeVoiceShortcutId,
   'chatgpt.codex.focusInput',
-  'chatgpt.codex.backspace',
-  'chatgpt.codex.cut',
-  'chatgpt.codex.deleteToStart',
-  'chatgpt.find',
   'chatgpt.sidebar',
-  'chatgpt.chatView',
   'chatgpt.codexMode',
-  'chatgpt.codex.project',
-  'chatgpt.previousChat',
+  'chatgpt.codex.alternateSend',
+  'chatgpt.codex.backspace',
+  'chatgpt.find',
 ];
 
 const List<String> chatGptSecondaryShortcutIds = <String>[
   'chatgpt.codex.review',
+  'chatgpt.codex.cut',
+  'chatgpt.codex.deleteToStart',
+  'chatgpt.chatView',
+  'chatgpt.codex.project',
+  'chatgpt.previousChat',
   'chatgpt.codex.openFolder',
   'chatgpt.codex.commandMenu',
   'chatgpt.codex.terminal',
@@ -90,7 +118,6 @@ const List<String> chatGptSecondaryShortcutIds = <String>[
   'chatgpt.codex.searchChats',
   'chatgpt.codex.findInChat',
   'chatgpt.codex.screenshot',
-  'chatgpt.startVoice',
   'chatgpt.codex.voice',
   'chatgpt.codex.comma',
   'chatgpt.codex.period',
@@ -101,12 +128,16 @@ const List<String> chatGptSecondaryShortcutIds = <String>[
 /// Orders the ChatGPT layout for fixed-frequency use on phone/tablet pages.
 /// This changes presentation order only; IDs, shortcut bindings, and user
 /// supplied actions are retained. Review is first among secondary controls.
-RemoteShortcutLayout orderChatGptLayout(RemoteShortcutLayout layout) {
+RemoteShortcutLayout orderChatGptLayout(
+  RemoteShortcutLayout layout, {
+  int firstPageSize = chatGptShortcutsPerPage,
+}) {
   if (layout.id != 'chatgpt') return layout;
 
   final rank = {
-    for (var index = 0; index < chatGptPrimaryShortcutIds.length; index++)
-      chatGptPrimaryShortcutIds[index]: index,
+    for (final (index, id)
+        in chatGptPrimaryShortcutIds.take(firstPageSize).indexed)
+      id: index,
   };
   final primary =
       layout.buttons
@@ -116,15 +147,17 @@ RemoteShortcutLayout orderChatGptLayout(RemoteShortcutLayout layout) {
   final secondary = layout.buttons
       .where((button) => !rank.containsKey(button.id))
       .toList(growable: true);
+  final secondaryIds = [
+    chatGptSecondaryShortcutIds.first,
+    ...chatGptPrimaryShortcutIds.skip(firstPageSize),
+    ...chatGptSecondaryShortcutIds.skip(1),
+  ];
   final secondaryRank = {
-    for (var index = 0; index < chatGptSecondaryShortcutIds.length; index++)
-      chatGptSecondaryShortcutIds[index]: index,
+    for (final (index, id) in secondaryIds.indexed) id: index,
   };
   secondary.sort((left, right) {
-    final leftRank =
-        secondaryRank[left.id] ?? chatGptSecondaryShortcutIds.length;
-    final rightRank =
-        secondaryRank[right.id] ?? chatGptSecondaryShortcutIds.length;
+    final leftRank = secondaryRank[left.id] ?? secondaryIds.length;
+    final rightRank = secondaryRank[right.id] ?? secondaryIds.length;
     final rankOrder = leftRank.compareTo(rightRank);
     return rankOrder == 0 ? left.id.compareTo(right.id) : rankOrder;
   });
@@ -148,14 +181,14 @@ List<String> resolvePrimaryShortcut(
 /// a temporarily hidden platform action does not erase a user's binding.
 RemoteShortcutLayout projectChatGptLayout(
   RemoteShortcutLayout layout,
-  RemoteShortcutPlatform platform,
-) {
+  RemoteShortcutPlatform platform, {
+  int firstPageSize = chatGptShortcutsPerPage,
+}) {
   if (layout.id != 'chatgpt') return layout;
 
   const chatViewId = 'chatgpt.chatView';
   const codexModeId = 'chatgpt.codexMode';
   const searchChatsId = 'chatgpt.codex.searchChats';
-  const voiceId = 'chatgpt.startVoice';
   final buttons = <RemoteShortcutButton>[];
   for (final button in layout.buttons) {
     if (platform == RemoteShortcutPlatform.other &&
@@ -168,10 +201,14 @@ RemoteShortcutLayout projectChatGptLayout(
         )) {
       continue;
     }
-    if (button.id == 'chatgpt.codex.voice' ||
-        (button.id == voiceId &&
-            platform != RemoteShortcutPlatform.apple &&
-            _sameShortcut(button.shortcut, const ['CTRL', 'SHIFT', 'V']))) {
+    if (button.id == 'chatgpt.codex.voice' &&
+        button.targetType == RemoteTargetType.voiceInput) {
+      continue;
+    }
+    if (button.id == chatGptNativeVoiceShortcutId &&
+        platform != RemoteShortcutPlatform.apple &&
+        _sameShortcut(button.shortcut, const ['CTRL', 'SHIFT', 'V'])) {
+      buttons.add(button.copyWith(shortcut: const [], enabled: false));
       continue;
     }
     // Search Chats is not currently assigned by ChatGPT. Keep a custom user
@@ -207,7 +244,10 @@ RemoteShortcutLayout projectChatGptLayout(
       ),
     );
   }
-  return orderChatGptLayout(layout.copyWith(buttons: buttons));
+  return orderChatGptLayout(
+    layout.copyWith(buttons: buttons),
+    firstPageSize: firstPageSize,
+  );
 }
 
 bool _isUnassignedSearchDefault(List<String> keys) => [
@@ -1104,6 +1144,7 @@ class DesktopManifest {
     final catalog = DesktopManifest.starter();
     return catalog.copyWith(
       layouts: catalog.layouts
+          .where((layout) => !isLegacyCodexLayoutId(layout.id))
           .map(compactDesktopLayout)
           .toList(growable: false),
     );
@@ -1451,11 +1492,35 @@ class DesktopManifest {
     final chatgpt = appLayout('chatgpt', 'ChatGPT', [
       shortcut('chatgpt.chatView', 'Chat View', 'chat', ['ALT', '1']),
       shortcut('chatgpt.codexMode', 'Codex Mode', 'code', ['ALT', '3']),
-      shortcut('chatgpt.startVoice', 'Start Voice Chat', 'mic', [
+      shortcut(chatGptNativeVoiceShortcutId, 'Start Voice Chat', 'mic', [
         'CTRL',
         'SHIFT',
         'V',
       ]),
+      shortcut(chatGptApproveShortcutId, 'Approve', 'check', [
+        'ENTER',
+      ]).copyWith(description: 'Approve the open request in ChatGPT.'),
+      shortcut(chatGptDeclineShortcutId, 'Decline', 'close', [
+        'ESC',
+      ]).copyWith(description: 'Decline the open request in ChatGPT.'),
+      shortcut(
+        chatGptFastModeShortcutId,
+        'Fast Mode',
+        'bolt',
+        const [],
+      ).copyWith(
+        description: 'Assign a Fast Mode shortcut in the ChatGPT layout.',
+        enabled: false,
+      ),
+      shortcut(
+        chatGptBranchOffShortcutId,
+        'Branch Off',
+        'call_split',
+        const [],
+      ).copyWith(
+        description: 'Assign a shortcut to continue this chat in a new chat.',
+        enabled: false,
+      ),
       shortcut('chatgpt.newChat', 'New Chat', 'add', ['PRIMARY', 'N']),
       shortcut('chatgpt.previousChat', 'Previous Chat', 'arrow_back', [
         'CTRL',

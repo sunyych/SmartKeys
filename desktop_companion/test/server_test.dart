@@ -44,7 +44,8 @@ void main() {
           (key, value) => MapEntry(key.toString(), value),
         ),
       );
-      expect(manifest.layoutById('codex')!.buttons, hasLength(12));
+      expect(manifest.layoutById('codex'), isNull);
+      expect(manifest.layoutById('chatgpt')!.buttons.length, greaterThan(12));
       expect(manifest.layoutById('keyboard')!.buttons, hasLength(12));
       for (final action in ['mute', 'volumeDown', 'volumeUp', 'playPause']) {
         final button = manifest.buttonById('keyboard.$action')!;

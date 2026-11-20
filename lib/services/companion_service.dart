@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:diagnostics_core/diagnostics_core.dart';
+import 'package:lumiakeys_protocol/codex_activity.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import '../icons/app_icon_validation.dart';
 import 'pointer_diagnostics.dart';
@@ -146,6 +147,10 @@ abstract interface class CompanionIconConnection {
   Future<Uint8List?> fetchApplicationIcon(String appId);
 }
 
+abstract interface class CompanionCodexActivityConnection {
+  ValueListenable<CodexActivityStatus?> get codexActivity;
+}
+
 abstract interface class ManualCompanionConnection {
   Future<void> connectManually(String code);
   Future<void> disconnect();
@@ -163,6 +168,7 @@ class LanCompanionService
         ManualCompanionConnection,
         CompanionPointerConnection,
         CompanionIconConnection,
+        CompanionCodexActivityConnection,
         SwitchableCompanionConnection {
   LanCompanionService({
     this.discoveryPort = 45832,
@@ -172,7 +178,9 @@ class LanCompanionService
     this.enableDiscovery = true,
     this.reportDiagnostic,
     DateTime Function()? now,
-  }) : _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now {
+    _host.addListener(_updateCodexActivityHost);
+  }
 
   final int discoveryPort;
   final void Function(DiagnosticCode)? reportDiagnostic;
@@ -194,12 +202,16 @@ class LanCompanionService
   );
   final ValueNotifier<String?> _error = ValueNotifier(null);
   final ValueNotifier<String?> _pointerError = ValueNotifier(null);
+  final ValueNotifier<CodexActivityStatus?> _codexActivity = ValueNotifier(
+    null,
+  );
   final ValueNotifier<List<CompanionComputerChoice>> _computerChoices =
       ValueNotifier(const []);
   final Map<String, _KnownCompanion> _knownComputers = {};
   final Map<String, List<CompanionHost>> _alternateHosts = {};
   RawDatagramSocket? _socket;
   Timer? _expiryTimer;
+  Timer? _codexActivityTimer;
   Timer? _pointerFlushTimer;
   final List<PointerInput> _pointerQueue = [];
   CompanionHost? _pointerQueueHost;
@@ -217,7 +229,13 @@ class LanCompanionService
   int? _pendingManifestEpoch;
   Timer? _manualHeartbeat;
   int _selectionEpoch = 0;
+  int _codexActivityGeneration = 0;
+  int? _codexActivityRequest;
+  CompanionHost? _codexActivityHost;
   bool _disposed = false;
+
+  @override
+  ValueListenable<CodexActivityStatus?> get codexActivity => _codexActivity;
 
   @override
   ValueListenable<String?> get pointerError => _pointerError;
@@ -245,6 +263,63 @@ class LanCompanionService
   String? get selectedComputerChoiceId => _selectedComputerChoiceId;
   @override
   bool get isComputerSelectionPinned => _selectionPinned;
+
+  void _updateCodexActivityHost() {
+    final host = _host.value;
+    final nextHost =
+        host != null && host.capabilities.contains(codexActivityCapability)
+        ? host
+        : null;
+    if ((nextHost == null && _codexActivityHost == null) ||
+        _sameDesktopSession(nextHost, _codexActivityHost)) {
+      return;
+    }
+    ++_codexActivityGeneration;
+    _codexActivityHost = nextHost;
+    _codexActivityTimer?.cancel();
+    _codexActivityTimer = null;
+    _codexActivity.value = null;
+    if (_disposed || nextHost == null) return;
+    _codexActivityTimer = Timer.periodic(
+      expiryPollInterval,
+      (_) => unawaited(_pollCodexActivity()),
+    );
+    unawaited(_pollCodexActivity());
+  }
+
+  Future<void> _pollCodexActivity() async {
+    final host = _codexActivityHost;
+    final generation = _codexActivityGeneration;
+    if (_disposed || host == null || _codexActivityRequest == generation) {
+      return;
+    }
+    final epoch = _selectionEpoch;
+    _codexActivityRequest = generation;
+    CodexActivityStatus? next;
+    try {
+      final response = await _getJson(
+        host.address,
+        host.port,
+        codexActivityPath,
+        host.token,
+        maxBytes: 512,
+      );
+      final status = response['status'];
+      next = CodexActivityStatus.values
+          .where((value) => value.name == status)
+          .firstOrNull;
+    } catch (_) {
+      // The indicator is independent of the layout and connection health.
+    } finally {
+      if (_codexActivityRequest == generation) _codexActivityRequest = null;
+    }
+    if (!_disposed &&
+        epoch == _selectionEpoch &&
+        generation == _codexActivityGeneration &&
+        _sameDesktopSession(_host.value, host)) {
+      _codexActivity.value = next;
+    }
+  }
 
   @override
   Future<void> start() async {
@@ -662,8 +737,9 @@ class LanCompanionService
     String address,
     int port,
     String path,
-    String token,
-  ) async {
+    String token, {
+    int maxBytes = 256 * 1024,
+  }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
     try {
       final request = await client
@@ -677,7 +753,7 @@ class LanCompanionService
       final body = await _readBoundedResponse(
         response,
         const Duration(seconds: 4),
-        256 * 1024,
+        maxBytes,
       );
       if (response.statusCode == 401 || response.statusCode == 403) {
         throw _CompanionAuthenticationFailure();
@@ -1370,14 +1446,17 @@ class LanCompanionService
     _clearPendingManifestRefresh();
     _manualHeartbeat?.cancel();
     _expiryTimer?.cancel();
+    _codexActivityTimer?.cancel();
     _pointerFlushTimer?.cancel();
     _pointerClient?.close(force: true);
     _socket?.close();
+    _host.removeListener(_updateCodexActivityHost);
     _host.dispose();
     _manifest.dispose();
     _status.dispose();
     _error.dispose();
     _pointerError.dispose();
+    _codexActivity.dispose();
     _computerChoices.dispose();
   }
 }
@@ -1395,7 +1474,10 @@ class _KnownCompanion {
 }
 
 class RecordingCompanionService
-    implements CompanionService, CompanionPointerConnection {
+    implements
+        CompanionService,
+        CompanionPointerConnection,
+        CompanionCodexActivityConnection {
   final ValueNotifier<CompanionHost?> host = ValueNotifier(null);
   final ValueNotifier<DesktopManifest?> syncedManifest = ValueNotifier(null);
   final ValueNotifier<CompanionSyncStatus> status = ValueNotifier(
@@ -1403,6 +1485,8 @@ class RecordingCompanionService
   );
   final ValueNotifier<String?> errors = ValueNotifier(null);
   final ValueNotifier<String?> pointerErrors = ValueNotifier(null);
+  @override
+  final ValueNotifier<CodexActivityStatus?> codexActivity = ValueNotifier(null);
   final List<String> commands = [];
   final List<RemoteActionRequest> remoteActions = [];
   final List<PointerInput> pointerInputs = [];
@@ -1465,6 +1549,7 @@ class RecordingCompanionService
     status.dispose();
     errors.dispose();
     pointerErrors.dispose();
+    codexActivity.dispose();
   }
 }
 

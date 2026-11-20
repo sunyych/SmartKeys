@@ -520,9 +520,11 @@ void main() {
         'default',
       ]);
       expect(controller.manifest.buttonById('codex.open'), isNull);
-      expect(controller.manifest.buttonById('codex.focusInput'), isNotNull);
-      expect(controller.manifest.buttonById('codex.voice'), isNotNull);
-      expect(controller.manifest.buttonById('codex.send'), isNotNull);
+      expect(
+        controller.manifest.buttonById('chatgpt.codex.focusInput'),
+        isNotNull,
+      );
+      expect(controller.manifest.buttonById('chatgpt.codex.send'), isNotNull);
       expect(controller.manifest.buttonById('codex.accept'), isNull);
       expect(controller.manifest.buttonById('chatgpt.newChat')!.shortcut, [
         'CTRL',
@@ -562,21 +564,8 @@ void main() {
         isNotNull,
       );
       expect(controller.manifest.buttonById('chrome.mute'), isNull);
-      expect(
-        controller.manifest
-            .layoutById('codex')!
-            .buttons
-            .take(6)
-            .map((button) => button.id),
-        [
-          'codex.focusInput',
-          'codex.voice',
-          'codex.newChat',
-          'codex.previousConversation',
-          'codex.nextConversation',
-          'codex.send',
-        ],
-      );
+      expect(controller.manifest.layoutById('codex'), isNull);
+      expect(controller.manifest.layoutById('vibe.codex'), isNull);
       expect(controller.manifest.applicationById('vscode')!.running, isTrue);
       expect(controller.manifest.applicationById('vscode')!.foreground, isTrue);
       final synced = DesktopManifest.fromJson(

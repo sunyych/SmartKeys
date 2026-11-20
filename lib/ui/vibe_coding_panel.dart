@@ -467,9 +467,9 @@ class _VibeApplicationRequired extends StatelessWidget {
   Widget build(BuildContext context) {
     final message = switch (mode) {
       ComputerMode.standalone =>
-        'Choose Codex, Claude or Cursor in computer app settings to set up Vibe Coding.',
+        'Choose Claude or Cursor in computer app settings to set up Vibe Coding.',
       ComputerMode.advanced =>
-        'Install or enable app sync for Codex, Claude or Cursor on LumiaKey Desktop.',
+        'Install or enable app sync for Claude or Cursor on LumiaKey Desktop.',
       ComputerMode.disconnected =>
         'Connect to a computer to use Vibe Coding shortcuts.',
     };

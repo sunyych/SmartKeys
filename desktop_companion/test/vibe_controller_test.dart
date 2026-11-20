@@ -146,17 +146,72 @@ void main() {
         actions: _RecordingActions(),
       );
       await controller.initialize();
-      expect(controller.manifest.buttonById('codex.newChat')!.shortcut, [
-        'PRIMARY',
-        'SHIFT',
-        'N',
-      ]);
-      expect(controller.manifest.buttonById('vibe.codex.project')!.shortcut, [
-        'PRIMARY',
-        'ALT',
-        'O',
-      ]);
+      expect(controller.manifest.layoutById('codex'), isNull);
+      expect(controller.manifest.layoutById('vibe.codex'), isNull);
+      expect(
+        controller.manifestForExport.buttonById('chatgpt.newChat')!.shortcut,
+        ['PRIMARY', 'SHIFT', 'N'],
+      );
+      expect(
+        controller.manifestForExport
+            .buttonById('chatgpt.codex.project')!
+            .shortcut,
+        ['PRIMARY', 'ALT', 'O'],
+      );
       controller.dispose();
+    },
+  );
+
+  test(
+    'Micro requests are bound, confirmed and guarded by ChatGPT foreground',
+    () async {
+      final actions = _RecordingActions();
+      var foreground = false;
+      final controller = DesktopController(
+        store: MemoryDesktopConfigStore(),
+        discovery: _NoopDiscovery(),
+        actions: actions,
+        foregroundProbe: (app) async => app.id == 'chatgpt' && foreground,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      Future<void> press(String id) =>
+          controller.executeRemote(RemoteActionRequest.button(id));
+
+      for (final id in chatGptApprovalShortcutIds) {
+        await expectLater(press(id), throwsStateError);
+        await expectLater(
+          press(confirmedChatGptApprovalShortcutId(id)),
+          throwsStateError,
+        );
+      }
+      expect(actions.executed, isEmpty);
+      foreground = true;
+      await expectLater(press('codex.approve'), throwsStateError);
+      await expectLater(press('vibe.codex.decline'), throwsStateError);
+      await expectLater(
+        press('chatgpt.codex.send.confirmed'),
+        throwsFormatException,
+      );
+      await expectLater(press(chatGptFastModeShortcutId), throwsStateError);
+      await expectLater(press(chatGptBranchOffShortcutId), throwsStateError);
+      expect(actions.executed, isEmpty);
+
+      final fast = controller.manifest.buttonById(chatGptFastModeShortcutId)!;
+      await controller.updateButton(
+        'chatgpt',
+        fast.copyWith(shortcut: const ['CTRL', 'SHIFT', 'F9'], enabled: true),
+      );
+      await press(chatGptFastModeShortcutId);
+      await press(confirmedChatGptApprovalShortcutId(chatGptApproveShortcutId));
+      await press(confirmedChatGptApprovalShortcutId(chatGptDeclineShortcutId));
+      await press('codex.send');
+      expect(actions.executed, [
+        '$chatGptFastModeShortcutId:chatgpt',
+        '$chatGptApproveShortcutId:chatgpt',
+        '$chatGptDeclineShortcutId:chatgpt',
+        'chatgpt.codex.send:chatgpt',
+      ]);
     },
   );
 

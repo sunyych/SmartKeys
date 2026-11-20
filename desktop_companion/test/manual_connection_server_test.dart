@@ -74,7 +74,8 @@ void main() {
         (key, value) => MapEntry(key.toString(), value),
       ),
     );
-    expect(manifest.layoutById('codex'), isNotNull);
+    expect(manifest.layoutById('codex'), isNull);
+    expect(manifest.layoutById('chatgpt'), isNotNull);
 
     final request = await client.post(
       InternetAddress.loopbackIPv4.address,

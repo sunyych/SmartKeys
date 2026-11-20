@@ -5,6 +5,26 @@ import '../controllers/app_controller.dart';
 import '../models/computer_setup.dart';
 import 'shortcut_grid_geometry.dart';
 
+// Bluetooth-only controls keep their existing pages. The Desktop-backed
+// Micro page has different actions and a separate voice presentation.
+const _chatGptBluetoothPrimaryIds = [
+  'newChat',
+  'codex.send',
+  'codex.copy',
+  'codex.paste',
+  'codex.alternateSend',
+  'codex.focusInput',
+  'codex.backspace',
+  'codex.cut',
+  'codex.deleteToStart',
+  'find',
+  'sidebar',
+  'chatView',
+  'codexMode',
+  'codex.project',
+  'previousChat',
+];
+
 /// Controls for the app selected in the home row.
 class StandaloneAppPanel extends StatefulWidget {
   const StandaloneAppPanel({
@@ -61,14 +81,13 @@ class _StandaloneAppPanelState extends State<StandaloneAppPanel> {
     final hasChatGptPages =
         application.id == 'chatgpt' &&
         orderedShortcuts.any(
-          (shortcut) =>
-              !chatGptPrimaryShortcutIds.contains('chatgpt.${shortcut.id}'),
+          (shortcut) => !_chatGptBluetoothPrimaryIds.contains(shortcut.id),
         );
     final pageShortcuts = hasChatGptPages
         ? orderedShortcuts
               .where((shortcut) {
-                final primary = chatGptPrimaryShortcutIds.contains(
-                  'chatgpt.${shortcut.id}',
+                final primary = _chatGptBluetoothPrimaryIds.contains(
+                  shortcut.id,
                 );
                 return _chatGptPage == 0 ? primary : !primary;
               })
@@ -203,12 +222,16 @@ List<ComputerShortcut> _orderChatGptShortcuts(
   List<ComputerShortcut> shortcuts,
 ) {
   final primaryRank = {
-    for (var index = 0; index < chatGptPrimaryShortcutIds.length; index++)
-      chatGptPrimaryShortcutIds[index].substring('chatgpt.'.length): index,
+    for (final (index, id) in _chatGptBluetoothPrimaryIds.indexed) id: index,
   };
+  final secondaryIds = [
+    for (final id in chatGptSecondaryShortcutIds) ...[
+      if (id == 'chatgpt.codex.voice') 'startVoice',
+      id.substring('chatgpt.'.length),
+    ],
+  ];
   final secondaryRank = {
-    for (var index = 0; index < chatGptSecondaryShortcutIds.length; index++)
-      chatGptSecondaryShortcutIds[index].substring('chatgpt.'.length): index,
+    for (final (index, id) in secondaryIds.indexed) id: index,
   };
   final primary =
       shortcuts
@@ -223,10 +246,8 @@ List<ComputerShortcut> _orderChatGptShortcuts(
           .where((shortcut) => !primaryRank.containsKey(shortcut.id))
           .toList(growable: false)
         ..sort((left, right) {
-          final leftRank =
-              secondaryRank[left.id] ?? chatGptSecondaryShortcutIds.length;
-          final rightRank =
-              secondaryRank[right.id] ?? chatGptSecondaryShortcutIds.length;
+          final leftRank = secondaryRank[left.id] ?? secondaryIds.length;
+          final rightRank = secondaryRank[right.id] ?? secondaryIds.length;
           final rankOrder = leftRank.compareTo(rightRank);
           return rankOrder == 0 ? left.id.compareTo(right.id) : rankOrder;
         });

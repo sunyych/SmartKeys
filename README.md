@@ -22,6 +22,26 @@ Applications without a managed shortcut profile act as launch-only keys. The
 mobile header places host, clock and media controls beside the workspace title,
 and the rail shows the LumiaKey icon and wordmark together at the top.
 
+### Codex status on the phone
+
+In LumiaKey Desktop, open **Launcher → App Bar → Codex status dot**. Enter the
+numeric loopback WebSocket address of an existing
+[Codex App Server](https://learn.chatgpt.com/docs/app-server) and the ID or
+`codex://threads/<id>` link of a chat on that server. The ChatGPT entry on the
+paired phone shows the monitored chat's status: white for Idle, blue for
+Thinking, green for Complete, yellow for Need input, and pink for Error.
+Complete reflects the last successful turn until the chat starts another turn.
+Complete and errors from the latest turn require an App Server that supports
+`thread/turns/list`. Older servers can still report live status.
+Clear both settings to hide the dot.
+
+The chat must belong to the App Server you connect to. The default desktop
+connection does not provide a WebSocket address. LumiaKey queries the server
+for status without loading messages. It sends only the status to the paired
+phone and hides the dot when the signal is unavailable. If your local App
+Server uses a bearer token, supply it to LumiaKey Desktop through
+`LUMIAKEY_CODEX_ACTIVITY_TOKEN`. The token stays on the computer.
+
 Both Android editions require Android 9 (API 28) or later and can be installed
 together. LumiaKey Desktop runs on Windows, macOS, and Linux; Linux input
 automation requires X11. All editions include **50 offline application icons**.

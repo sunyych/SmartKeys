@@ -6,8 +6,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart';
+import 'package:lumiakeys_protocol/codex_activity.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
+import 'codex_activity.dart';
 import 'desktop_controller.dart';
 import 'dictation_receiver.dart';
 
@@ -16,12 +18,15 @@ class CompanionServer extends ChangeNotifier {
     required this.controller,
     this.discoveryPort = 45832,
     DictationTextSink? dictationSink,
-  }) : _hasProvidedDictationSink =
+    CodexActivityMonitor? codexActivity,
+  }) : codexActivity = codexActivity ?? CodexActivityMonitor(),
+       _hasProvidedDictationSink =
            dictationSink != null &&
            dictationSink is! MethodChannelDictationTextSink,
        dictationSink = dictationSink ?? MethodChannelDictationTextSink();
 
   final DesktopController controller;
+  final CodexActivityMonitor codexActivity;
   final int discoveryPort;
   final DictationTextSink dictationSink;
   final bool _hasProvidedDictationSink;
@@ -51,6 +56,7 @@ class CompanionServer extends ChangeNotifier {
     'foreground-app',
     'app-activation',
     'launcher-pad-v1',
+    codexActivityCapability,
     if (controller.actions.supportsInstalledLauncher) 'installed-launcher-v1',
     if (controller.actions.supportsNativeDictation || _hasProvidedDictationSink)
       'local-dictation-v1',
@@ -64,6 +70,7 @@ class CompanionServer extends ChangeNotifier {
 
   Future<void> start() async {
     if (_http != null) return;
+    unawaited(codexActivity.start());
     try {
       _pointerReady = await controller.actions.probePointerSupport();
       _http = await HttpServer.bind(InternetAddress.anyIPv4, 0);
@@ -109,6 +116,14 @@ class CompanionServer extends ChangeNotifier {
     request.response.headers.contentType = ContentType.json;
     if (request.headers.value('x-lumiakeys-token') != token) {
       await _reject(request, HttpStatus.forbidden, 'forbidden');
+      return;
+    }
+    if (request.method == 'GET' && request.uri.path == codexActivityPath) {
+      request.response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+      request.response.write(
+        jsonEncode({'status': codexActivity.status?.name}),
+      );
+      await request.response.close();
       return;
     }
     final iconPath = request.uri.pathSegments;
@@ -312,6 +327,7 @@ class CompanionServer extends ChangeNotifier {
     _broadcastTimer?.cancel();
     _udp?.close();
     unawaited(_http?.close(force: true));
+    codexActivity.dispose();
     super.dispose();
   }
 }

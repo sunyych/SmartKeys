@@ -6,6 +6,9 @@ const int regularShortcutCount = 12;
 /// Only use for defaults; saved custom layouts keep their full contents.
 RemoteShortcutLayout compactDesktopLayout(RemoteShortcutLayout layout) {
   if (layout.id == 'keyboard') return _regularGeneralLayout(layout);
+  if (layout.id == 'chatgpt') {
+    return orderChatGptLayout(layout, firstPageSize: regularShortcutCount);
+  }
   final priorities = layout.id.startsWith('vibe.')
       ? [
           for (final action in const [
@@ -32,20 +35,6 @@ RemoteShortcutLayout compactDesktopLayout(RemoteShortcutLayout layout) {
             '${layout.id}.$action',
         ]
       : switch (layout.id) {
-          'chatgpt' => const [
-            'chatgpt.newChat',
-            'chatgpt.codex.send',
-            'chatgpt.codex.copy',
-            'chatgpt.codex.paste',
-            'chatgpt.codex.cut',
-            'chatgpt.codex.focusInput',
-            'chatgpt.codex.backspace',
-            'chatgpt.codex.alternateSend',
-            'chatgpt.find',
-            'chatgpt.sidebar',
-            'chatgpt.chatView',
-            'chatgpt.codexMode',
-          ],
           'app.chrome' => const [
             'chrome.newTab',
             'chrome.closeTab',

@@ -40,10 +40,11 @@ void main() {
         apple.buttons.any((button) => button.id == 'chatgpt.startVoice'),
         isTrue,
       );
-      expect(
-        windows.buttons.any((button) => button.id == 'chatgpt.startVoice'),
-        isFalse,
+      final windowsVoice = windows.buttons.singleWhere(
+        (button) => button.id == chatGptNativeVoiceShortcutId,
       );
+      expect(windowsVoice.shortcut, isEmpty);
+      expect(windowsVoice.enabled, isFalse);
       expect(
         apple.buttons.any((button) => button.id == 'chatgpt.codex.voice'),
         isFalse,
@@ -279,15 +280,26 @@ void main() {
     expect(restored.buttonById('chatgpt.codex.project'), isNotNull);
     expect(restored.buttonById('chatgpt.codex.alternateSend'), isNotNull);
     expect(restored.buttonById('chatgpt.codex.screenshot'), isNotNull);
-    final chatGptShortcuts = chatGptButtons
-        .where(
-          (button) =>
-              button.targetType == RemoteTargetType.keyboardShortcut &&
-              button.shortcut.isNotEmpty,
-        )
-        .map((button) => button.shortcut.join('+'))
-        .toList(growable: false);
-    expect(chatGptShortcuts.toSet(), hasLength(chatGptShortcuts.length));
+    final shortcutsByChord = <String, Set<String>>{};
+    for (final button in chatGptButtons.where(
+      (button) =>
+          button.targetType == RemoteTargetType.keyboardShortcut &&
+          button.shortcut.isNotEmpty,
+    )) {
+      shortcutsByChord
+          .putIfAbsent(button.shortcut.join('+'), () => {})
+          .add(button.id);
+    }
+    expect(
+      {
+        for (final entry in shortcutsByChord.entries)
+          if (entry.value.length > 1) entry.key: entry.value,
+      },
+      {
+        'ENTER': {'chatgpt.codex.send', chatGptApproveShortcutId},
+        'ESC': {'chatgpt.codex.focusInput', chatGptDeclineShortcutId},
+      },
+    );
     expect(restored.applicationById('appleMusic')!.executable, 'Music');
     expect(restored.applicationById('finder')!.executable, 'Finder');
     expect(restored.layoutById('app.finder')!.buttons, hasLength(15));

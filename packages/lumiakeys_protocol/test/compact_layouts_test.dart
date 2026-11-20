@@ -6,11 +6,13 @@ void main() {
     final manifest = DesktopManifest.regularStarter();
     manifest.validate();
     for (final layout in manifest.layouts) {
-      expect(
-        layout.buttons.length,
-        lessThanOrEqualTo(regularShortcutCount),
-        reason: layout.id,
-      );
+      if (layout.id != 'chatgpt') {
+        expect(
+          layout.buttons.length,
+          lessThanOrEqualTo(regularShortcutCount),
+          reason: layout.id,
+        );
+      }
       expect(
         layout.buttons.map((button) => button.id).toSet().length,
         layout.buttons.length,
@@ -18,7 +20,9 @@ void main() {
     }
     expect(manifest.layoutById('keyboard')!.buttons, hasLength(12));
     expect(manifest.layoutById('app.chrome')!.buttons, hasLength(12));
-    expect(manifest.layoutById('chatgpt')!.buttons, hasLength(12));
+    expect(manifest.layoutById('chatgpt')!.buttons, hasLength(greaterThan(12)));
+    expect(manifest.layoutById('codex'), isNull);
+    expect(manifest.layoutById('vibe.codex'), isNull);
   });
   test('General offers clipboard, editing and fixed system media actions', () {
     final general = DesktopManifest.regularStarter().layoutById('keyboard')!;
@@ -75,7 +79,7 @@ void main() {
     'Vibe defaults retain send and clipboard rather than truncating the tail',
     () {
       final manifest = DesktopManifest.regularStarter();
-      for (final app in ['codex', 'claude', 'cursor']) {
+      for (final app in ['claude', 'cursor']) {
         final layout = manifest.layoutById('vibe.$app')!;
         expect(layout.buttons.length, lessThanOrEqualTo(12));
         expect(
@@ -85,19 +89,24 @@ void main() {
       }
     },
   );
-  test('platform projection never expands the compact ChatGPT defaults', () {
+  test('each platform has Micro controls, clipboard and Codex on page one', () {
     final layout = DesktopManifest.regularStarter().layoutById('chatgpt')!;
     for (final platform in RemoteShortcutPlatform.values) {
-      final projected = projectChatGptLayout(layout, platform);
-      expect(projected.buttons.length, lessThanOrEqualTo(12));
-      expect(
-        projected.buttons.map((button) => button.id),
-        containsAll([
-          'chatgpt.newChat',
-          'chatgpt.codex.copy',
-          'chatgpt.codex.paste',
-        ]),
+      final projected = projectChatGptLayout(
+        layout,
+        platform,
+        firstPageSize: regularShortcutCount,
       );
+      expect(
+        projected.buttons.take(12).map((button) => button.id),
+        chatGptPrimaryShortcutIds.take(12),
+      );
+      expect(projected.buttons[11].id, 'chatgpt.codexMode');
+      expect(projected.buttons[12].id, 'chatgpt.codex.review');
+      expect(projected.buttons[5].shortcut, ['ENTER']);
+      expect(projected.buttons[6].shortcut, ['ESC']);
+      expect(isUnassignedChatGptShortcut(projected.buttons[4]), isTrue);
+      expect(isUnassignedChatGptShortcut(projected.buttons[7]), isTrue);
     }
   });
 }

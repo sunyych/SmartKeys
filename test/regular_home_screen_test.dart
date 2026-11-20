@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lumiakeys_protocol/codex_activity.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/services/companion_service.dart';
 import 'package:smart_keys/ui/local_dictation_panel.dart';
 import 'package:smart_keys/app.dart';
@@ -42,6 +44,173 @@ class DeferredRegularCompanion extends RecordingCompanionService {
 }
 
 void main() {
+  testWidgets('only the ChatGPT App Bar item shows real Codex activity', (
+    tester,
+  ) async {
+    final service = ActivatingRegularCompanion();
+    await mountRegular(tester, companion: service);
+    final chatGpt = find.byKey(const ValueKey('regular-nav-chatgpt'));
+    final dot = find.byKey(const ValueKey('regular-chatgpt-activity-dot'));
+    expect(dot, findsNothing);
+    final colors = <Color>{};
+    for (final (status, label) in [
+      (CodexActivityStatus.idle, 'Idle'),
+      (CodexActivityStatus.thinking, 'Thinking'),
+      (CodexActivityStatus.complete, 'Complete'),
+      (CodexActivityStatus.needsInput, 'Needs Input'),
+      (CodexActivityStatus.error, 'Error'),
+    ]) {
+      service.codexActivity.value = status;
+      await tester.pump();
+      expect(dot, findsOneWidget);
+      expect(find.descendant(of: chatGpt, matching: dot), findsOneWidget);
+      expect(find.byTooltip('Codex activity: $label'), findsOneWidget);
+      final decoration =
+          tester.widget<DecoratedBox>(dot).decoration as BoxDecoration;
+      expect(decoration.shape, BoxShape.circle);
+      expect(
+        decoration.border,
+        status == CodexActivityStatus.idle ? isNotNull : isNull,
+      );
+      expect(
+        tester.getCenter(dot).dx,
+        greaterThan(tester.getCenter(chatGpt).dx),
+      );
+      colors.add(decoration.color!);
+    }
+    expect(colors, hasLength(5));
+    service.codexActivity.value = null;
+    await tester.pump();
+    expect(dot, findsNothing);
+  });
+
+  testWidgets('ChatGPT opens the combined Micro layout and retains Review', (
+    tester,
+  ) async {
+    await mountRegular(tester);
+    await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('regular-nav-codex')), findsNothing);
+    final mode = find.byKey(const ValueKey('regular-button-chatgpt.codexMode'));
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('regular-cell-11')),
+        matching: mode,
+      ),
+      findsOneWidget,
+    );
+    for (final id in [
+      'chatgpt.codex.send',
+      'chatgpt.codex.copy',
+      'chatgpt.codex.paste',
+      chatGptFastModeShortcutId,
+      chatGptBranchOffShortcutId,
+      chatGptApproveShortcutId,
+      chatGptDeclineShortcutId,
+      chatGptNativeVoiceShortcutId,
+    ]) {
+      expect(find.byKey(ValueKey('regular-button-$id')), findsOneWidget);
+    }
+    expect(
+      find.descendant(
+        of: find.byKey(
+          ValueKey('regular-button-$chatGptNativeVoiceShortcutId'),
+        ),
+        matching: find.text('Local Dictation'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('regular-next-page')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('regular-cell-0')),
+        matching: find.byKey(
+          const ValueKey('regular-button-chatgpt.codex.review'),
+        ),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('unassigned Micro keys explain how to bind without sending', (
+    tester,
+  ) async {
+    final harness = await mountRegular(tester);
+    await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+    await tester.pumpAndSettle();
+    for (final id in [chatGptFastModeShortcutId, chatGptBranchOffShortcutId]) {
+      await tester.tap(find.byKey(ValueKey('regular-button-$id')));
+      await tester.pumpAndSettle();
+    }
+    expect(
+      find.textContaining('Assign and enable this shortcut'),
+      findsOneWidget,
+    );
+    expect(harness.companion.remoteActions.single.applicationId, 'chatgpt');
+  });
+
+  testWidgets(
+    'Windows Voice opens LumiaKey dictation consent without a chord',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final harness = await mountRegular(tester);
+      await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(ValueKey('regular-button-$chatGptNativeVoiceShortcutId')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('dictation-entry-explanation')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('dictation-explanation-cancel')),
+      );
+      await tester.pumpAndSettle();
+      expect(harness.companion.remoteActions.single.applicationId, 'chatgpt');
+    },
+  );
+
+  testWidgets(
+    'approval keys require explicit confirmation and Send stays direct',
+    (tester) async {
+      final harness = await mountRegular(tester);
+      await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+      await tester.pumpAndSettle();
+      final actions = harness.companion.remoteActions;
+      for (final (id, confirmLabel) in [
+        (chatGptApproveShortcutId, 'Approve Request'),
+        (chatGptDeclineShortcutId, 'Decline Request'),
+      ]) {
+        final key = find.byKey(ValueKey('regular-button-$id'));
+        final before = actions.length;
+        await tester.tap(key);
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Does ChatGPT show an approval request?'),
+          findsOneWidget,
+        );
+        expect(actions, hasLength(before));
+        await tester.tap(find.text('Go Back'));
+        await tester.pumpAndSettle();
+        expect(actions, hasLength(before));
+        await tester.tap(key);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(confirmLabel));
+        await tester.pumpAndSettle();
+        expect(actions, hasLength(before + 1));
+        expect(actions.last.buttonId, confirmedChatGptApprovalShortcutId(id));
+      }
+      await tester.tap(
+        find.byKey(const ValueKey('regular-button-chatgpt.codex.send')),
+      );
+      await tester.pumpAndSettle();
+      expect(actions.last.buttonId, 'chatgpt.codex.send');
+    },
+  );
+
   testWidgets(
     'installed launch-only apps start promptly and keep Launchpad without empty shortcut profiles',
     (tester) async {

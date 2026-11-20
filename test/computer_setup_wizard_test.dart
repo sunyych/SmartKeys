@@ -401,16 +401,14 @@ void main() {
         find.byKey(const ValueKey('standalone-action-chatgpt-startVoice')),
         findsNothing,
       );
-      if (os == ComputerOperatingSystem.macos) {
-        await tester.tap(
-          find.byKey(const ValueKey('standalone-chatgpt-next-page')),
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const ValueKey('standalone-action-chatgpt-startVoice')),
-          findsOneWidget,
-        );
-      }
+      await tester.tap(
+        find.byKey(const ValueKey('standalone-chatgpt-next-page')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('standalone-action-chatgpt-startVoice')),
+        os == ComputerOperatingSystem.macos ? findsOneWidget : findsNothing,
+      );
     }
 
     final windows = original.withOperatingSystem(
@@ -422,7 +420,7 @@ void main() {
         applicationIds: const ['chatgpt'],
         operatingSystem: ComputerOperatingSystem.windows,
         bindings: const {
-          'chatgpt': {'stopVoice': 'Ctrl+Shift+8'},
+          'chatgpt': {'startVoice': 'Ctrl+Alt+9', 'stopVoice': 'Ctrl+Shift+8'},
         },
       ),
     );
@@ -449,6 +447,10 @@ void main() {
       find.byKey(const ValueKey('standalone-action-chatgpt-stopVoice')),
       findsOneWidget,
     );
+    final voice = find.byKey(
+      const ValueKey('standalone-action-chatgpt-startVoice'),
+    );
+    expect(tester.widget<InkWell>(voice).onTap, isNotNull);
   });
 
   testWidgets('General-only setup stores an explicit empty app list', (

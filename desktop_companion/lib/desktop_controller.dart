@@ -1161,8 +1161,11 @@ class DesktopController extends ChangeNotifier {
       throw const FormatException('No shortcut layouts to import');
     }
     await _commit((current) {
+      final catalog = DesktopManifest.starter();
       final existingById = {
         for (final layout in current.layouts) layout.id: layout,
+        for (final layout in catalog.layouts)
+          if (isLegacyCodexLayoutId(layout.id)) layout.id: layout,
       };
       for (final layout in imported) {
         final existing = existingById[layout.id];
@@ -1188,6 +1191,9 @@ class DesktopController extends ChangeNotifier {
         }
       }
       final importedById = {for (final layout in imported) layout.id: layout};
+      final legacyLayouts = imported.where(
+        (layout) => isLegacyCodexLayoutId(layout.id),
+      );
       final importedChatGpt = importedById['chatgpt'];
       if (importedChatGpt != null) {
         final currentChatGpt = current.layoutById('chatgpt');
@@ -1209,6 +1215,13 @@ class DesktopController extends ChangeNotifier {
             ],
           );
         }
+      }
+      if (importedChatGpt != null || legacyLayouts.isNotEmpty) {
+        importedById['chatgpt'] = _mergeChatGptLayouts(
+          importedById['chatgpt'] ?? current.layoutById('chatgpt'),
+          catalog,
+          legacyLayouts,
+        );
       }
       final candidate = current.copyWith(
         layouts: current.layouts
@@ -1404,32 +1417,30 @@ class DesktopController extends ChangeNotifier {
   static DesktopManifest _upgradeManifest(DesktopManifest manifest) {
     final starter = DesktopManifest.starter();
     const legacyIds = {'windows', 'mac', 'photoshop', 'vscode', 'premiere'};
-    final profiles = manifest.profiles
-        .where((profile) => !legacyIds.contains(profile.id))
-        .toList(growable: false);
-    if (profiles.isEmpty) return starter;
-    final starterCodex = starter.layoutById('codex')!;
-    final starterChatGpt = starter.layoutById('chatgpt')!;
+    final profiles = [
+      for (final profile in manifest.profiles)
+        if (!legacyIds.contains(profile.id))
+          if (isLegacyCodexLayoutId(profile.layoutId) ||
+              profile.applicationId == 'codex')
+            RemoteProfile.fromJson({
+              ...profile.toJson(),
+              if (isLegacyCodexLayoutId(profile.layoutId))
+                'layoutId': 'chatgpt',
+              if (profile.applicationId == 'codex') 'applicationId': 'chatgpt',
+            })
+          else
+            profile,
+    ];
+    if (profiles.isEmpty) profiles.addAll(starter.profiles);
     final starterChrome = starter.layoutById('app.chrome')!;
-    final hasCurrentCodexActions =
-        manifest.buttonById('codex.focusInput') != null &&
-        manifest.buttonById('codex.voice') != null &&
-        manifest.buttonById('codex.newChat') != null &&
-        manifest.buttonById('codex.searchChats') != null &&
-        manifest.buttonById('codex.review') != null;
     final hasCurrentChromeActions =
         manifest.buttonById('chrome.bookmark') != null &&
         manifest.buttonById('chrome.nextTab') != null &&
         manifest.buttonById('chrome.passwordManager') != null &&
         manifest.buttonById('chrome.mute') != null;
-    final legacyCodexButtons = hasCurrentCodexActions
-        ? manifest.layoutById('codex')!.buttons
-        : starterCodex.buttons;
     final layouts = manifest.layouts
+        .where((layout) => !isLegacyCodexLayoutId(layout.id))
         .map((layout) {
-          if (layout.id == 'codex' && !hasCurrentCodexActions) {
-            return starterCodex;
-          }
           if (layout.id == 'app.chrome' && !hasCurrentChromeActions) {
             final existingById = {
               for (final button in layout.buttons) button.id: button,
@@ -1441,88 +1452,11 @@ class DesktopController extends ChangeNotifier {
                   .toList(growable: false),
             );
           }
-          if (layout.id == 'chatgpt') {
-            final existingById = {
-              for (final button in layout.buttons)
-                if (button.id != 'chatgpt.codex.sidebar') button.id: button,
-            };
-            final intermediateCodexSidebar = layout.buttons
-                .where((button) => button.id == 'chatgpt.codex.sidebar')
-                .firstOrNull;
-            final migratedCodexById = {
-              for (final button in legacyCodexButtons)
-                _canonicalLegacyCodexButtonId(button.id): _copyButtonWithId(
-                  button,
-                  _canonicalLegacyCodexButtonId(button.id),
-                ),
-            };
-            final migratedVibeCodexById = {
-              for (final button
-                  in manifest.layoutById('vibe.codex')?.buttons ??
-                      const <RemoteShortcutButton>[])
-                _canonicalLegacyVibeCodexButtonId(button.id): _copyButtonWithId(
-                  button,
-                  _canonicalLegacyVibeCodexButtonId(button.id),
-                ),
-            };
-            final starterIds = starterChatGpt.buttons
-                .map((button) => button.id)
-                .toSet();
-            final defaultChatGptSidebar = starterChatGpt.buttons
-                .where((button) => button.id == 'chatgpt.sidebar')
-                .firstOrNull;
-            final currentChatGptSidebar = existingById['chatgpt.sidebar'];
-            final migratedCodexSidebar = migratedCodexById['chatgpt.sidebar'];
-            bool isCustomSidebar(RemoteShortcutButton? button) =>
-                button != null &&
-                defaultChatGptSidebar != null &&
-                !_sameKeys(button.shortcut, defaultChatGptSidebar.shortcut);
-            final customLegacySidebar = [
-              intermediateCodexSidebar,
-              migratedCodexSidebar,
-            ].where(isCustomSidebar).firstOrNull;
-            final canonicalSidebar =
-                !isCustomSidebar(currentChatGptSidebar) &&
-                    customLegacySidebar != null
-                ? customLegacySidebar
-                : currentChatGptSidebar ??
-                      intermediateCodexSidebar ??
-                      migratedCodexSidebar;
-            final extrasById = <String, RemoteShortcutButton>{};
-            for (final entry in migratedCodexById.entries) {
-              if (!starterIds.contains(entry.key)) {
-                extrasById[entry.key] = entry.value;
-              }
-            }
-            for (final entry in migratedVibeCodexById.entries) {
-              if (!starterIds.contains(entry.key)) {
-                extrasById[entry.key] = entry.value;
-              }
-            }
-            for (final button in layout.buttons) {
-              if (!starterIds.contains(button.id) &&
-                  button.id != 'chatgpt.codex.sidebar') {
-                extrasById[button.id] = button;
-              }
-            }
-            final buttons = [
-              for (final button in starterChatGpt.buttons)
-                (button.id == 'chatgpt.sidebar' ? canonicalSidebar : null) ??
-                    existingById[button.id] ??
-                    migratedVibeCodexById[button.id] ??
-                    migratedCodexById[button.id] ??
-                    button,
-              ...extrasById.values,
-            ];
-            return starterChatGpt.copyWith(name: layout.name, buttons: buttons);
-          }
           return layout;
         })
         .toList(growable: true);
-    if (!layouts.any((layout) => layout.id == 'codex')) {
-      layouts.add(starterCodex);
-    }
     for (final starterLayout in starter.layouts) {
+      if (isLegacyCodexLayoutId(starterLayout.id)) continue;
       if (!layouts.any((layout) => layout.id == starterLayout.id)) {
         layouts.add(starterLayout);
       }
@@ -1530,6 +1464,11 @@ class DesktopController extends ChangeNotifier {
     final legacyCodexApp = manifest.applicationById('codex');
     final applications = manifest.applications
         .where((application) => application.id != 'codex')
+        .map(
+          (application) => isLegacyCodexLayoutId(application.layoutId)
+              ? application.copyWith(layoutId: 'chatgpt')
+              : application,
+        )
         .toList(growable: true);
     final chatGptIndex = applications.indexWhere(
       (application) => application.id == 'chatgpt',
@@ -1552,9 +1491,24 @@ class DesktopController extends ChangeNotifier {
         profiles.any((profile) => profile.id == manifest.currentProfileId)
         ? manifest.currentProfileId
         : profiles.first.id;
+    final sidebarKeys = <String>{};
+    final sidebarItems = manifest.sidebarItems
+        ?.map(
+          (item) =>
+              item.kind == RemoteSidebarKind.application && item.id == 'codex'
+              ? const RemoteSidebarItem.application('chatgpt')
+              : item,
+        )
+        .where((item) => sidebarKeys.add(item.key))
+        .toList(growable: false);
     return manifest.copyWith(
       layouts: layouts,
       applications: applications,
+      sidebarItems: sidebarItems,
+      sidebarShortcutOnlyApplicationIds: {
+        for (final id in manifest.sidebarShortcutOnlyApplicationIds)
+          id == 'codex' ? 'chatgpt' : id,
+      },
       activatedApplicationId: manifest.activatedApplicationId == 'codex'
           ? 'chatgpt'
           : manifest.activatedApplicationId,
@@ -1579,6 +1533,15 @@ class DesktopController extends ChangeNotifier {
       layouts: upgraded.layouts
           .map((layout) {
             final saved = original.layoutById(layout.id);
+            if (layout.id == 'chatgpt') {
+              return _mergeChatGptLayouts(
+                saved,
+                catalog,
+                original.layouts.where(
+                  (layout) => isLegacyCodexLayoutId(layout.id),
+                ),
+              );
+            }
             if (saved == null ||
                 _regularDefaultCandidates(
                   catalog.layoutById(layout.id),
@@ -1611,9 +1574,6 @@ class DesktopController extends ChangeNotifier {
                   ),
                 )) {
               return compactDesktopLayout(layout);
-            }
-            if (saved.id == 'chatgpt') {
-              return _migrateCustomChatGpt(saved, layout, original, catalog);
             }
             return saved;
           })
@@ -1666,70 +1626,102 @@ class DesktopController extends ChangeNotifier {
     ];
   }
 
-  static RemoteShortcutLayout _migrateCustomChatGpt(
-    RemoteShortcutLayout saved,
-    RemoteShortcutLayout upgraded,
-    DesktopManifest original,
+  static RemoteShortcutLayout _mergeChatGptLayouts(
+    RemoteShortcutLayout? saved,
     DesktopManifest catalog,
+    Iterable<RemoteShortcutLayout> legacyLayouts,
   ) {
-    final upgradedById = {
-      for (final button in upgraded.buttons) button.id: button,
+    final defaults = catalog.layoutById('chatgpt')!;
+    final base = saved ?? defaults;
+    final defaultById = {
+      for (final button in defaults.buttons) button.id: button,
     };
-    final defaultsById = {
-      for (final button in catalog.layoutById('chatgpt')!.buttons)
-        button.id: button,
-    };
-    final buttons = <RemoteShortcutButton>[];
-    final seen = <String>{};
-    for (final button in saved.buttons) {
-      final id = button.id == 'chatgpt.codex.sidebar'
-          ? 'chatgpt.sidebar'
-          : button.id;
-      if (!seen.add(id)) {
+    final merged = <String, RemoteShortcutButton>{};
+
+    bool sameButton(
+      RemoteShortcutButton? first,
+      RemoteShortcutButton? second,
+    ) =>
+        first != null &&
+        second != null &&
+        jsonEncode(first.toJson()) == jsonEncode(second.toJson());
+    bool isDefault(
+      RemoteShortcutButton? button,
+      RemoteShortcutButton? standard,
+    ) {
+      if (button == null || standard == null) return false;
+      return sameButton(button, standard) ||
+          RemoteShortcutPlatform.values.any(
+            (platform) => sameButton(
+              button,
+              standard.copyWith(
+                shortcut: resolvePrimaryShortcut(standard.shortcut, platform),
+              ),
+            ),
+          );
+    }
+
+    // Prefer an edited normal entry over a duplicate from an older board.
+    for (final button in base.buttons) {
+      if (button.id != 'chatgpt.codex.sidebar') merged[button.id] = button;
+    }
+    for (final button in base.buttons.where(
+      (button) => button.id == 'chatgpt.codex.sidebar',
+    )) {
+      const id = 'chatgpt.sidebar';
+      final migrated = _copyButtonWithId(button, id);
+      final standard = defaultById[id]!;
+      if (merged.containsKey(id) &&
+          isDefault(
+            migrated,
+            button.description.isEmpty
+                ? standard.copyWith(description: '')
+                : standard,
+          )) {
         continue;
       }
-      final unchangedSidebar =
-          id == 'chatgpt.sidebar' &&
-          jsonEncode(button.toJson()) == jsonEncode(defaultsById[id]?.toJson());
-      buttons.add(
-        id != button.id || unchangedSidebar
-            ? upgradedById[id] ?? _copyButtonWithId(button, id)
-            : button,
-      );
+      if (merged[id] == null || isDefault(merged[id], standard)) {
+        merged[id] = migrated;
+      } else if (!sameButton(merged[id], migrated)) {
+        merged[button.id] = button;
+      }
     }
-    // Consolidation may have to retain edits from the old separate Codex
-    // boards. Append only actual user edits, never re-add removed defaults.
-    for (final sourceId in const ['codex', 'vibe.codex']) {
-      final source = original.layoutById(sourceId);
-      final defaults = {
-        for (final button in catalog.layoutById(sourceId)!.buttons)
+
+    for (final layout in legacyLayouts) {
+      final baseline = {
+        for (final button in catalog.layoutById(layout.id)!.buttons)
           button.id: button,
       };
-      for (final button in source?.buttons ?? const <RemoteShortcutButton>[]) {
-        if (jsonEncode(button.toJson()) ==
-            jsonEncode(defaults[button.id]?.toJson())) {
-          continue;
-        }
-        final id = sourceId == 'codex'
+      for (final button in layout.buttons) {
+        final oldDefault = baseline[button.id];
+        if (isDefault(button, oldDefault)) continue;
+        final id = layout.id == 'codex'
             ? _canonicalLegacyCodexButtonId(button.id)
             : _canonicalLegacyVibeCodexButtonId(button.id);
-        if (id == button.id) {
-          // A custom globally unique ID remains on its original saved board.
-          continue;
-        }
-        final index = buttons.indexWhere((current) => current.id == id);
         final migrated = _copyButtonWithId(button, id);
-        if (index == -1) {
-          seen.add(id);
-          buttons.add(migrated);
-        } else if (jsonEncode(buttons[index].toJson()) ==
-            jsonEncode(defaultsById[id]?.toJson())) {
-          buttons[index] = migrated;
+        final existing = merged[id];
+        if (existing == null || isDefault(existing, defaultById[id])) {
+          merged[id] = migrated;
+        } else if (!sameButton(existing, migrated)) {
+          final preservedId = _legacyConflictingButtonId(layout.id, button.id);
+          merged[preservedId] = _copyButtonWithId(button, preservedId);
         }
       }
     }
-    return saved.copyWith(buttons: buttons);
+
+    // Keep saved buttons and bindings. Add missing actions for the primary
+    // surface plus the first shortcut on the next page.
+    for (final id in [
+      ...chatGptPrimaryShortcutIds,
+      chatGptSecondaryShortcutIds.first,
+    ]) {
+      merged.putIfAbsent(id, () => defaultById[id]!);
+    }
+    return base.copyWith(buttons: merged.values.toList(growable: false));
   }
+
+  static String _legacyConflictingButtonId(String layoutId, String buttonId) =>
+      'chatgpt.legacy.$layoutId.$buttonId';
 
   static DesktopManifest _applyPlatformDefaults(
     DesktopManifest manifest,
@@ -1906,10 +1898,33 @@ class DesktopController extends ChangeNotifier {
     switch (request.kind) {
       case RemoteActionKind.button:
         final requestedButtonId = request.buttonId ?? '';
-        final canonicalButtonId = _canonicalLegacyCodexButtonId(
-          requestedButtonId,
+        final confirmedId = chatGptApprovalShortcutIds
+            .where(
+              (id) =>
+                  confirmedChatGptApprovalShortcutId(id) == requestedButtonId,
+            )
+            .firstOrNull;
+        final legacyLayoutId = requestedButtonId.startsWith('vibe.codex.')
+            ? 'vibe.codex'
+            : requestedButtonId.startsWith('codex.')
+            ? 'codex'
+            : null;
+        final preservedLegacyId = legacyLayoutId == null
+            ? null
+            : _legacyConflictingButtonId(legacyLayoutId, requestedButtonId);
+        final canonicalButtonId = _canonicalLegacyVibeCodexButtonId(
+          _canonicalLegacyCodexButtonId(requestedButtonId),
         );
-        final button = manifest.buttonById(canonicalButtonId);
+        if (confirmedId == null &&
+            chatGptApprovalShortcutIds.contains(canonicalButtonId)) {
+          throw StateError('Confirm the open ChatGPT approval request first');
+        }
+        final projected = manifest;
+        final preserved = preservedLegacyId == null
+            ? null
+            : projected.buttonById(preservedLegacyId);
+        final button =
+            preserved ?? projected.buttonById(confirmedId ?? canonicalButtonId);
         if (button == null) throw const FormatException('Unknown button');
         final libraryProfile = _libraryProfileForButton(button);
         if (libraryProfile != null &&
@@ -1924,6 +1939,11 @@ class DesktopController extends ChangeNotifier {
             vibeAppId ??
             libraryProfile?.applicationId ??
             _managedAppForButton(button, _manifest);
+        if (confirmedId != null &&
+            (managedAppId != 'chatgpt' ||
+                button.targetType != RemoteTargetType.keyboardShortcut)) {
+          throw const FormatException('Invalid ChatGPT approval shortcut');
+        }
         if (managedAppId != null) {
           await _serializeManagedAction(() async {
             final app = _manifest.applicationById(managedAppId);

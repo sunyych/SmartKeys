@@ -2,13 +2,16 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:lumiakeys_protocol/codex_activity.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 
 import '../app.dart';
 import '../icons/source_profile_icon.dart';
 import '../controllers/app_controller.dart';
 import '../models/config.dart';
+import '../services/companion_service.dart';
 import '../icons/app_icon_catalog.dart';
 import '../mobile_appearance.dart';
 import 'computer_switcher.dart';
@@ -216,7 +219,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
           if (!manifest.effectiveSidebarItems.any(
             (item) =>
                 item.kind == RemoteSidebarKind.application &&
-                item.id == application.id,
+                (item.id == application.id ||
+                    (item.id == 'codex' && application.id == 'chatgpt')),
           )) {
             return;
           }
@@ -294,14 +298,35 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
         button.id.startsWith('keyboard.') &&
         button.targetType == RemoteTargetType.system;
     if (!_ready(controller) ||
-        !button.enabled ||
         _pendingApplication != null ||
         (!systemControl && !_applicationReady(controller))) {
       return;
     }
+    if (isUnassignedChatGptShortcut(button)) {
+      if (_usesLocalVoiceFallback(controller, button)) {
+        await _dictation.currentState?.startQuickDictation();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.mobileText(
+                'Assign and enable this shortcut in Desktop → Shortcut Layout → ChatGPT.',
+                '请在桌面端的快捷键布局 → ChatGPT 中填写并启用此快捷键。',
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    if (!button.enabled) return;
     final session = _session(controller);
     final generation = _generation;
-    if (button.targetType == RemoteTargetType.voiceInput &&
+    final approval = chatGptApprovalShortcutIds.contains(button.id);
+    if (approval && !await _confirmPendingApproval(button)) return;
+    if (!mounted) return;
+    if ((button.targetType == RemoteTargetType.voiceInput ||
+            button.id == chatGptNativeVoiceShortcutId) &&
         !await ensureDictationEntryExplained(context)) {
       return;
     }
@@ -314,7 +339,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       return;
     }
     try {
-      await controller.executeRemoteButton(button);
+      await controller.executeRemoteButton(button, confirmedApproval: approval);
     } catch (error) {
       if (mounted &&
           generation == _generation &&
@@ -328,6 +353,50 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       }
     }
   }
+
+  bool _usesLocalVoiceFallback(
+    AppController controller,
+    RemoteShortcutButton button,
+  ) {
+    final platform = controller.companion.activeHost.value?.platform;
+    return (platform == 'windows' || platform == 'linux') &&
+        button.id == chatGptNativeVoiceShortcutId &&
+        isUnassignedChatGptShortcut(button);
+  }
+
+  Future<bool> _confirmPendingApproval(RemoteShortcutButton button) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(
+            context.mobileText(
+              'Does ChatGPT show an approval request?',
+              '桌面上的 ChatGPT 是否显示待审批请求？',
+            ),
+          ),
+          content: Text(
+            context.mobileText(
+              'Look at the request on your computer before using this shortcut.',
+              '请先核对电脑上的审批请求，再执行此快捷键。',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(context.mobileText('Go Back', '返回')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(
+                button.id == chatGptApproveShortcutId
+                    ? context.mobileText('Approve Request', '确认请求')
+                    : context.mobileText('Decline Request', '拒绝请求'),
+              ),
+            ),
+          ],
+        ),
+      ) ??
+      false;
 
   Future<void> _showConnection(AppController controller) =>
       showDesktopConnectionSheet(context, controller.companion);
@@ -387,6 +456,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       );
     }
     final ready = _ready(controller);
+    final companion = controller.companion;
+    final codexActivity = ready && companion is CompanionCodexActivityConnection
+        ? (companion as CompanionCodexActivityConnection).codexActivity
+        : null;
     // A pointer route can outlive its rendered surface until the next frame.
     // Do not let an old key/app tap acquire authority from a newly ready host.
     final renderedSession = _session(controller);
@@ -407,12 +480,23 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
             profile.platform == controller.companion.activeHost.value?.platform)
           profile.id: profile,
     };
+    final sidebarKeys = <String>{};
     final sidebarItems =
         (manifest?.effectiveSidebarItems ?? const <RemoteSidebarItem>[])
+            .map(
+              (item) =>
+                  item.kind == RemoteSidebarKind.application &&
+                      item.id == 'codex' &&
+                      sidebarApps.containsKey('chatgpt')
+                  ? const RemoteSidebarItem.application('chatgpt')
+                  : item,
+            )
             .where(
-              (item) => item.kind == RemoteSidebarKind.application
-                  ? sidebarApps.containsKey(item.id)
-                  : sidebarProfiles.containsKey(item.id),
+              (item) =>
+                  (item.kind == RemoteSidebarKind.application
+                      ? sidebarApps.containsKey(item.id)
+                      : sidebarProfiles.containsKey(item.id)) &&
+                  sidebarKeys.add(item.key),
             )
             .toList();
     final visibleSelections = {
@@ -467,7 +551,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
               )
         : application == null
         ? null
-        : controller.layoutForApplication(application);
+        : controller.layoutForApplication(
+            application,
+            chatGptPageSize: _pageSize,
+          );
     final launcher = _selection == _launchpad;
     final count = launcher ? launcherSlotCount : layout?.buttons.length ?? 0;
     final pageCount = math.max(1, (count / _pageSize).ceil());
@@ -563,6 +650,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                   ),
                                   selected: item.id == _selection,
                                   busy: item.id == _pendingApplication,
+                                  activity:
+                                      item.id == 'chatgpt' || item.id == 'codex'
+                                      ? codexActivity
+                                      : null,
                                   onTap: ready
                                       ? () {
                                           if (acceptsRenderedInput()) {
@@ -767,6 +858,12 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                               applications: launcherSlots,
                                               buttons:
                                                   layout?.buttons ?? const [],
+                                              usesLocalVoiceFallback:
+                                                  (button) =>
+                                                      _usesLocalVoiceFallback(
+                                                        controller,
+                                                        button,
+                                                      ),
                                               enabled:
                                                   _pendingApplication == null &&
                                                   (launcher ||
@@ -989,6 +1086,7 @@ class _NavigationItem extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.busy = false,
+    this.activity,
   });
   final String id;
   final String label;
@@ -996,6 +1094,7 @@ class _NavigationItem extends StatelessWidget {
   final bool selected;
   final bool busy;
   final VoidCallback? onTap;
+  final ValueListenable<CodexActivityStatus?>? activity;
 
   @override
   Widget build(BuildContext context) {
@@ -1013,25 +1112,96 @@ class _NavigationItem extends StatelessWidget {
             onTap: onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 3),
-              child: Column(
+              child: Stack(
                 children: [
-                  busy
-                      ? const SizedBox.square(
-                          dimension: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : icon,
-                  const SizedBox(height: 5),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall,
+                  SizedBox(
+                    width: double.infinity,
+                    child: Column(
+                      children: [
+                        busy
+                            ? const SizedBox.square(
+                                dimension: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : icon,
+                        const SizedBox(height: 5),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
                   ),
+                  if (activity case final current?)
+                    Positioned(
+                      right: 5,
+                      top: 7,
+                      child: ValueListenableBuilder<CodexActivityStatus?>(
+                        valueListenable: current,
+                        builder: (context, status, _) => status == null
+                            ? const SizedBox.shrink()
+                            : _CodexActivityDot(status: status),
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CodexActivityDot extends StatelessWidget {
+  const _CodexActivityDot({required this.status});
+
+  final CodexActivityStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, english, chinese) = switch (status) {
+      CodexActivityStatus.idle => (const Color(0xFFF5F7FA), 'Idle', '空闲'),
+      CodexActivityStatus.thinking => (
+        const Color(0xFF4C90FF),
+        'Thinking',
+        '处理中',
+      ),
+      CodexActivityStatus.complete => (
+        const Color(0xFF38CD89),
+        'Complete',
+        '已完成',
+      ),
+      CodexActivityStatus.needsInput => (
+        const Color(0xFFF1BE46),
+        'Needs Input',
+        '等待输入',
+      ),
+      CodexActivityStatus.error => (const Color(0xFFF26587), 'Error', '出错'),
+    };
+    final label = context.mobileText(
+      'Codex activity: $english',
+      'Codex 状态：$chinese',
+    );
+    return Semantics(
+      label: label,
+      child: Tooltip(
+        message: label,
+        excludeFromSemantics: true,
+        child: DecoratedBox(
+          key: const ValueKey('regular-chatgpt-activity-dot'),
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: status == CodexActivityStatus.idle
+                ? Border.all(color: Theme.of(context).colorScheme.outline)
+                : null,
+          ),
+          child: const SizedBox.square(dimension: 9),
         ),
       ),
     );
@@ -1044,6 +1214,7 @@ class _TwelveKeyGrid extends StatelessWidget {
     required this.launcher,
     required this.applications,
     required this.buttons,
+    required this.usesLocalVoiceFallback,
     required this.enabled,
     required this.onApplication,
     required this.onButton,
@@ -1053,6 +1224,7 @@ class _TwelveKeyGrid extends StatelessWidget {
   final bool launcher;
   final List<RemoteApplication?> applications;
   final List<RemoteShortcutButton> buttons;
+  final bool Function(RemoteShortcutButton) usesLocalVoiceFallback;
   final bool enabled;
   final ValueChanged<RemoteApplication> onApplication;
   final ValueChanged<RemoteShortcutButton> onButton;
@@ -1091,16 +1263,22 @@ class _TwelveKeyGrid extends StatelessWidget {
           final button = !launcher && position < buttons.length
               ? buttons[position]
               : null;
+          final localVoice = button != null && usesLocalVoiceFallback(button);
+          final unassigned =
+              button != null && isUnassignedChatGptShortcut(button);
           final label =
               app?.name ??
               (launcher
                   ? context.mobileText('Slot ${index + 1}', '位置 ${index + 1}')
+                  : localVoice
+                  ? context.mobileText('Local Dictation', '本地听写')
                   : button == null
                   ? ''
                   : _shortcutLabel(button));
           final available =
               enabled &&
-              (app?.detected == true || !launcher && button?.enabled == true);
+              (app?.detected == true ||
+                  !launcher && (button?.enabled == true || localVoice));
           return Material(
             key: ValueKey('regular-cell-$index'),
             color: app == null && button == null ? vacantColor : assignedColor,
@@ -1114,6 +1292,8 @@ class _TwelveKeyGrid extends StatelessWidget {
                   : null,
               onTap: available
                   ? () => app != null ? onApplication(app) : onButton(button!)
+                  : enabled && unassigned
+                  ? () => onButton(button)
                   : launcher && (app == null || !app.detected)
                   ? onConfigure
                   : null,
@@ -1124,6 +1304,16 @@ class _TwelveKeyGrid extends StatelessWidget {
                           ? context.mobileText(
                               'Configure this slot in LumiaKey Desktop',
                               '在 LumiaKey Desktop 中配置此位置',
+                            )
+                          : localVoice
+                          ? context.mobileText(
+                              'Start LumiaKey local dictation',
+                              '开始 LumiaKey 本地听写',
+                            )
+                          : unassigned
+                          ? context.mobileText(
+                              'Assign this shortcut in LumiaKey Desktop',
+                              '在 LumiaKey 桌面端配置此快捷键',
                             )
                           : button?.description.isNotEmpty == true
                           ? button!.description
@@ -1219,6 +1409,9 @@ String _shortcutLabel(RemoteShortcutButton button) {
 }
 
 IconData _shortcutIcon(String id) => switch (id) {
+  'bolt' => Icons.bolt,
+  'call_split' => Icons.call_split,
+  'close' => Icons.close,
   'backspace' => Icons.backspace_outlined,
   'content_cut' => Icons.content_cut,
   'center_focus_strong' => Icons.center_focus_strong,
