@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'codex_activity.dart';
+import 'codex_desktop_windows.dart';
 import 'companion_server.dart';
 import 'desktop_app_preferences.dart';
 import 'desktop_controller.dart';
@@ -122,6 +123,9 @@ class _CompanionAppState extends State<CompanionApp> {
               preferences: SharedPreferencesAsync(),
               bearerToken:
                   Platform.environment['LUMIAKEY_CODEX_ACTIVITY_TOKEN'],
+              automaticStatus: Platform.isWindows
+                  ? watchWindowsCodexDesktopActivity
+                  : null,
             )
           : null,
     );

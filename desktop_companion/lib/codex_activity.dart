@@ -49,13 +49,15 @@ class CodexActivityTarget {
   }
 }
 
-/// A read-only observer for a single chat on an existing local App Server.
+/// Observes the selected Desktop chat by default where supported, or a pinned
+/// chat on an existing local App Server.
 class CodexActivityMonitor extends ChangeNotifier {
   CodexActivityMonitor({
     this.preferences,
     this.pollInterval = const Duration(seconds: 3),
     this.requestTimeout = const Duration(seconds: 4),
     this.bearerToken,
+    this.automaticStatus,
   });
 
   static const storageKey = 'lumiakeys.desktop.codex_activity.v1';
@@ -64,8 +66,10 @@ class CodexActivityMonitor extends ChangeNotifier {
   final Duration pollInterval;
   final Duration requestTimeout;
   final String? bearerToken;
+  final Stream<CodexActivityStatus?> Function()? automaticStatus;
   CodexActivityTarget? _target;
   CodexActivityStatus? _status;
+  StreamSubscription<CodexActivityStatus?>? _desktopSubscription;
   Timer? _timer;
   HttpClient? _client;
   WebSocket? _socket;
@@ -73,9 +77,12 @@ class CodexActivityMonitor extends ChangeNotifier {
   bool _started = false;
   bool _saving = false;
   bool _disposed = false;
+  bool _automatic = true;
 
   CodexActivityTarget? get target => _target;
   CodexActivityStatus? get status => _status;
+  bool get supportsAutomatic => automaticStatus != null;
+  bool get followsDesktop => supportsAutomatic && _target == null && _automatic;
 
   Future<void> start() async {
     if (_started || _disposed) return;
@@ -88,24 +95,32 @@ class CodexActivityMonitor extends ChangeNotifier {
         if (decoded case {'endpoint': String endpoint, 'chat': String chat}) {
           _replaceTarget(CodexActivityTarget(endpoint, chat));
           return;
+        } else if (decoded case {'disabled': true}) {
+          _replaceTarget(null, automatic: false);
+          return;
         }
       }
     } catch (_) {
-      // Unreadable settings leave monitoring disabled.
+      // An unreadable override leaves the default source in place.
     }
-    if (!_disposed && generation == _generation && _target != null) {
-      unawaited(_poll(generation, _target!));
+    if (!_disposed && generation == _generation) {
+      _startSource(generation);
     }
   }
 
-  Future<void> setTarget(CodexActivityTarget? target) async {
+  Future<void> setTarget(
+    CodexActivityTarget? target, {
+    bool automatic = true,
+  }) async {
     if (_saving || _disposed) throw StateError('Monitoring settings are busy');
     _saving = true;
     try {
       final store = preferences;
       if (store != null) {
-        if (target == null) {
+        if (target == null && automatic) {
           await store.remove(storageKey);
+        } else if (target == null) {
+          await store.setString(storageKey, jsonEncode({'disabled': true}));
         } else {
           await store.setString(
             storageKey,
@@ -116,21 +131,42 @@ class CodexActivityMonitor extends ChangeNotifier {
           );
         }
       }
-      if (!_disposed) _replaceTarget(target);
+      if (!_disposed) _replaceTarget(target, automatic: automatic);
     } finally {
       _saving = false;
     }
   }
 
-  void _replaceTarget(CodexActivityTarget? target) {
+  void _replaceTarget(CodexActivityTarget? target, {bool automatic = true}) {
     final generation = ++_generation;
     _timer?.cancel();
     _client?.close(force: true);
     unawaited(_socket?.close());
+    unawaited(_desktopSubscription?.cancel());
+    _desktopSubscription = null;
     _target = target;
+    _automatic = automatic;
     _status = null;
     notifyListeners();
-    if (_started && target != null) unawaited(_poll(generation, target));
+    if (_started) _startSource(generation);
+  }
+
+  void _startSource(int generation) {
+    if (_target case final target?) {
+      unawaited(_poll(generation, target));
+    } else if (followsDesktop) {
+      void publish(CodexActivityStatus? next) {
+        if (_disposed || generation != _generation || next == _status) return;
+        _status = next;
+        notifyListeners();
+      }
+
+      _desktopSubscription = automaticStatus!().listen(
+        publish,
+        onError: (Object _) => publish(null),
+        onDone: () => publish(null),
+      );
+    }
   }
 
   Future<void> _poll(int generation, CodexActivityTarget target) async {
@@ -296,6 +332,7 @@ class CodexActivityMonitor extends ChangeNotifier {
     _timer?.cancel();
     _client?.close(force: true);
     unawaited(_socket?.close());
+    unawaited(_desktopSubscription?.cancel());
     super.dispose();
   }
 }

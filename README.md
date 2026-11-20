@@ -24,23 +24,21 @@ and the rail shows the LumiaKey icon and wordmark together at the top.
 
 ### Codex status on the phone
 
-In LumiaKey Desktop, open **Launcher → App Bar → Codex status dot**. Enter the
-numeric loopback WebSocket address of an existing
-[Codex App Server](https://learn.chatgpt.com/docs/app-server) and the ID or
-`codex://threads/<id>` link of a chat on that server. The ChatGPT entry on the
-paired phone shows the monitored chat's status: white for Idle, blue for
-Thinking, green for Complete, yellow for Need input, and pink for Error.
-Complete reflects the last successful turn until the chat starts another turn.
-Complete and errors from the latest turn require an App Server that supports
-`thread/turns/list`. Older servers can still report live status.
-Clear both settings to hide the dot.
+On Windows, the ChatGPT entry on the paired phone automatically follows the
+local chat selected in Codex Desktop. White means Idle, blue Thinking, green
+Complete, yellow Need input, and pink Error. The dot is hidden when state is
+unavailable. With multiple Codex windows, the last explicit chat selection wins.
 
-The chat must belong to the App Server you connect to. The default desktop
-connection does not provide a WebSocket address. LumiaKey queries the server
-for status without loading messages. It sends only the status to the paired
-phone and hides the dot when the signal is unavailable. If your local App
-Server uses a bearer token, supply it to LumiaKey Desktop through
-`LUMIAKEY_CODEX_ACTIVITY_TOKEN`. The token stays on the computer.
+LumiaKey listens to the local [Codex Desktop selection broadcast](https://github.com/dongyue-19/codex-statusbar/blob/main/docs/INVESTIGATION.md#4-active-conversation-detection--verified).
+When the broadcast omits activity, LumiaKey checks a bounded local session tail
+for the exact selected chat's turn lifecycle. It sends only the status to the
+paired phone.
+
+Use **Launcher → App Bar → Codex status dot** to switch off the dot or pin a
+specific chat on an existing [Codex App Server](https://learn.chatgpt.com/docs/app-server).
+For a pinned chat, enter the numeric loopback WebSocket address and the chat
+ID or `codex://threads/<id>` link. If the server requires a bearer token, supply
+it through `LUMIAKEY_CODEX_ACTIVITY_TOKEN` on the computer.
 
 Both Android editions require Android 9 (API 28) or later and can be installed
 together. LumiaKey Desktop runs on Windows, macOS, and Linux; Linux input

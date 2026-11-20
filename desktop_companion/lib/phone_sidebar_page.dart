@@ -264,6 +264,11 @@ class _CodexActivityDialog extends StatefulWidget {
 }
 
 class _CodexActivityDialogState extends State<_CodexActivityDialog> {
+  late _CodexActivityMode _mode = widget.activity.target != null
+      ? _CodexActivityMode.pinned
+      : widget.activity.followsDesktop
+      ? _CodexActivityMode.automatic
+      : _CodexActivityMode.off;
   late final TextEditingController _endpoint = TextEditingController(
     text: widget.activity.target?.endpoint.toString(),
   );
@@ -279,9 +284,9 @@ class _CodexActivityDialogState extends State<_CodexActivityDialog> {
     final chat = _chat.text.trim();
     final CodexActivityTarget? target;
     try {
-      target = endpoint.isEmpty && chat.isEmpty
-          ? null
-          : CodexActivityTarget(endpoint, chat);
+      target = _mode == _CodexActivityMode.pinned
+          ? CodexActivityTarget(endpoint, chat)
+          : null;
     } on FormatException {
       setState(() {
         _error = desktopText(
@@ -297,7 +302,10 @@ class _CodexActivityDialogState extends State<_CodexActivityDialog> {
       _error = null;
     });
     try {
-      await widget.activity.setTarget(target);
+      await widget.activity.setTarget(
+        target,
+        automatic: _mode == _CodexActivityMode.automatic,
+      );
       if (mounted) Navigator.pop(context);
     } catch (_) {
       if (!mounted) return;
@@ -320,30 +328,72 @@ class _CodexActivityDialogState extends State<_CodexActivityDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            desktopText(
-              context,
-              'Follow one chat from an existing App Server on this computer. '
-                  'Clear both fields to hide the dot.',
-              '通过本机已运行的 App Server 跟踪一个聊天。清空两项即可隐藏状态点。',
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _endpoint,
-            enabled: !_saving,
+          DropdownButtonFormField<_CodexActivityMode>(
+            initialValue: _mode,
             decoration: InputDecoration(
-              labelText: desktopText(context, 'App Server address', '服务器地址'),
-              hintText: 'ws://127.0.0.1:7337',
+              labelText: desktopText(context, 'Status source', '状态来源'),
             ),
+            items: [
+              if (widget.activity.supportsAutomatic)
+                DropdownMenuItem(
+                  value: _CodexActivityMode.automatic,
+                  child: Text(
+                    desktopText(
+                      context,
+                      'Follow Codex Desktop',
+                      '跟随 Codex 桌面版',
+                    ),
+                  ),
+                ),
+              DropdownMenuItem(
+                value: _CodexActivityMode.pinned,
+                child: Text(
+                  desktopText(context, 'Pin an App Server chat', '固定服务器聊天'),
+                ),
+              ),
+              DropdownMenuItem(
+                value: _CodexActivityMode.off,
+                child: Text(desktopText(context, 'Off', '关闭')),
+              ),
+            ],
+            onChanged: _saving
+                ? null
+                : (mode) {
+                    if (mode == null) return;
+                    setState(() {
+                      _mode = mode;
+                      _error = null;
+                    });
+                  },
           ),
-          TextField(
-            controller: _chat,
-            enabled: !_saving,
-            decoration: InputDecoration(
-              labelText: desktopText(context, 'Chat ID or link', '聊天 ID 或链接'),
+          if (_mode == _CodexActivityMode.automatic) ...[
+            const SizedBox(height: 12),
+            Text(
+              desktopText(
+                context,
+                'Follows the chat you select in Codex Desktop.',
+                '状态点跟随你在 Codex 桌面版中选中的聊天。',
+              ),
             ),
-          ),
+          ],
+          if (_mode == _CodexActivityMode.pinned) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _endpoint,
+              enabled: !_saving,
+              decoration: InputDecoration(
+                labelText: desktopText(context, 'App Server address', '服务器地址'),
+                hintText: 'ws://127.0.0.1:7337',
+              ),
+            ),
+            TextField(
+              controller: _chat,
+              enabled: !_saving,
+              decoration: InputDecoration(
+                labelText: desktopText(context, 'Chat ID or link', '聊天 ID 或链接'),
+              ),
+            ),
+          ],
           if (_error case final error?) ...[
             const SizedBox(height: 8),
             Text(
@@ -373,3 +423,5 @@ class _CodexActivityDialogState extends State<_CodexActivityDialog> {
     super.dispose();
   }
 }
+
+enum _CodexActivityMode { automatic, pinned, off }

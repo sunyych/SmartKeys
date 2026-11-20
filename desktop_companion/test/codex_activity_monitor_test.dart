@@ -38,6 +38,40 @@ Future<void> _until(
 void main() {
   const chat = 'test-chat-1';
 
+  test(
+    'automatic chat status follows fresh source and supports turning off',
+    () async {
+      final sources = <StreamController<CodexActivityStatus?>>[];
+      final monitor = CodexActivityMonitor(
+        automaticStatus: () {
+          final source = StreamController<CodexActivityStatus?>();
+          sources.add(source);
+          return source.stream;
+        },
+      );
+      addTearDown(() async {
+        monitor.dispose();
+        for (final source in sources) {
+          await source.close();
+        }
+      });
+      await monitor.start();
+      expect(monitor.followsDesktop, isTrue);
+      sources.single.add(CodexActivityStatus.thinking);
+      await _until(monitor, CodexActivityStatus.thinking);
+      await monitor.setTarget(null, automatic: false);
+      expect(monitor.followsDesktop, isFalse);
+      expect(monitor.status, isNull);
+      sources.single.add(CodexActivityStatus.complete);
+      await monitor.setTarget(null);
+      expect(monitor.followsDesktop, isTrue);
+      expect(sources, hasLength(2));
+      expect(monitor.status, isNull);
+      sources.last.add(CodexActivityStatus.needsInput);
+      await _until(monitor, CodexActivityStatus.needsInput);
+    },
+  );
+
   test('status configuration is limited to numeric loopback WebSockets', () {
     expect(
       CodexActivityTarget(
