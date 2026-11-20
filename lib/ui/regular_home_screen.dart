@@ -302,21 +302,25 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
         (!systemControl && !_applicationReady(controller))) {
       return;
     }
+    if (isChatGptLocalDictationShortcut(button)) {
+      await _dictation.currentState?.startQuickDictation();
+      return;
+    }
+    if (_voiceShortcutNeedsSetup(button)) {
+      await _showVoiceModeSetup();
+      return;
+    }
     if (isUnassignedChatGptShortcut(button)) {
-      if (_usesLocalVoiceFallback(controller, button)) {
-        await _dictation.currentState?.startQuickDictation();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              context.mobileText(
-                'Assign and enable this shortcut in Desktop → Shortcut Layout → ChatGPT.',
-                '请在桌面端的快捷键布局 → ChatGPT 中填写并启用此快捷键。',
-              ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.mobileText(
+              'Assign and enable this shortcut in Desktop → Shortcut Layout → ChatGPT.',
+              '请在桌面端的快捷键布局 → ChatGPT 中填写并启用此快捷键。',
             ),
           ),
-        );
-      }
+        ),
+      );
       return;
     }
     if (!button.enabled) return;
@@ -354,15 +358,24 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     }
   }
 
-  bool _usesLocalVoiceFallback(
-    AppController controller,
-    RemoteShortcutButton button,
-  ) {
-    final platform = controller.companion.activeHost.value?.platform;
-    return (platform == 'windows' || platform == 'linux') &&
-        button.id == chatGptNativeVoiceShortcutId &&
-        isUnassignedChatGptShortcut(button);
-  }
+  Future<void> _showVoiceModeSetup() => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(context.mobileText('Set up Voice Mode', '设置语音模式')),
+      content: Text(
+        context.mobileText(
+          'If available, set a Voice chat hotkey in ChatGPT → Settings → Voice. Bind and enable the same shortcut in LumiaKey Desktop → Shortcut Layout → ChatGPT. If Voice Mode is missing there, update LumiaKey Desktop.',
+          '如果 ChatGPT 支持语音聊天快捷键，请在“设置 → 语音”中设置，再在 LumiaKey 桌面版的“快捷键布局 → ChatGPT”中绑定并启用同一个快捷键。若找不到“语音模式”，请更新 LumiaKey 桌面版。',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(context.mobileText('Close', '关闭')),
+        ),
+      ],
+    ),
+  );
 
   Future<bool> _confirmPendingApproval(RemoteShortcutButton button) async =>
       await showDialog<bool>(
@@ -556,7 +569,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
             chatGptPageSize: _pageSize,
           );
     final launcher = _selection == _launchpad;
-    final count = launcher ? launcherSlotCount : layout?.buttons.length ?? 0;
+    final buttons = _buttonsForGrid(layout);
+    final count = launcher ? launcherSlotCount : buttons.length;
     final pageCount = math.max(1, (count / _pageSize).ceil());
     if (_page >= pageCount) _page = 0;
     final launchpadTitle = context.mobileText('Launchpad', '启动台');
@@ -856,14 +870,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                               page: _page,
                                               launcher: launcher,
                                               applications: launcherSlots,
-                                              buttons:
-                                                  layout?.buttons ?? const [],
-                                              usesLocalVoiceFallback:
-                                                  (button) =>
-                                                      _usesLocalVoiceFallback(
-                                                        controller,
-                                                        button,
-                                                      ),
+                                              buttons: buttons,
                                               enabled:
                                                   _pendingApplication == null &&
                                                   (launcher ||
@@ -1214,7 +1221,6 @@ class _TwelveKeyGrid extends StatelessWidget {
     required this.launcher,
     required this.applications,
     required this.buttons,
-    required this.usesLocalVoiceFallback,
     required this.enabled,
     required this.onApplication,
     required this.onButton,
@@ -1223,8 +1229,7 @@ class _TwelveKeyGrid extends StatelessWidget {
   final int page;
   final bool launcher;
   final List<RemoteApplication?> applications;
-  final List<RemoteShortcutButton> buttons;
-  final bool Function(RemoteShortcutButton) usesLocalVoiceFallback;
+  final List<RemoteShortcutButton?> buttons;
   final bool enabled;
   final ValueChanged<RemoteApplication> onApplication;
   final ValueChanged<RemoteShortcutButton> onButton;
@@ -1263,22 +1268,29 @@ class _TwelveKeyGrid extends StatelessWidget {
           final button = !launcher && position < buttons.length
               ? buttons[position]
               : null;
-          final localVoice = button != null && usesLocalVoiceFallback(button);
+          final dictation =
+              button != null && isChatGptLocalDictationShortcut(button);
           final unassigned =
-              button != null && isUnassignedChatGptShortcut(button);
+              button != null &&
+              (isUnassignedChatGptShortcut(button) ||
+                  _voiceShortcutNeedsSetup(button));
           final label =
               app?.name ??
               (launcher
                   ? context.mobileText('Slot ${index + 1}', '位置 ${index + 1}')
-                  : localVoice
-                  ? context.mobileText('Local Dictation', '本地听写')
+                  : dictation
+                  ? context.mobileText('Dictation', '听写')
                   : button == null
                   ? ''
+                  : button.id == chatGptNativeVoiceShortcutId &&
+                        button.name == 'Voice Mode'
+                  ? context.mobileText('Voice Mode', '语音模式')
                   : _shortcutLabel(button));
           final available =
               enabled &&
               (app?.detected == true ||
-                  !launcher && (button?.enabled == true || localVoice));
+                  !launcher &&
+                      (dictation || button?.enabled == true && !unassigned));
           return Material(
             key: ValueKey('regular-cell-$index'),
             color: app == null && button == null ? vacantColor : assignedColor,
@@ -1305,7 +1317,7 @@ class _TwelveKeyGrid extends StatelessWidget {
                               'Configure this slot in LumiaKey Desktop',
                               '在 LumiaKey Desktop 中配置此位置',
                             )
-                          : localVoice
+                          : dictation
                           ? context.mobileText(
                               'Start LumiaKey local dictation',
                               '开始 LumiaKey 本地听写',
@@ -1393,6 +1405,26 @@ class _TwelveKeyGrid extends StatelessWidget {
   );
 }
 
+List<RemoteShortcutButton?> _buttonsForGrid(RemoteShortcutLayout? layout) {
+  final buttons = layout?.buttons ?? const <RemoteShortcutButton>[];
+  if (layout?.id != 'chatgpt') return buttons;
+  final byId = {for (final button in buttons) button.id: button};
+  // Older synced boards may omit new actions. Leave their cells empty so the
+  // two voice controls and the start of the secondary page keep their slots.
+  return [
+    for (final id in chatGptRegularPrimaryShortcutIds) byId[id],
+    ...buttons.where(
+      (button) => !chatGptRegularPrimaryShortcutIds.contains(button.id),
+    ),
+  ];
+}
+
+bool _voiceShortcutNeedsSetup(RemoteShortcutButton button) =>
+    button.id == chatGptNativeVoiceShortcutId &&
+    (!button.enabled ||
+        button.targetType != RemoteTargetType.keyboardShortcut ||
+        button.shortcut.isEmpty);
+
 String _shortcutLabel(RemoteShortcutButton button) {
   if (button.id.endsWith('.alternateSend') &&
       button.name == 'Alternate Send (app-defined)') {
@@ -1409,6 +1441,8 @@ String _shortcutLabel(RemoteShortcutButton button) {
 }
 
 IconData _shortcutIcon(String id) => switch (id) {
+  'graphic_eq' => Icons.graphic_eq,
+  'mic_external_on' => Icons.mic_external_on,
   'bolt' => Icons.bolt,
   'call_split' => Icons.call_split,
   'close' => Icons.close,

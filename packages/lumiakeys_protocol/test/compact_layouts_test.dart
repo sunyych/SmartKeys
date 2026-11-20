@@ -89,24 +89,45 @@ void main() {
       }
     },
   );
-  test('each platform has Micro controls, clipboard and Codex on page one', () {
-    final layout = DesktopManifest.regularStarter().layoutById('chatgpt')!;
-    for (final platform in RemoteShortcutPlatform.values) {
-      final projected = projectChatGptLayout(
+  test(
+    'each Regular platform separates ChatGPT Voice from mobile Dictation',
+    () {
+      final layout = DesktopManifest.regularStarter().layoutById('chatgpt')!;
+      for (final platform in RemoteShortcutPlatform.values) {
+        final projected = projectChatGptLayout(
+          layout,
+          platform,
+          firstPageSize: regularShortcutCount,
+        );
+        expect(
+          projected.buttons.take(12).map((button) => button.id),
+          chatGptRegularPrimaryShortcutIds,
+        );
+        final voice = projected.buttons[8];
+        expect(voice.id, chatGptNativeVoiceShortcutId);
+        expect(voice.name, 'Voice Mode');
+        expect(voice.enabled, platform == RemoteShortcutPlatform.apple);
+        expect(
+          voice.shortcut,
+          platform == RemoteShortcutPlatform.apple
+              ? ['CTRL', 'SHIFT', 'V']
+              : [],
+        );
+        expect(isChatGptLocalDictationShortcut(projected.buttons[11]), isTrue);
+        expect(projected.buttons[11].name, 'Dictation');
+        expect(projected.buttons[12].id, 'chatgpt.codex.review');
+        expect(projected.buttons[13].id, 'chatgpt.codexMode');
+        expect(projected.buttons[5].shortcut, ['ENTER']);
+        expect(projected.buttons[6].shortcut, ['ESC']);
+        expect(isUnassignedChatGptShortcut(projected.buttons[4]), isTrue);
+        expect(isUnassignedChatGptShortcut(projected.buttons[7]), isTrue);
+      }
+      final legacyIds = orderChatGptLayout(
         layout,
-        platform,
-        firstPageSize: regularShortcutCount,
-      );
-      expect(
-        projected.buttons.take(12).map((button) => button.id),
-        chatGptPrimaryShortcutIds.take(12),
-      );
-      expect(projected.buttons[11].id, 'chatgpt.codexMode');
-      expect(projected.buttons[12].id, 'chatgpt.codex.review');
-      expect(projected.buttons[5].shortcut, ['ENTER']);
-      expect(projected.buttons[6].shortcut, ['ESC']);
-      expect(isUnassignedChatGptShortcut(projected.buttons[4]), isTrue);
-      expect(isUnassignedChatGptShortcut(projected.buttons[7]), isTrue);
-    }
-  });
+      ).buttons.map((button) => button.id).toList();
+      expect(legacyIds.take(15), chatGptPrimaryShortcutIds);
+      expect(legacyIds[15], 'chatgpt.codex.review');
+      expect(legacyIds, isNot(contains(chatGptLocalDictationShortcutId)));
+    },
+  );
 }

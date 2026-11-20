@@ -55,6 +55,35 @@ enum RemoteShortcutPlatform { apple, windows, other }
 
 const int chatGptShortcutsPerPage = 15;
 const chatGptNativeVoiceShortcutId = 'chatgpt.startVoice';
+const chatGptLocalDictationShortcutId = 'chatgpt.localDictation';
+const _chatGptLocalDictationTarget = 'lumiakeyLocalDictation';
+const _chatGptVoiceKeys = ['CTRL', 'SHIFT', 'V'];
+const _explicitChatGptVoiceBinding = 'explicitChatGptVoiceBinding';
+const _chatGptVoiceMode = RemoteShortcutButton(
+  id: chatGptNativeVoiceShortcutId,
+  name: 'Voice Mode',
+  icon: 'graphic_eq',
+  targetType: RemoteTargetType.keyboardShortcut,
+  shortcut: _chatGptVoiceKeys,
+  description: 'Start voice chat in ChatGPT.',
+);
+const _chatGptVoiceSetup = RemoteShortcutButton(
+  id: chatGptNativeVoiceShortcutId,
+  name: 'Voice Mode',
+  icon: 'graphic_eq',
+  targetType: RemoteTargetType.keyboardShortcut,
+  enabled: false,
+  description: 'Set the Voice chat hotkey in ChatGPT, then bind it here.',
+);
+const _chatGptLocalDictation = RemoteShortcutButton(
+  id: chatGptLocalDictationShortcutId,
+  name: 'Dictation',
+  icon: 'mic_external_on',
+  targetType: RemoteTargetType.system,
+  target: _chatGptLocalDictationTarget,
+  enabled: false,
+  description: 'Uses the LumiaKey local dictation controls on the phone.',
+);
 const chatGptFastModeShortcutId = 'chatgpt.codex.fastMode';
 const chatGptBranchOffShortcutId = 'chatgpt.codex.branchOff';
 const chatGptApproveShortcutId = 'chatgpt.codex.approve';
@@ -68,6 +97,14 @@ String confirmedChatGptApprovalShortcutId(String id) => '$id.confirmed';
 
 bool isLegacyCodexLayoutId(String id) => id == 'codex' || id == 'vibe.codex';
 
+/// The disabled wire action is a marker for Full mobile, never a Desktop command.
+bool isChatGptLocalDictationShortcut(RemoteShortcutButton button) =>
+    button.id == chatGptLocalDictationShortcutId &&
+    button.targetType == RemoteTargetType.system &&
+    button.target == _chatGptLocalDictationTarget &&
+    !button.enabled &&
+    button.shortcut.isEmpty;
+
 bool isUnassignedChatGptShortcut(RemoteShortcutButton button) =>
     const {
       chatGptNativeVoiceShortcutId,
@@ -80,7 +117,7 @@ bool isUnassignedChatGptShortcut(RemoteShortcutButton button) =>
 
 /// Fixed page-one controls, ordered by expected everyday use. IDs remain the
 /// source of truth so custom names and shortcut bindings do not affect order.
-const List<String> chatGptPrimaryShortcutIds = <String>[
+const List<String> _chatGptCommonPrimaryShortcutIds = <String>[
   'chatgpt.newChat',
   'chatgpt.codex.send',
   'chatgpt.codex.copy',
@@ -92,10 +129,19 @@ const List<String> chatGptPrimaryShortcutIds = <String>[
   chatGptNativeVoiceShortcutId,
   'chatgpt.codex.focusInput',
   'chatgpt.sidebar',
+];
+
+const List<String> chatGptPrimaryShortcutIds = <String>[
+  ..._chatGptCommonPrimaryShortcutIds,
   'chatgpt.codexMode',
   'chatgpt.codex.alternateSend',
   'chatgpt.codex.backspace',
   'chatgpt.find',
+];
+
+const List<String> chatGptRegularPrimaryShortcutIds = <String>[
+  ..._chatGptCommonPrimaryShortcutIds,
+  chatGptLocalDictationShortcutId,
 ];
 
 const List<String> chatGptSecondaryShortcutIds = <String>[
@@ -134,22 +180,35 @@ RemoteShortcutLayout orderChatGptLayout(
 }) {
   if (layout.id != 'chatgpt') return layout;
 
-  final rank = {
-    for (final (index, id)
-        in chatGptPrimaryShortcutIds.take(firstPageSize).indexed)
-      id: index,
-  };
+  final regular = firstPageSize == regularShortcutCount;
+  final primaryIds = regular
+      ? chatGptRegularPrimaryShortcutIds
+      : chatGptPrimaryShortcutIds.take(firstPageSize);
+  final existing = layout.buttons.where(
+    (button) => button.id != chatGptLocalDictationShortcutId,
+  );
+  final buttons = regular
+      ? [
+          ...existing,
+          if (!existing.any(
+            (button) => button.id == chatGptNativeVoiceShortcutId,
+          ))
+            _chatGptVoiceSetup,
+          _chatGptLocalDictation,
+        ]
+      : existing;
+  final rank = {for (final (index, id) in primaryIds.indexed) id: index};
   final primary =
-      layout.buttons
+      buttons
           .where((button) => rank.containsKey(button.id))
           .toList(growable: false)
         ..sort((left, right) => rank[left.id]!.compareTo(rank[right.id]!));
-  final secondary = layout.buttons
+  final secondary = buttons
       .where((button) => !rank.containsKey(button.id))
       .toList(growable: true);
   final secondaryIds = [
     chatGptSecondaryShortcutIds.first,
-    ...chatGptPrimaryShortcutIds.skip(firstPageSize),
+    ...chatGptPrimaryShortcutIds.where((id) => !rank.containsKey(id)),
     ...chatGptSecondaryShortcutIds.skip(1),
   ];
   final secondaryRank = {
@@ -191,6 +250,10 @@ RemoteShortcutLayout projectChatGptLayout(
   const searchChatsId = 'chatgpt.codex.searchChats';
   final buttons = <RemoteShortcutButton>[];
   for (final button in layout.buttons) {
+    if (button.id == chatGptNativeVoiceShortcutId) {
+      buttons.add(projectChatGptNativeVoice(button, platform));
+      continue;
+    }
     if (platform == RemoteShortcutPlatform.other &&
         button.targetType == RemoteTargetType.system) {
       continue;
@@ -203,12 +266,6 @@ RemoteShortcutLayout projectChatGptLayout(
     }
     if (button.id == 'chatgpt.codex.voice' &&
         button.targetType == RemoteTargetType.voiceInput) {
-      continue;
-    }
-    if (button.id == chatGptNativeVoiceShortcutId &&
-        platform != RemoteShortcutPlatform.apple &&
-        _sameShortcut(button.shortcut, const ['CTRL', 'SHIFT', 'V'])) {
-      buttons.add(button.copyWith(shortcut: const [], enabled: false));
       continue;
     }
     // Search Chats is not currently assigned by ChatGPT. Keep a custom user
@@ -248,6 +305,63 @@ RemoteShortcutLayout projectChatGptLayout(
     layout.copyWith(buttons: buttons),
     firstPageSize: firstPageSize,
   );
+}
+
+/// Records a deliberate binding for a chord used by the old portable default.
+/// Keyboard shortcuts ignore [RemoteShortcutButton.target] during execution.
+RemoteShortcutButton saveExplicitChatGptVoiceBinding(
+  RemoteShortcutButton button,
+  RemoteShortcutPlatform platform,
+) {
+  if (button.id != chatGptNativeVoiceShortcutId ||
+      button.targetType != RemoteTargetType.keyboardShortcut ||
+      platform == RemoteShortcutPlatform.apple) {
+    return button;
+  }
+  final keys = resolvePrimaryShortcut(button.shortcut, platform);
+  if (_sameShortcut(keys, _chatGptVoiceKeys)) {
+    return button.copyWith(target: _explicitChatGptVoiceBinding);
+  }
+  return button.target == _explicitChatGptVoiceBinding
+      ? button.copyWith(clearTarget: true)
+      : button;
+}
+
+/// Older bundled layouts stored the macOS binding as a portable value.
+/// Retain explicit user bindings except chords that cannot be safely sent.
+RemoteShortcutButton projectChatGptNativeVoice(
+  RemoteShortcutButton button,
+  RemoteShortcutPlatform platform,
+) {
+  if (button.targetType != RemoteTargetType.keyboardShortcut) {
+    return _chatGptVoiceSetup;
+  }
+  final keys = resolvePrimaryShortcut(button.shortcut, platform);
+  final explicitlyBound = button.target == _explicitChatGptVoiceBinding;
+  final oldDefault =
+      !explicitlyBound &&
+      button.name == 'Start Voice Chat' &&
+      (button.icon == 'mic' || button.icon.isEmpty) &&
+      button.description == 'CTRL + SHIFT + V' &&
+      (_sameShortcut(button.shortcut, _chatGptVoiceKeys) ||
+          (button.shortcut.isEmpty && !button.enabled));
+  final projected = oldDefault
+      ? button.shortcut.isEmpty
+            ? _chatGptVoiceSetup
+            : _chatGptVoiceMode.copyWith(enabled: button.enabled)
+      : button;
+  if ((platform != RemoteShortcutPlatform.apple &&
+          !explicitlyBound &&
+          _sameShortcut(keys, _chatGptVoiceKeys)) ||
+      (platform == RemoteShortcutPlatform.windows &&
+          keys.any(const {'COMMAND', 'META', 'WIN'}.contains))) {
+    return projected.copyWith(
+      shortcut: const [],
+      enabled: false,
+      description: _chatGptVoiceSetup.description,
+    );
+  }
+  return projected.copyWith(shortcut: keys);
 }
 
 bool _isUnassignedSearchDefault(List<String> keys) => [
@@ -1492,11 +1606,8 @@ class DesktopManifest {
     final chatgpt = appLayout('chatgpt', 'ChatGPT', [
       shortcut('chatgpt.chatView', 'Chat View', 'chat', ['ALT', '1']),
       shortcut('chatgpt.codexMode', 'Codex Mode', 'code', ['ALT', '3']),
-      shortcut(chatGptNativeVoiceShortcutId, 'Start Voice Chat', 'mic', [
-        'CTRL',
-        'SHIFT',
-        'V',
-      ]),
+      _chatGptVoiceMode,
+      _chatGptLocalDictation,
       shortcut(chatGptApproveShortcutId, 'Approve', 'check', [
         'ENTER',
       ]).copyWith(description: 'Approve the open request in ChatGPT.'),

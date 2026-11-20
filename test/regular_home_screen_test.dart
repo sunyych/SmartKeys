@@ -6,6 +6,7 @@ import 'package:lumiakeys_protocol/codex_activity.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_keys/services/companion_service.dart';
+import 'package:smart_keys/ui/dictation_entry_consent.dart';
 import 'package:smart_keys/ui/local_dictation_panel.dart';
 import 'package:smart_keys/app.dart';
 import 'package:smart_keys/ui/regular_home_screen.dart';
@@ -16,13 +17,14 @@ import 'test_support.dart';
 Future<TestHarness> mountRegular(
   WidgetTester tester, {
   RecordingCompanionService? companion,
+  DesktopManifest? manifest,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(844, 390);
   final harness = await TestHarness.create(
     companionService: companion ?? ActivatingRegularCompanion(),
   );
-  connectRegularHarness(harness);
+  connectRegularHarness(harness, manifest: manifest);
   await tester.pumpWidget(regularTestApp(harness));
   await tester.pumpAndSettle();
   addTearDown(() async {
@@ -91,12 +93,34 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('regular-nav-codex')), findsNothing);
+    final dictation = find.byKey(
+      const ValueKey('regular-button-$chatGptLocalDictationShortcutId'),
+    );
+    final voice = find.byKey(
+      const ValueKey('regular-button-$chatGptNativeVoiceShortcutId'),
+    );
     final mode = find.byKey(const ValueKey('regular-button-chatgpt.codexMode'));
+    expect(mode, findsNothing);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('regular-cell-11')),
-        matching: mode,
+        matching: dictation,
       ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('regular-cell-8')),
+        matching: voice,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: dictation, matching: find.text('Dictation')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: voice, matching: find.text('Voice Mode')),
       findsOneWidget,
     );
     for (final id in [
@@ -111,15 +135,6 @@ void main() {
     ]) {
       expect(find.byKey(ValueKey('regular-button-$id')), findsOneWidget);
     }
-    expect(
-      find.descendant(
-        of: find.byKey(
-          ValueKey('regular-button-$chatGptNativeVoiceShortcutId'),
-        ),
-        matching: find.text('Local Dictation'),
-      ),
-      findsOneWidget,
-    );
     await tester.tap(find.byKey(const ValueKey('regular-next-page')));
     await tester.pumpAndSettle();
     expect(
@@ -131,6 +146,7 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(mode, findsOneWidget);
   });
 
   testWidgets('unassigned Micro keys explain how to bind without sending', (
@@ -150,21 +166,161 @@ void main() {
     expect(harness.companion.remoteActions.single.applicationId, 'chatgpt');
   });
 
+  testWidgets('Windows Voice without a binding opens native setup only', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final harness = await mountRegular(tester);
+    await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('regular-button-$chatGptNativeVoiceShortcutId'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Set up Voice Mode'), findsOneWidget);
+    expect(find.textContaining('ChatGPT → Settings → Voice'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('dictation-entry-explanation')),
+      findsNothing,
+    );
+    expect(harness.companion.remoteActions.single.applicationId, 'chatgpt');
+  });
+
+  testWidgets('configured Windows Voice sends only the native action', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      dictationConsentPreferenceKey: true,
+    });
+    final base = DesktopManifest.regularStarter();
+    final harness = await mountRegular(
+      tester,
+      manifest: base.copyWith(
+        layouts: [
+          for (final layout in base.layouts)
+            if (layout.id != 'chatgpt')
+              layout
+            else
+              layout.copyWith(
+                buttons: [
+                  for (final button in layout.buttons)
+                    if (button.id == chatGptNativeVoiceShortcutId)
+                      saveExplicitChatGptVoiceBinding(
+                        button.copyWith(shortcut: const ['CTRL', 'SHIFT', 'V']),
+                        RemoteShortcutPlatform.windows,
+                      )
+                    else
+                      button,
+                ],
+              ),
+        ],
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('regular-button-$chatGptNativeVoiceShortcutId'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(harness.companion.remoteActions.map((action) => action.buttonId), [
+      null,
+      chatGptNativeVoiceShortcutId,
+    ]);
+    expect(find.text('Set up Voice Mode'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('dictation-entry-explanation')),
+      findsNothing,
+    );
+  });
+
   testWidgets(
-    'Windows Voice opens LumiaKey dictation consent without a chord',
+    'legacy synced ChatGPT adds Dictation in cell 12 and keeps Voice separate',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
-      final harness = await mountRegular(tester);
+      final base = DesktopManifest.regularStarter();
+      const legacyNativeVoice = RemoteShortcutButton(
+        id: chatGptNativeVoiceShortcutId,
+        name: 'Start Voice Chat',
+        icon: '',
+        targetType: RemoteTargetType.keyboardShortcut,
+        description: 'CTRL + SHIFT + V',
+        enabled: false,
+      );
+      final harness = await mountRegular(
+        tester,
+        manifest: base.copyWith(
+          layouts: [
+            for (final layout in base.layouts)
+              if (layout.id != 'chatgpt')
+                layout
+              else
+                layout.copyWith(
+                  buttons: [
+                    for (final button in layout.buttons)
+                      if (button.id == chatGptNativeVoiceShortcutId)
+                        legacyNativeVoice
+                      else if (!{
+                        chatGptLocalDictationShortcutId,
+                        chatGptFastModeShortcutId,
+                        chatGptBranchOffShortcutId,
+                      }.contains(button.id))
+                        button,
+                  ],
+                ),
+          ],
+        ),
+      );
+      harness.companion.host.value = CompanionHost(
+        name: regularTestHost.name,
+        computerId: regularTestHost.computerId,
+        platform: regularTestHost.platform,
+        address: regularTestHost.address,
+        port: regularTestHost.port,
+        token: regularTestHost.token,
+        protocolVersion: regularTestHost.protocolVersion,
+        capabilities: {
+          ...regularTestHost.capabilities,
+          'chatgpt-platform-layout-v1',
+        },
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(ValueKey('regular-button-$chatGptNativeVoiceShortcutId')),
+      final dictation = find.descendant(
+        of: find.byKey(const ValueKey('regular-cell-11')),
+        matching: find.byKey(
+          const ValueKey('regular-button-$chatGptLocalDictationShortcutId'),
+        ),
       );
+      expect(dictation, findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('regular-cell-8')),
+          matching: find.text('Voice Mode'),
+        ),
+        findsOneWidget,
+      );
+      for (final cell in [4, 7]) {
+        final control = tester.widget<InkWell>(
+          find.descendant(
+            of: find.byKey(ValueKey('regular-cell-$cell')),
+            matching: find.byType(InkWell),
+          ),
+        );
+        expect(control.key, isNull);
+        expect(control.onTap, isNull);
+      }
+      await tester.tap(dictation);
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('dictation-entry-explanation')),
         findsOneWidget,
       );
+      expect(find.text('Set up Voice Mode'), findsNothing);
       await tester.tap(
         find.byKey(const ValueKey('dictation-explanation-cancel')),
       );

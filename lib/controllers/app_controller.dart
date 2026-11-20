@@ -1116,14 +1116,25 @@ class AppController extends ChangeNotifier {
   }) {
     if (layout == null || layout.id != 'chatgpt') return layout;
     final host = companion.activeHost.value;
-    if (host?.capabilities.contains('chatgpt-platform-layout-v1') == true) {
-      return orderChatGptLayout(layout, firstPageSize: chatGptPageSize);
-    }
     final platform = switch (host?.platform) {
       'macos' => RemoteShortcutPlatform.apple,
       'windows' => RemoteShortcutPlatform.windows,
       _ => RemoteShortcutPlatform.other,
     };
+    if (host?.capabilities.contains('chatgpt-platform-layout-v1') == true) {
+      final synced = chatGptPageSize == regularShortcutCount
+          ? layout.copyWith(
+              buttons: [
+                for (final button in layout.buttons)
+                  if (button.id == chatGptNativeVoiceShortcutId)
+                    projectChatGptNativeVoice(button, platform)
+                  else
+                    button,
+              ],
+            )
+          : layout;
+      return orderChatGptLayout(synced, firstPageSize: chatGptPageSize);
+    }
     return projectChatGptLayout(
       layout,
       platform,

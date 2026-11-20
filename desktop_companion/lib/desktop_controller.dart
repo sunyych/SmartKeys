@@ -649,7 +649,13 @@ class DesktopController extends ChangeNotifier {
 
   DesktopManifest get manifest {
     final layouts = _manifest.layouts
-        .map((layout) => projectChatGptLayout(layout, _shortcutPlatform))
+        .map(
+          (layout) => projectChatGptLayout(
+            layout,
+            _shortcutPlatform,
+            firstPageSize: regularShortcutCount,
+          ),
+        )
         .toList(growable: false);
     return _manifest.copyWith(layouts: layouts);
   }
@@ -852,9 +858,15 @@ class DesktopController extends ChangeNotifier {
                   final preservesPortableBinding =
                       layoutId == 'chatgpt' &&
                       _sameKeys(projected.shortcut, updated.shortcut);
-                  return preservesPortableBinding
+                  final saved = preservesPortableBinding
                       ? updated.copyWith(shortcut: button.shortcut)
                       : updated;
+                  return layoutId == 'chatgpt' && updated.shortcut.isNotEmpty
+                      ? saveExplicitChatGptVoiceBinding(
+                          saved,
+                          _shortcutPlatform,
+                        )
+                      : saved;
                 })
                 .toList(growable: false);
             return layout.copyWith(buttons: buttons);
@@ -1713,6 +1725,7 @@ class DesktopController extends ChangeNotifier {
     // surface plus the first shortcut on the next page.
     for (final id in [
       ...chatGptPrimaryShortcutIds,
+      chatGptLocalDictationShortcutId,
       chatGptSecondaryShortcutIds.first,
     ]) {
       merged.putIfAbsent(id, () => defaultById[id]!);

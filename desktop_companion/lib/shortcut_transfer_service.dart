@@ -69,6 +69,9 @@ class DesktopShortcutTransferService {
     for (final layout in layouts) {
       for (final button in layout.buttons) {
         if (button.targetType != RemoteTargetType.system) continue;
+        if (layout.id == 'chatgpt' && isChatGptLocalDictationShortcut(button)) {
+          continue;
+        }
         final actionId = button.target ?? '';
         final isGeneralMedia =
             layout.id == 'keyboard' &&

@@ -812,9 +812,11 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
       context,
       button: button,
       applications: widget.controller.applicationsForCurrentPlatform,
-      keyboardOnly: widget.controller.manifest.profiles.any(
-        (p) => p.isLibraryProfile && p.layoutId == layout.id,
-      ),
+      keyboardOnly:
+          button.id == chatGptNativeVoiceShortcutId ||
+          widget.controller.manifest.profiles.any(
+            (p) => p.isLibraryProfile && p.layoutId == layout.id,
+          ),
     );
     if (updated != null) {
       try {
@@ -2373,10 +2375,14 @@ String _buttonSummary(BuildContext context, RemoteShortcutButton button) =>
         'Script · Future',
         '脚本 · 未来功能',
       ),
-      RemoteTargetType.system => button.name,
+      RemoteTargetType.system => isChatGptLocalDictationShortcut(button)
+          ? desktopText(context, 'Phone control', '手机操作')
+          : button.name,
     };
 
 IconData desktopIcon(String id) => switch (id) {
+  'graphic_eq' => Icons.graphic_eq,
+  'mic_external_on' => Icons.mic_external_on,
   'bolt' => Icons.bolt,
   'call_split' => Icons.call_split,
   'copy' => Icons.copy,

@@ -208,6 +208,7 @@ void main() {
       await controller.initialize();
       final manifest = controller.manifestForExport;
       manifest.validate();
+      expect(manifest.revision, old.revision + 1);
       final merged = manifest.layoutById('chatgpt')!;
       expect(merged.buttons.map((button) => button.id), containsAll(oldIds));
       expect(merged.buttons.map((button) => button.id), contains('my.unique'));
@@ -220,6 +221,11 @@ void main() {
       expect(manifest.layoutById('vibe.codex'), isNull);
       expect(manifest.currentProfile!.layoutId, 'chatgpt');
       expect(manifest.currentProfile!.name, 'My old Codex setup');
+      final projected = controller.manifest.layoutById('chatgpt')!.buttons;
+      expect(projected[8].id, chatGptNativeVoiceShortcutId);
+      expect(isChatGptLocalDictationShortcut(projected[11]), isTrue);
+      expect(projected[12].id, 'chatgpt.codex.review');
+      expect(projected[13].id, 'chatgpt.codexMode');
       final saved = manifest.toJson();
       final reloaded = DesktopController(store: store, discovery: _Discovery());
       addTearDown(reloaded.dispose);

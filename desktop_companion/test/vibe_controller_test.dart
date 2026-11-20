@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:lumiakeys_companion/desktop_actions.dart';
 import 'package:lumiakeys_companion/desktop_controller.dart';
+import 'package:lumiakeys_companion/shortcut_transfer_service.dart';
 
 class _NoopDiscovery implements ApplicationDiscovery {
   @override
@@ -195,6 +196,10 @@ void main() {
       );
       await expectLater(press(chatGptFastModeShortcutId), throwsStateError);
       await expectLater(press(chatGptBranchOffShortcutId), throwsStateError);
+      await expectLater(
+        press(chatGptLocalDictationShortcutId),
+        throwsStateError,
+      );
       expect(actions.executed, isEmpty);
 
       final fast = controller.manifest.buttonById(chatGptFastModeShortcutId)!;
@@ -213,6 +218,47 @@ void main() {
         'chatgpt.codex.send:chatgpt',
       ]);
     },
+  );
+
+  test(
+    'a deliberate Windows Voice binding survives transfer and sends keys',
+    () async {
+      final actions = _RecordingActions();
+      final store = MemoryDesktopConfigStore();
+      final controller = DesktopController(
+        store: store,
+        discovery: _NoopDiscovery(),
+        actions: actions,
+        foregroundProbe: (app) async => app.id == 'chatgpt',
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      const id = chatGptNativeVoiceShortcutId;
+      const keys = ['CTRL', 'SHIFT', 'V'];
+      final unbound = controller.manifest.buttonById(id)!;
+      expect(unbound.enabled, isFalse);
+      await expectLater(
+        controller.executeRemote(const RemoteActionRequest.button(id)),
+        throwsStateError,
+      );
+      await controller.updateButton('chatgpt', unbound);
+      expect(controller.manifest.buttonById(id)!.enabled, isFalse);
+
+      await controller.updateButton(
+        'chatgpt',
+        unbound.copyWith(shortcut: keys, enabled: true),
+      );
+      const transfer = DesktopShortcutTransferService();
+      final exported = transfer.encode(store.value!);
+      await controller.importShortcutLayouts(transfer.decode(exported));
+      final button = controller.manifest.buttonById(id)!;
+      expect(button.targetType, RemoteTargetType.keyboardShortcut);
+      expect(button.shortcut, keys);
+      expect(button.enabled, isTrue);
+      await controller.executeRemote(const RemoteActionRequest.button(id));
+      expect(actions.executed, ['$id:chatgpt']);
+    },
+    skip: !Platform.isWindows,
   );
 
   test(
