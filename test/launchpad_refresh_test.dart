@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image;
+import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
 import 'package:smart_keys/icons/app_icon_catalog.dart';
 import 'package:smart_keys/services/companion_service.dart';
 
@@ -13,6 +14,9 @@ Uint8List _png(int red) => Uint8List.fromList(
     image.Image(width: 2, height: 2)..setPixelRgb(0, 0, red, 20, 30),
   ),
 );
+
+const _nativeAppId = 'installed.0123456789abcdef0123456789abcdef';
+const _nativeIconId = 'custom-browser';
 
 class _NativeIcons extends RecordingCompanionService
     implements CompanionIconConnection {
@@ -31,13 +35,28 @@ Future<TestHarness> _mount(WidgetTester tester, _NativeIcons service) async {
   late TestHarness harness;
   await tester.runAsync(() async {
     harness = await TestHarness.create(companionService: service);
+    final starter = DesktopManifest.starter();
+    const app = RemoteApplication(
+      id: _nativeAppId,
+      name: 'Custom browser',
+      icon: _nativeIconId,
+      executable: 'Desktop-managed',
+      layoutId: installedLaunchOnlyLayoutId,
+      detected: true,
+      launchOnly: true,
+    );
     connectRegularHarness(
       harness,
-      installed: const {'chrome'},
-      launcherSlots: ['chrome', ...List<String?>.filled(11, null)],
+      manifest: starter.copyWith(
+        layouts: [...starter.layouts, installedLaunchOnlyLayout],
+        applications: [...starter.applications, app],
+        launcherApplicationIds: [app.id, ...List<String?>.filled(11, null)],
+      ),
+      installed: const {_nativeAppId},
+      launcherSlots: [_nativeAppId, ...List<String?>.filled(11, null)],
     );
     service.host.value = _host('first');
-    await harness.controller.loadDesktopApplicationIcon('chrome');
+    await harness.controller.loadDesktopApplicationIcon(_nativeAppId);
   });
   await tester.pumpWidget(regularTestApp(harness));
   await tester.pumpAndSettle();
@@ -61,7 +80,7 @@ CompanionHost _host(String computer) => CompanionHost(
 );
 
 Finder _artwork() => find.descendant(
-  of: find.byKey(const ValueKey('regular-launch-chrome')),
+  of: find.byKey(const ValueKey('regular-launch-$_nativeAppId')),
   matching: find.byType(AppArtwork),
 );
 Finder _future() => find
@@ -108,7 +127,7 @@ void main() {
         find.byKey(const ValueKey('regular-touchpad')),
       );
       expect(firstImage, service.png);
-      expect(service.requests, ['chrome']);
+      expect(service.requests, [_nativeAppId]);
       final original = service.syncedManifest.value!;
       for (var iteration = 0; iteration < 3; iteration++) {
         service.status.value = CompanionSyncStatus.syncing;
@@ -145,7 +164,7 @@ void main() {
           same(firstImage),
         );
       }
-      expect(service.requests, ['chrome']);
+      expect(service.requests, [_nativeAppId]);
       expect(harness.companion.remoteActions, isEmpty);
     },
   );
@@ -161,8 +180,11 @@ void main() {
       service.syncedManifest.value = manifest.copyWith(
         applications: [
           for (final app in manifest.applications)
-            app.id == 'chrome'
-                ? app.copyWith(icon: 'edge', executable: 'fixture-new-identity')
+            app.id == _nativeAppId
+                ? app.copyWith(
+                    icon: 'custom-browser-v2',
+                    executable: 'fixture-new-identity',
+                  )
                 : app,
         ],
       );
@@ -170,7 +192,7 @@ void main() {
       expect(tester.state(_future()), isNot(same(previousState)));
       await _waitForNativeImage(tester, service.png);
       expect(tester.widget<AppArtwork>(_artwork()).pngBytes, service.png);
-      expect(service.requests, ['chrome', 'chrome']);
+      expect(service.requests, [_nativeAppId, _nativeAppId]);
     },
   );
 
@@ -180,7 +202,7 @@ void main() {
       final service = _NativeIcons();
       final harness = await _mount(tester, service);
       final previousRect = tester.getRect(
-        find.byKey(const ValueKey('regular-launch-chrome')),
+        find.byKey(const ValueKey('regular-launch-$_nativeAppId')),
       );
       final manifest = service.syncedManifest.value!;
       service.syncedManifest.value = manifest.copyWith(
@@ -188,17 +210,17 @@ void main() {
           null,
           null,
           null,
-          'chrome',
+          _nativeAppId,
           ...List<String?>.filled(8, null),
         ],
       );
       await tester.pumpAndSettle();
       final nextRect = tester.getRect(
-        find.byKey(const ValueKey('regular-launch-chrome')),
+        find.byKey(const ValueKey('regular-launch-$_nativeAppId')),
       );
       expect(nextRect.left, greaterThan(previousRect.left));
       expect(tester.widget<AppArtwork>(_artwork()).pngBytes, service.png);
-      expect(service.requests, ['chrome']);
+      expect(service.requests, [_nativeAppId]);
       expect(harness.companion.remoteActions, isEmpty);
     },
   );
@@ -232,7 +254,7 @@ void main() {
       expect(tester.widget<AppArtwork>(_artwork()).pngBytes, isNot(firstPng));
       expect(tester.widget<AppArtwork>(_artwork()).pngBytes, isNull);
       await _waitForNativeImage(tester, service.png);
-      expect(service.requests, ['chrome', 'chrome']);
+      expect(service.requests, [_nativeAppId, _nativeAppId]);
       expect(harness.companion.remoteActions, isEmpty);
     },
   );
@@ -250,7 +272,7 @@ void main() {
       expect(tester.widget<AppArtwork>(_artwork()).pngBytes, isNull);
       await tester.pump(const Duration(seconds: 2));
       expect(tester.widget<AppArtwork>(_artwork()).pngBytes, isNull);
-      expect(service.requests, ['chrome']);
+      expect(service.requests, [_nativeAppId]);
     },
   );
 }
