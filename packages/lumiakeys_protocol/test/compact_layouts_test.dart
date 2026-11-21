@@ -132,10 +132,15 @@ void main() {
         final voice = projected.buttons[8];
         expect(voice.id, chatGptNativeVoiceShortcutId);
         expect(voice.name, 'Voice Mode');
-        expect(voice.enabled, platform == RemoteShortcutPlatform.apple);
+        expect(
+          voice.enabled,
+          platform == RemoteShortcutPlatform.apple ||
+              platform == RemoteShortcutPlatform.windows,
+        );
         expect(
           voice.shortcut,
-          platform == RemoteShortcutPlatform.apple
+          platform == RemoteShortcutPlatform.apple ||
+                  platform == RemoteShortcutPlatform.windows
               ? ['CTRL', 'SHIFT', 'V']
               : [],
         );

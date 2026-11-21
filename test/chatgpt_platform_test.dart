@@ -116,7 +116,7 @@ void main() {
         expect(voice, findsOneWidget);
         expect(
           find.descendant(of: voice, matching: find.text('Ctrl + Shift + V')),
-          apple ? findsOneWidget : findsNothing,
+          apple || platform == 'windows' ? findsOneWidget : findsNothing,
         );
         await tester.tap(find.byTooltip('Next bank'));
         await tester.pumpAndSettle();

@@ -1230,14 +1230,17 @@ class AppController extends ChangeNotifier {
     RemoteShortcutPlatform platform,
   ) {
     final projected = projectChatGptNativeVoice(button, platform);
-    if (platform != RemoteShortcutPlatform.apple) return projected;
+    if (platform != RemoteShortcutPlatform.apple &&
+        platform != RemoteShortcutPlatform.windows) {
+      return projected;
+    }
     if (!projected.enabled || projected.shortcut.isEmpty) return projected;
     final saved = desktopManifest?.buttonById(chatGptNativeVoiceShortcutId);
     if (saved == null ||
         saved.targetType != RemoteTargetType.keyboardShortcut ||
         saved.shortcut.isEmpty ||
         !saved.enabled) {
-      return chatGptVoiceDesktopUpdateButton();
+      return chatGptVoiceDesktopUpdateButton(shortcut: projected.shortcut);
     }
     return projected;
   }

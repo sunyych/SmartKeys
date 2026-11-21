@@ -204,11 +204,31 @@ void main() {
     expect(harness.companion.remoteActions.single.applicationId, 'chatgpt');
   });
 
-  testWidgets('Windows Voice without a binding opens native setup only', (
+  testWidgets('disabled Windows Voice shows the setup guide without sending', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
-    final harness = await mountRegular(tester);
+    final base = DesktopManifest.regularStarter();
+    final harness = await mountRegular(
+      tester,
+      manifest: base.copyWith(
+        layouts: [
+          for (final layout in base.layouts)
+            if (layout.id != 'chatgpt')
+              layout
+            else
+              layout.copyWith(
+                buttons: [
+                  for (final button in layout.buttons)
+                    if (button.id == chatGptNativeVoiceShortcutId)
+                      button.copyWith(enabled: false)
+                    else
+                      button,
+                ],
+              ),
+        ],
+      ),
+    );
     await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -217,8 +237,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Set up Voice Mode'), findsOneWidget);
+    expect(find.text('Update Desktop for Voice Mode'), findsOneWidget);
     expect(find.textContaining('ChatGPT → Settings → Voice'), findsOneWidget);
+    expect(find.textContaining('Ctrl + Shift + V'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('dictation-entry-explanation')),
       findsNothing,
@@ -264,6 +285,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('Before using Voice Mode'), findsOneWidget);
+    expect(harness.companion.remoteActions.map((action) => action.buttonId), [
+      null,
+    ]);
+    await tester.tap(find.text('Continue and send'));
+    await tester.pumpAndSettle();
     expect(harness.companion.remoteActions.map((action) => action.buttonId), [
       null,
       chatGptNativeVoiceShortcutId,
@@ -273,6 +300,29 @@ void main() {
       find.byKey(const ValueKey('dictation-entry-explanation')),
       findsNothing,
     );
+    await tester.longPress(
+      find.byKey(
+        const ValueKey('regular-button-$chatGptNativeVoiceShortcutId'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Set up Voice Mode'), findsOneWidget);
+    expect(find.textContaining('Settings → Voice'), findsOneWidget);
+    expect(harness.companion.remoteActions, hasLength(2));
+    await tester.tap(
+      find.descendant(of: find.byType(AlertDialog), matching: find.text('Close')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('regular-button-$chatGptNativeVoiceShortcutId')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Before using Voice Mode'), findsNothing);
+    expect(
+      harness.companion.remoteActions.last.buttonId,
+      chatGptNativeVoiceShortcutId,
+    );
+    expect(harness.companion.remoteActions, hasLength(3));
   });
 
   testWidgets(

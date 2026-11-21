@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:lumiakeys_protocol/codex_activity.dart';
 import 'package:lumiakeys_protocol/lumiakeys_protocol.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app.dart';
 import '../icons/source_profile_icon.dart';
@@ -342,8 +343,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     final approval = chatGptApprovalShortcutIds.contains(button.id);
     if (approval && !await _confirmPendingApproval(button)) return;
     if (!mounted) return;
-    if ((button.targetType == RemoteTargetType.voiceInput ||
-            button.id == chatGptNativeVoiceShortcutId) &&
+    if (button.targetType == RemoteTargetType.voiceInput &&
         !await ensureDictationEntryExplained(context)) {
       return;
     }
@@ -361,6 +361,20 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
         !rawActionEnabled) {
       return;
     }
+    if (button.id == chatGptNativeVoiceShortcutId) {
+      final host = controller.companion.activeHost.value;
+      if (host == null || !await _confirmChatGptVoiceFirstUse(button, host)) {
+        return;
+      }
+      if (!mounted ||
+          !_ready(controller) ||
+          generation != _generation ||
+          session != _session(controller) ||
+          (!systemControl && !_applicationReady(controller)) ||
+          controller.desktopManifest?.buttonById(button.id)?.enabled != true) {
+        return;
+      }
+    }
     try {
       await controller.executeRemoteButton(button, confirmedApproval: approval);
     } catch (error) {
@@ -377,10 +391,66 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     }
   }
 
-  Future<void> _showVoiceModeSetup(RemoteShortcutButton button) =>
-      showDialog<void>(
+  Future<bool> _confirmChatGptVoiceFirstUse(
+    RemoteShortcutButton button,
+    CompanionHost host,
+  ) async {
+    final identity =
+        host.computerId ?? '${host.platform}:${host.address}:${host.port}';
+    final key =
+        'chatgptVoiceShortcutConfirmed:${Uri.encodeComponent(identity)}';
+    final shortcut = _voiceShortcutLabel(button);
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.getBool(key) == true) return true;
+    if (!mounted) return false;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text(context.mobileText('Before using Voice Mode', '首次使用语音模式')),
+        content: Text(
+          context.mobileText(
+            'This sends $shortcut to the foreground ChatGPT app. Check that ChatGPT is open and that this shortcut is assigned to Voice chat in Settings → Voice (or Settings → Keyboard Shortcuts → Start voice chat). Long-press this phone button to reopen the guide. Continue only if that is the shortcut you configured.',
+            '这会向前台的 ChatGPT 应用发送 $shortcut。请确认 ChatGPT 已打开，并在“设置 → 语音”（或“设置 → 键盘快捷键 → 开始语音聊天”）中将此快捷键分配给语音聊天。长按手机上的此按钮可再次查看说明。确认快捷键设置正确后再继续。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.mobileText('Cancel', '取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.mobileText('Continue and send', '确认并发送')),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) return false;
+    await preferences.setBool(key, true);
+    return true;
+  }
+
+  String _voiceShortcutLabel(RemoteShortcutButton button) =>
+      button.shortcut.isEmpty
+      ? 'Ctrl + Shift + V'
+      : button.shortcut
+            .map(
+              (key) => switch (key.toUpperCase()) {
+                'CTRL' || 'LEFT_CTRL' || 'RIGHT_CTRL' => 'Ctrl',
+                'SHIFT' || 'LEFT_SHIFT' || 'RIGHT_SHIFT' => 'Shift',
+                'COMMAND' || 'META' => 'Command',
+                _ => key,
+              },
+            )
+            .join(' + ');
+
+  Future<void> _showVoiceModeSetup(
+    RemoteShortcutButton button,
+  ) => showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
+      scrollable: true,
       title: Text(
         context.mobileText(
           button.description.startsWith('Update LumiaKey Desktop')
@@ -394,11 +464,11 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       content: Text(
         context.mobileText(
           button.description.startsWith('Update LumiaKey Desktop')
-              ? 'Update LumiaKey Desktop to enable Voice Mode for this Mac profile.'
-              : 'If available, set a Voice chat hotkey in ChatGPT → Settings → Voice. Bind and enable the same shortcut in LumiaKey Desktop → Shortcut Layout → ChatGPT. If Voice Mode is missing there, update LumiaKey Desktop.',
+              ? 'Update LumiaKey Desktop to enable Voice Mode for this computer profile. The current shortcut is ${_voiceShortcutLabel(button)}; set it in ChatGPT → Settings → Voice (or Settings → Keyboard Shortcuts → Start voice chat, if shown), then long-press this button to review the guide.'
+              : 'The current LumiaKey shortcut is ${_voiceShortcutLabel(button)}. Set the Voice chat hotkey in ChatGPT → Settings → Voice (or Settings → Keyboard Shortcuts → Start voice chat, if shown). Then bind and enable the same shortcut in LumiaKey Desktop → Shortcut Layout → ChatGPT. Long-press this phone button to reopen this guide.',
           button.description.startsWith('Update LumiaKey Desktop')
-              ? '请更新 LumiaKey Desktop，以便在此 Mac 配置中启用语音模式。'
-              : '如果 ChatGPT 支持语音聊天快捷键，请在“设置 → 语音”中设置，再在 LumiaKey 桌面版的“快捷键布局 → ChatGPT”中绑定并启用同一个快捷键。若找不到“语音模式”，请更新 LumiaKey 桌面版。',
+              ? '请更新 LumiaKey Desktop，以便在此电脑配置中启用语音模式。当前快捷键为 ${_voiceShortcutLabel(button)}；请在 ChatGPT“设置 → 语音”（如果有显示，也可在“设置 → 键盘快捷键 → 开始语音聊天”）中设置，然后长按此按钮再次查看说明。'
+              : 'LumiaKey 当前快捷键为 ${_voiceShortcutLabel(button)}。请在 ChatGPT“设置 → 语音”中设置语音聊天快捷键（如果有显示，也可在“设置 → 键盘快捷键 → 开始语音聊天”中设置），然后在 LumiaKey 桌面版“快捷键布局 → ChatGPT”中绑定并启用同一个快捷键。长按手机上的此按钮可再次查看说明。',
         ),
       ),
       actions: [
@@ -930,6 +1000,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                                                   _execute(controller, button);
                                                 }
                                               },
+                                              onVoiceGuide: (button) =>
+                                                  _showVoiceModeSetup(button),
                                             ),
                                     ),
                                   ],
@@ -1240,6 +1312,7 @@ class _TwelveKeyGrid extends StatelessWidget {
     required this.enabled,
     required this.onApplication,
     required this.onButton,
+    required this.onVoiceGuide,
     required this.onConfigure,
   });
   final int page;
@@ -1249,6 +1322,7 @@ class _TwelveKeyGrid extends StatelessWidget {
   final bool enabled;
   final ValueChanged<RemoteApplication> onApplication;
   final ValueChanged<RemoteShortcutButton> onButton;
+  final ValueChanged<RemoteShortcutButton> onVoiceGuide;
   final VoidCallback onConfigure;
 
   @override
@@ -1296,8 +1370,7 @@ class _TwelveKeyGrid extends StatelessWidget {
               app?.name ??
               (launcher
                   ? context.mobileText('Slot ${index + 1}', '位置 ${index + 1}')
-                  : button != null &&
-                        isChatGptSystemDictationShortcut(button)
+                  : button != null && isChatGptSystemDictationShortcut(button)
                   ? 'Dictate'
                   : dictation
                   ? context.mobileText('Dictation', '听写')
@@ -1334,9 +1407,15 @@ class _TwelveKeyGrid extends StatelessWidget {
                   : launcher && (app == null || !app.detected)
                   ? onConfigure
                   : null,
+              onLongPress: button?.id == chatGptNativeVoiceShortcutId
+                  ? () => onVoiceGuide(button!)
+                  : null,
               child: label.isEmpty
                   ? const SizedBox.expand()
                   : Tooltip(
+                      triggerMode: button?.id == chatGptNativeVoiceShortcutId
+                          ? TooltipTriggerMode.manual
+                          : null,
                       message: launcher && (app == null || !app.detected)
                           ? context.mobileText(
                               'Configure this slot in LumiaKey Desktop',
@@ -1464,7 +1543,8 @@ List<RemoteShortcutButton?> _buttonsForGrid(RemoteShortcutLayout? layout) {
 
 bool _voiceShortcutNeedsSetup(RemoteShortcutButton button) =>
     button.id == chatGptNativeVoiceShortcutId &&
-    (!button.enabled ||
+    (button.description.startsWith('Update LumiaKey Desktop') ||
+        !button.enabled ||
         button.targetType != RemoteTargetType.keyboardShortcut ||
         button.shortcut.isEmpty);
 

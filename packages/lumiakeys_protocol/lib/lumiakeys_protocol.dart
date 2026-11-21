@@ -67,6 +67,7 @@ const _chatGptVoiceMode = RemoteShortcutButton(
   name: 'Voice Mode',
   icon: 'graphic_eq',
   targetType: RemoteTargetType.keyboardShortcut,
+  enabled: true,
   shortcut: _chatGptVoiceKeys,
   description: 'Start voice chat in ChatGPT.',
 );
@@ -449,20 +450,22 @@ RemoteShortcutButton projectChatGptNativeVoice(
       !button.enabled &&
       button.description == _chatGptVoiceSetup.description;
   final projected = oldDefault
-      ? button.shortcut.isEmpty && platform != RemoteShortcutPlatform.apple
+      ? button.shortcut.isEmpty && platform == RemoteShortcutPlatform.other
             ? _chatGptVoiceSetup
             : _chatGptVoiceMode.copyWith(
                 enabled:
                     platform == RemoteShortcutPlatform.apple ||
+                    platform == RemoteShortcutPlatform.windows ||
                     button.enabled,
               )
-      : platform == RemoteShortcutPlatform.apple &&
+      : (platform == RemoteShortcutPlatform.apple ||
+                platform == RemoteShortcutPlatform.windows) &&
             !explicitlyBound &&
             (canonicalDefault || missingDefault)
       ? _chatGptVoiceMode.copyWith(enabled: true)
       : button;
   final projectedKeys = resolvePrimaryShortcut(projected.shortcut, platform);
-  if ((platform != RemoteShortcutPlatform.apple &&
+  if ((platform == RemoteShortcutPlatform.other &&
           !explicitlyBound &&
           _sameShortcut(keys, _chatGptVoiceKeys)) ||
       (platform == RemoteShortcutPlatform.windows &&
@@ -476,10 +479,12 @@ RemoteShortcutButton projectChatGptNativeVoice(
   return projected.copyWith(shortcut: projectedKeys);
 }
 
-RemoteShortcutButton chatGptVoiceDesktopUpdateButton() =>
-    _chatGptVoiceSetup.copyWith(
-      description: 'Update LumiaKey Desktop to enable Voice Mode from your phone.',
-    );
+RemoteShortcutButton chatGptVoiceDesktopUpdateButton({
+  List<String> shortcut = const [],
+}) => _chatGptVoiceSetup.copyWith(
+  shortcut: shortcut,
+  description: 'Update LumiaKey Desktop to enable Voice Mode from your phone.',
+);
 
 bool _isUnassignedSearchDefault(List<String> keys) => [
   const ['PRIMARY', 'G'],

@@ -234,7 +234,7 @@ void main() {
   );
 
   test(
-    'a deliberate Windows Voice binding survives transfer and sends keys',
+    'stock Windows Voice works and explicit disable or custom binding survives transfer',
     () async {
       final actions = _RecordingActions();
       final store = MemoryDesktopConfigStore();
@@ -247,29 +247,36 @@ void main() {
       addTearDown(controller.dispose);
       await controller.initialize();
       const id = chatGptNativeVoiceShortcutId;
-      const keys = ['CTRL', 'SHIFT', 'V'];
-      final unbound = controller.manifest.buttonById(id)!;
-      expect(unbound.enabled, isFalse);
+      const stockKeys = ['CTRL', 'SHIFT', 'V'];
+      final stock = controller.manifest.buttonById(id)!;
+      expect(stock.shortcut, stockKeys);
+      expect(stock.enabled, isTrue);
+      await controller.executeRemote(const RemoteActionRequest.button(id));
+      expect(actions.executed, ['$id:chatgpt']);
+
+      await controller.updateButton('chatgpt', stock.copyWith(enabled: false));
+      const transfer = DesktopShortcutTransferService();
+      final disabledExport = transfer.encode(store.value!);
+      await controller.importShortcutLayouts(transfer.decode(disabledExport));
+      expect(controller.manifest.buttonById(id)!.enabled, isFalse);
       await expectLater(
         controller.executeRemote(const RemoteActionRequest.button(id)),
         throwsStateError,
       );
-      await controller.updateButton('chatgpt', unbound);
-      expect(controller.manifest.buttonById(id)!.enabled, isFalse);
 
+      const customKeys = ['CTRL', 'ALT', 'G'];
       await controller.updateButton(
         'chatgpt',
-        unbound.copyWith(shortcut: keys, enabled: true),
+        stock.copyWith(shortcut: customKeys, enabled: true),
       );
-      const transfer = DesktopShortcutTransferService();
       final exported = transfer.encode(store.value!);
       await controller.importShortcutLayouts(transfer.decode(exported));
       final button = controller.manifest.buttonById(id)!;
       expect(button.targetType, RemoteTargetType.keyboardShortcut);
-      expect(button.shortcut, keys);
+      expect(button.shortcut, customKeys);
       expect(button.enabled, isTrue);
       await controller.executeRemote(const RemoteActionRequest.button(id));
-      expect(actions.executed, ['$id:chatgpt']);
+      expect(actions.executed, ['$id:chatgpt', '$id:chatgpt']);
     },
     skip: !Platform.isWindows,
   );

@@ -43,8 +43,8 @@ void main() {
       final windowsVoice = windows.buttons.singleWhere(
         (button) => button.id == chatGptNativeVoiceShortcutId,
       );
-      expect(windowsVoice.shortcut, isEmpty);
-      expect(windowsVoice.enabled, isFalse);
+      expect(windowsVoice.shortcut, ['CTRL', 'SHIFT', 'V']);
+      expect(windowsVoice.enabled, isTrue);
       expect(
         apple.buttons.any((button) => button.id == 'chatgpt.codex.voice'),
         isFalse,
@@ -181,7 +181,7 @@ void main() {
     );
   });
 
-  test('Mac projection restores only stock Voice Mode bindings', () {
+  test('platform projection restores stock Voice Mode bindings only', () {
     const legacyStock = RemoteShortcutButton(
       id: chatGptNativeVoiceShortcutId,
       name: 'Start Voice Chat',
@@ -197,6 +197,13 @@ void main() {
     expect(restored.shortcut, ['CTRL', 'SHIFT', 'V']);
     expect(restored.enabled, isTrue);
 
+    final windowsRestored = projectChatGptNativeVoice(
+      legacyStock,
+      RemoteShortcutPlatform.windows,
+    );
+    expect(windowsRestored.shortcut, ['CTRL', 'SHIFT', 'V']);
+    expect(windowsRestored.enabled, isTrue);
+
     final deliberate = projectChatGptNativeVoice(
       saveExplicitChatGptVoiceBinding(
         legacyStock,
@@ -206,6 +213,32 @@ void main() {
     );
     expect(deliberate.shortcut, isEmpty);
     expect(deliberate.enabled, isFalse);
+
+    final deliberateWindows = projectChatGptNativeVoice(
+      saveExplicitChatGptVoiceBinding(
+        legacyStock.copyWith(
+          shortcut: const ['CTRL', 'ALT', 'G'],
+          enabled: true,
+        ),
+        RemoteShortcutPlatform.windows,
+      ),
+      RemoteShortcutPlatform.windows,
+    );
+    expect(deliberateWindows.shortcut, ['CTRL', 'ALT', 'G']);
+    expect(deliberateWindows.enabled, isTrue);
+
+    final deliberatelyDisabledWindows = projectChatGptNativeVoice(
+      saveExplicitChatGptVoiceBinding(
+        legacyStock.copyWith(
+          shortcut: const ['CTRL', 'SHIFT', 'V'],
+          enabled: false,
+        ),
+        RemoteShortcutPlatform.windows,
+      ),
+      RemoteShortcutPlatform.windows,
+    );
+    expect(deliberatelyDisabledWindows.shortcut, ['CTRL', 'SHIFT', 'V']);
+    expect(deliberatelyDisabledWindows.enabled, isFalse);
   });
 
   test('Mac Dictate reuses the phone Dictation cell with capability gating', () {
