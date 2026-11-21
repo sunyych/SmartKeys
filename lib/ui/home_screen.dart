@@ -438,7 +438,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 'On iPhone and iPad, LumiaKey needs its paired Desktop app to choose apps and send shortcuts.',
               ),
               const SizedBox(height: 16),
-              DesktopConnectionPanel(companion: controller.companion),
+              DesktopConnectionPanel(
+                companion: controller.companion,
+                onDisconnect: controller.disconnectActiveDesktop,
+              ),
             ],
           )
         : null;

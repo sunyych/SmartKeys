@@ -160,8 +160,8 @@ class IconCatalogClient {
   }
 }
 
-/// Displays a native or downloaded PNG first, then the offline bundled icon,
-/// and finally an accessible generic app mark.
+/// Displays a stable bundled icon for known catalog apps. Native or downloaded
+/// artwork remains available for custom IDs, followed by an accessible mark.
 class AppArtwork extends StatelessWidget {
   const AppArtwork({
     super.key,
@@ -180,6 +180,12 @@ class AppArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Known app IDs use the same shipped artwork in every surface and for
+    // every paired Desktop OS. Native extraction remains useful for custom
+    // IDs that do not have a catalog asset.
+    if (AppIconCatalog.assets.containsKey(appId)) {
+      return _bundled(context);
+    }
     Uint8List? bytes = pngBytes;
     if (bytes == null && pngBase64 != null && pngBase64!.length <= 87384) {
       try {

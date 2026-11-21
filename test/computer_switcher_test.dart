@@ -139,6 +139,136 @@ void main() {
     },
   );
 
+  testWidgets(
+    'active computer disconnect is confirmed and stays target bound',
+    (tester) async {
+      final companion = _SwitchableCompanion()
+        ..choices.value = const [
+          CompanionComputerChoice(
+            id: 'desktop-a',
+            name: 'Alpha workstation',
+            platform: 'windows',
+          ),
+          CompanionComputerChoice(
+            id: 'desktop-b',
+            name: 'Beta workstation',
+            platform: 'macos',
+          ),
+        ];
+      final harness = await TestHarness.create(companionService: companion);
+      companion.connectInitial('desktop-a');
+
+      await tester.pumpWidget(_widget(harness));
+      await tester.tap(find.byKey(const ValueKey('computer-kvm-switch')));
+      await tester.pumpAndSettle();
+      final activeRow = tester.widget<Card>(
+        find.byKey(const ValueKey('computer-choice-desktop:desktop-a')),
+      );
+      expect(
+        activeRow.color,
+        Theme.of(
+          tester.element(find.text('Switch computer')),
+        ).colorScheme.primaryContainer,
+      );
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(
+        find.byKey(const ValueKey('disconnect-desktop:desktop-a')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('disconnect-desktop:desktop-a')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('cancel-computer-disconnect')),
+      );
+      await tester.pumpAndSettle();
+      expect(companion.selectedId, 'desktop-a');
+      expect(companion.host.value, isNotNull);
+
+      await tester.tap(
+        find.byKey(const ValueKey('disconnect-desktop:desktop-a')),
+      );
+      await tester.pumpAndSettle();
+      companion.connectInitial('desktop-b');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('confirm-computer-disconnect')),
+      );
+      await tester.pumpAndSettle();
+      expect(companion.selectedId, 'desktop-b');
+      expect(companion.host.value?.name, 'Beta workstation');
+
+      await tester.tap(
+        find.byKey(const ValueKey('disconnect-desktop:desktop-b')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('confirm-computer-disconnect')),
+      );
+      await tester.pumpAndSettle();
+      expect(companion.host.value, isNull);
+      expect(companion.choices.value, hasLength(2));
+      await tester.tap(find.byKey(const ValueKey('computer-kvm-switch')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alpha workstation'));
+      await tester.pumpAndSettle();
+      expect(companion.host.value?.name, 'Alpha workstation');
+
+      await tester.pumpWidget(const SizedBox());
+      await harness.dispose();
+    },
+  );
+
+  testWidgets('manage opens focused connection settings and manual pairing', (
+    tester,
+  ) async {
+    final companion = _SwitchableCompanion()
+      ..choices.value = const [
+        CompanionComputerChoice(
+          id: 'desktop-a',
+          name: 'Alpha workstation',
+          platform: 'windows',
+        ),
+      ];
+    final harness = await TestHarness.create(companionService: companion);
+    companion.connectInitial('desktop-a');
+
+    await tester.pumpWidget(_widget(harness));
+    await tester.tap(find.byKey(const ValueKey('computer-kvm-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pair or manage LumiaKey Desktop'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('LumiaKey Desktop'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Connected to Alpha workstation (127.0.0.1)'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('add-desktop-computer')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('add-desktop-computer')));
+    await tester.pumpAndSettle();
+    expect(find.text('Or enter the connection code manually.'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('scan-desktop-pairing-code')),
+      findsOneWidget,
+    );
+    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).obscureText,
+      isTrue,
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await harness.dispose();
+  });
+
   test(
     'explicit Desktop selection routes keyboard only and blocks Bluetooth pointer input',
     () async {
@@ -186,13 +316,14 @@ Widget _widget(TestHarness harness) => MaterialApp(
 );
 
 class _SwitchableCompanion extends RecordingCompanionService
-    implements SwitchableCompanionConnection {
+    implements SwitchableCompanionConnection, ManualCompanionConnection {
   final ValueNotifier<List<CompanionComputerChoice>> choices = ValueNotifier(
     const [],
   );
   final List<String> selections = [];
   String? selectedId;
   bool selectionPinned = false;
+  final List<String> manualCodes = [];
 
   @override
   ValueListenable<List<CompanionComputerChoice>> get computerChoices => choices;
@@ -216,6 +347,12 @@ class _SwitchableCompanion extends RecordingCompanionService
     status.value = CompanionSyncStatus.disconnected;
     syncedManifest.value = null;
   }
+
+  @override
+  Future<void> connectManually(String code) async => manualCodes.add(code);
+
+  @override
+  Future<void> disconnect() => suspendComputerSelection();
 
   void connectInitial(String id) {
     selectedId = id;

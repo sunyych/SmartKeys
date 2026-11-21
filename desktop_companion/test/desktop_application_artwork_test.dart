@@ -122,21 +122,18 @@ void main() {
   );
 
   testWidgets(
-    'changing app immediately replaces old native icon with new fallback',
+    'catalog app artwork stays stable without reading platform-native icons',
     (tester) async {
       final icons = _Icons();
-      final bytes = Uint8List.fromList(
-        img.encodePng(img.Image(width: 2, height: 2)),
-      );
       Widget view(RemoteApplication app) => MaterialApp(
         home: DesktopApplicationArtwork(app: app, size: 48, iconService: icons),
       );
       await tester.pumpWidget(view(_chrome));
-      icons.pending['chrome']!.complete(bytes);
       await tester.pumpAndSettle();
       expect(
-        tester.widget<Image>(find.byType(Image)).image,
-        isA<MemoryImage>(),
+        (tester.widget<Image>(find.byType(Image)).image as AssetImage)
+            .assetName,
+        'assets/app_icons/chrome.png',
       );
 
       await tester.pumpWidget(view(_firefox));
@@ -146,34 +143,74 @@ void main() {
         (fallback.image as AssetImage).assetName,
         'assets/app_icons/firefox.png',
       );
-      expect(icons.calls, ['chrome', 'firefox']);
+      expect(icons.calls, isEmpty);
       await tester.pumpWidget(view(_firefox));
-      expect(icons.calls, ['chrome', 'firefox']);
-      icons.pending['firefox']!.complete(null);
-      await tester.pumpAndSettle();
+      expect(icons.calls, isEmpty);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('custom app keeps native icon extraction fallback', (
+    tester,
+  ) async {
+    final icons = _Icons();
+    const custom = RemoteApplication(
+      id: 'custom-browser',
+      name: 'Custom Browser',
+      icon: 'custom-browser',
+      executable: 'browser.exe',
+      layoutId: 'app.custom-browser',
+      detected: true,
+    );
+    final bytes = Uint8List.fromList(
+      img.encodePng(img.Image(width: 2, height: 2)),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DesktopApplicationArtwork(
+          app: custom,
+          size: 48,
+          iconService: icons,
+        ),
+      ),
+    );
+    expect(icons.calls, ['custom-browser']);
+    icons.pending['custom-browser']!.complete(bytes);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Image>(find.byType(Image)).image, isA<MemoryImage>());
+  });
 
   testWidgets(
     'late old-app completion cannot replace current offline artwork',
     (tester) async {
       final icons = _Icons();
+      const first = RemoteApplication(
+        id: 'custom-one',
+        name: 'Custom One',
+        icon: 'custom-one',
+        executable: 'one.exe',
+        layoutId: 'app.custom-one',
+        detected: true,
+      );
+      const second = RemoteApplication(
+        id: 'custom-two',
+        name: 'Custom Two',
+        icon: 'custom-two',
+        executable: 'two.exe',
+        layoutId: 'app.custom-two',
+        detected: true,
+      );
       Widget view(RemoteApplication app) => MaterialApp(
         home: DesktopApplicationArtwork(app: app, size: 48, iconService: icons),
       );
-      await tester.pumpWidget(view(_chrome));
-      await tester.pumpWidget(view(_firefox));
-      icons.pending['chrome']!.complete(
+      await tester.pumpWidget(view(first));
+      await tester.pumpWidget(view(second));
+      icons.pending['custom-one']!.complete(
         Uint8List.fromList(img.encodePng(img.Image(width: 2, height: 2))),
       );
       await tester.pump();
-      final image = tester.widget<Image>(find.byType(Image));
-      expect(
-        (image.image as AssetImage).assetName,
-        'assets/app_icons/firefox.png',
-      );
-      icons.pending['firefox']!.complete(null);
+      expect(find.byIcon(Icons.apps), findsOneWidget);
+      icons.pending['custom-two']!.complete(null);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },

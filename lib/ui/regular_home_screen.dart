@@ -438,7 +438,10 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                 '在电脑上打开 LumiaKey Desktop 的启动台。为 12 个位置分配应用后，移动端会自动显示。',
               ),
               const SizedBox(height: 16),
-              DesktopConnectionPanel(companion: controller.companion),
+              DesktopConnectionPanel(
+                companion: controller.companion,
+                onDisconnect: controller.disconnectActiveDesktop,
+              ),
             ],
           ),
         ),
@@ -1044,7 +1047,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
                         ? context.mobileText('Desktop connected', '电脑已连接')
                         : context.mobileText('Connect Desktop', '连接电脑'),
                     visualDensity: VisualDensity.compact,
-                    onPressed: () => _showConnection(controller),
+                    onPressed: () =>
+                        ComputerSwitcher.showPicker(context, controller),
                     color: ready ? theme.colorScheme.primary : null,
                     icon: Icon(
                       ready
@@ -1473,7 +1477,13 @@ class _ApplicationIconState extends State<_ApplicationIcon> {
   @override
   Widget build(BuildContext context) {
     final controller = SmartKeysScope.of(context);
-    final key = controller.desktopApplicationIconRequestKey(widget.app.id);
+    final artworkAppId = widget.app.launchOnly && widget.app.icon.isNotEmpty
+        ? widget.app.icon
+        : widget.app.id;
+    final hasBundledArtwork = AppIconCatalog.assets.containsKey(artworkAppId);
+    final key = hasBundledArtwork
+        ? null
+        : controller.desktopApplicationIconRequestKey(widget.app.id);
     if (_requestKey != key) {
       _requestKey = key;
       _icon = key == null

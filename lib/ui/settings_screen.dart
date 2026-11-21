@@ -96,7 +96,10 @@ class SettingsScreen extends StatelessWidget {
         ],
         if (!isLite) ...[
           const _SectionLabel('DESKTOP COMPANION', '桌面连接'),
-          DesktopConnectionPanel(companion: controller.companion),
+          DesktopConnectionPanel(
+            companion: controller.companion,
+            onDisconnect: controller.disconnectActiveDesktop,
+          ),
           const Divider(),
           const ListTile(
             leading: Icon(Icons.desktop_windows_outlined),

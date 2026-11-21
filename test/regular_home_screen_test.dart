@@ -46,6 +46,24 @@ class DeferredRegularCompanion extends RecordingCompanionService {
 }
 
 void main() {
+  testWidgets('both Full header controls open the shared computer switcher', (
+    tester,
+  ) async {
+    await mountRegular(tester);
+
+    await tester.tap(find.byKey(const ValueKey('regular-desktop-connection')));
+    await tester.pumpAndSettle();
+    expect(find.text('Switch computer'), findsOneWidget);
+    expect(find.text('No paired computers yet'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('computer-kvm-switch')));
+    await tester.pumpAndSettle();
+    expect(find.text('Switch computer'), findsOneWidget);
+    expect(find.text('No paired computers yet'), findsOneWidget);
+  });
+
   testWidgets('only the ChatGPT App Bar item shows real Codex activity', (
     tester,
   ) async {

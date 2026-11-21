@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/app_controller.dart';
 import '../mobile_appearance.dart';
+import '../services/companion_service.dart';
 import 'desktop_connection_panel.dart';
 
 /// KVM target control. Every tap opens a list of Desktop Companion targets.
@@ -59,7 +60,9 @@ class ComputerSwitcher extends StatelessWidget {
                 'Switch computer · $currentName',
                 '切换电脑 · $currentName',
               ),
-              onPressed: pending != null ? null : () => _showPicker(context),
+              onPressed: pending != null
+                  ? null
+                  : () => showPicker(context, controller),
               icon: pending != null
                   ? const SizedBox.square(
                       dimension: 18,
@@ -79,7 +82,9 @@ class ComputerSwitcher extends StatelessWidget {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               visualDensity: VisualDensity.compact,
             ),
-            onPressed: pending != null ? null : () => _showPicker(context),
+            onPressed: pending != null
+                ? null
+                : () => showPicker(context, controller),
             icon: pending != null
                 ? const SizedBox.square(
                     dimension: 15,
@@ -103,7 +108,9 @@ class ComputerSwitcher extends StatelessWidget {
             children: [
               Expanded(
                 child: GestureDetector(
-                  onTap: pending != null ? null : () => _showPicker(context),
+                  onTap: pending != null
+                      ? null
+                      : () => showPicker(context, controller),
                   child: Row(
                     children: [
                       Icon(
@@ -146,7 +153,7 @@ class ComputerSwitcher extends StatelessWidget {
                   '选择或管理电脑',
                 ),
                 icon: const Icon(Icons.devices_other, size: 19),
-                onPressed: () => _showPicker(context),
+                onPressed: () => showPicker(context, controller),
               ),
             ],
           ),
@@ -155,7 +162,10 @@ class ComputerSwitcher extends StatelessWidget {
     },
   );
 
-  Future<void> _showPicker(BuildContext context) async {
+  static Future<void> showPicker(
+    BuildContext context,
+    AppController controller,
+  ) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -188,30 +198,51 @@ class ComputerSwitcher extends StatelessWidget {
                       ),
                     ),
                   for (final choice in choices)
-                    ListTile(
-                      leading: Icon(Icons.desktop_windows),
-                      title: Text(_choiceLabel(choices, choice)),
-                      subtitle: Text(
-                        '${choice.platform} · ${choice.address} · LumiaKey Desktop',
-                      ),
-                      trailing: controller.computerSwitchPendingId == choice.id
-                          ? const SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : selectedId == choice.id
-                          ? const Icon(Icons.check_circle)
+                    Card(
+                      key: ValueKey('computer-choice-${choice.id}'),
+                      color: selectedId == choice.id
+                          ? Theme.of(context).colorScheme.primaryContainer
                           : null,
-                      onTap: controller.computerSwitchPendingId != null
-                          ? null
-                          : () async {
-                              final ok = await controller.switchComputer(
-                                choice.id,
-                              );
-                              if (ok && sheetContext.mounted) {
-                                Navigator.pop(sheetContext);
-                              }
-                            },
+                      child: ListTile(
+                        leading: const Icon(Icons.desktop_windows),
+                        title: Text(_choiceLabel(choices, choice)),
+                        subtitle: Text(
+                          '${choice.platform} · ${choice.address} · LumiaKey Desktop',
+                        ),
+                        trailing:
+                            controller.computerSwitchPendingId == choice.id
+                            ? const SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : selectedId == choice.id
+                            ? OutlinedButton(
+                                key: ValueKey('disconnect-${choice.id}'),
+                                onPressed: () => _confirmDisconnect(
+                                  context,
+                                  sheetContext,
+                                  controller,
+                                  choice.id,
+                                  controller.companion.activeHost.value,
+                                ),
+                                child: const MobileText('Disconnect', '断开连接'),
+                              )
+                            : null,
+                        onTap:
+                            controller.computerSwitchPendingId != null ||
+                                selectedId == choice.id
+                            ? null
+                            : () async {
+                                final ok = await controller.switchComputer(
+                                  choice.id,
+                                );
+                                if (ok && sheetContext.mounted) {
+                                  Navigator.pop(sheetContext);
+                                }
+                              },
+                      ),
                     ),
                   if (error != null)
                     Padding(
@@ -226,12 +257,11 @@ class ComputerSwitcher extends StatelessWidget {
                   TextButton.icon(
                     onPressed: () {
                       Navigator.pop(sheetContext);
-                      showModalBottomSheet<void>(
-                        context: context,
-                        isScrollControlled: true,
-                        builder: (_) => SafeArea(
-                          child: DesktopConnectionPanel(
+                      Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) => DesktopConnectionSettingsScreen(
                             companion: controller.companion,
+                            onDisconnect: controller.disconnectActiveDesktop,
                           ),
                         ),
                       );
@@ -242,11 +272,6 @@ class ComputerSwitcher extends StatelessWidget {
                       '配对或管理 LumiaKey Desktop',
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const MobileText(
-                    'Choose a paired LumiaKey Desktop computer. Android Bluetooth devices connect separately in Settings.',
-                    '请选择已配对的 LumiaKey Desktop 电脑。Android 蓝牙设备需在设置中单独连接。',
-                  ),
                 ],
               ),
             );
@@ -254,6 +279,26 @@ class ComputerSwitcher extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static Future<void> _confirmDisconnect(
+    BuildContext context,
+    BuildContext sheetContext,
+    AppController controller,
+    String choiceId,
+    CompanionHost? expectedHost,
+  ) async {
+    if (expectedHost == null) return;
+    final disconnected = await confirmDesktopDisconnect(
+      context,
+      companion: controller.companion,
+      expectedHost: expectedHost,
+      disconnect: (target) =>
+          controller.disconnectComputer(choiceId, expectedHost: target),
+    );
+    if (disconnected && sheetContext.mounted) {
+      Navigator.pop(sheetContext);
+    }
   }
 
   static String _choiceLabel(

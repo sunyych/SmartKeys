@@ -34,16 +34,58 @@ Future<void> showDesktopConnectionSheet(
   ),
 );
 
+Future<bool> confirmDesktopDisconnect(
+  BuildContext context, {
+  required CompanionService companion,
+  required CompanionHost expectedHost,
+  required Future<bool> Function(CompanionHost target) disconnect,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(
+        context.mobileText(
+          'Disconnect ${expectedHost.name}?',
+          '断开与 ${expectedHost.name} 的连接？',
+        ),
+      ),
+      content: Text(
+        context.mobileText(
+          'LumiaKey will stop sending input to this computer.',
+          'LumiaKey 将停止向这台电脑发送输入。',
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('cancel-computer-disconnect'),
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: Text(context.mobileText('Cancel', '取消')),
+        ),
+        FilledButton(
+          key: const ValueKey('confirm-computer-disconnect'),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: Text(context.mobileText('Disconnect', '断开连接')),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return false;
+  if (companion.activeHost.value != expectedHost) return false;
+  return disconnect(expectedHost);
+}
+
 /// Explicit same-network pairing UI for platforms without UDP discovery.
 class DesktopConnectionPanel extends StatefulWidget {
   const DesktopConnectionPanel({
     super.key,
     required this.companion,
     this.scanConnectionCode,
+    this.onDisconnect,
   });
 
   final CompanionService companion;
   final Future<String?> Function(BuildContext context)? scanConnectionCode;
+  final Future<bool> Function(CompanionHost expectedHost)? onDisconnect;
 
   @override
   State<DesktopConnectionPanel> createState() => _DesktopConnectionPanelState();
@@ -53,6 +95,7 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
   final _code = TextEditingController();
   bool _connecting = false;
   bool _scanning = false;
+  bool _showPairingForm = false;
   String? _localError;
 
   @override
@@ -94,6 +137,29 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
     } finally {
       if (mounted) setState(() => _scanning = false);
     }
+  }
+
+  Future<void> _confirmDisconnect(CompanionHost expectedHost) async {
+    await confirmDesktopDisconnect(
+      context,
+      companion: widget.companion,
+      expectedHost: expectedHost,
+      disconnect: (target) async {
+        if (widget.onDisconnect != null) {
+          return widget.onDisconnect!(target);
+        }
+        if (widget.companion is SwitchableCompanionConnection) {
+          await (widget.companion as SwitchableCompanionConnection)
+              .suspendComputerSelection();
+          return true;
+        }
+        if (widget.companion is ManualCompanionConnection) {
+          await (widget.companion as ManualCompanionConnection).disconnect();
+          return true;
+        }
+        return false;
+      },
+    );
   }
 
   Future<String?> _openScanner(BuildContext context) =>
@@ -147,7 +213,20 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                       '在 iPhone 和 iPad 上使用应用和快捷键时，需要连接 LumiaKey Desktop。',
                     ),
                   ),
-                if (manual && !connected) ...[
+                if (manual && connected && !_showPairingForm)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const ValueKey('add-desktop-computer'),
+                      onPressed: () => setState(() => _showPairingForm = true),
+                      icon: const Icon(Icons.add),
+                      label: const MobileText(
+                        'Add another computer',
+                        '添加另一台电脑',
+                      ),
+                    ),
+                  ),
+                if (manual && (!connected || _showPairingForm)) ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     key: const ValueKey('scan-desktop-pairing-code'),
@@ -223,9 +302,8 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: OutlinedButton(
-                      onPressed: () =>
-                          (widget.companion as ManualCompanionConnection)
-                              .disconnect(),
+                      key: const ValueKey('desktop-settings-disconnect'),
+                      onPressed: () => _confirmDisconnect(host),
                       child: const MobileText('Disconnect', '断开连接'),
                     ),
                   ),
@@ -257,6 +335,34 @@ class _DesktopConnectionPanelState extends State<DesktopConnectionPanel> {
       },
     );
   }
+}
+
+/// Focused LumiaKey Desktop connection settings, including manual pairing.
+class DesktopConnectionSettingsScreen extends StatelessWidget {
+  const DesktopConnectionSettingsScreen({
+    super.key,
+    required this.companion,
+    this.onDisconnect,
+  });
+
+  final CompanionService companion;
+  final Future<bool> Function(CompanionHost expectedHost)? onDisconnect;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const MobileText('LumiaKey Desktop', 'LumiaKey 桌面连接'),
+    ),
+    body: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: DesktopConnectionPanel(
+          companion: companion,
+          onDisconnect: onDisconnect,
+        ),
+      ),
+    ),
+  );
 }
 
 class DesktopConnectionScannerScreen extends StatefulWidget {

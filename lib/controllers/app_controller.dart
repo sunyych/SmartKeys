@@ -107,6 +107,7 @@ class AppController extends ChangeNotifier {
       : IosCompanionHidService(companion);
   int _computerSwitchEpoch = 0;
   String? _computerSwitchPendingId;
+  bool _desktopDisconnectPending = false;
   String? _computerSwitchError;
   String? _pinnedDesktopChoiceId;
 
@@ -311,7 +312,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> switchComputer(String choiceId) async {
-    if (_computerSwitchPendingId != null) return false;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) {
+      return false;
+    }
     ({String id, String name, String platform, String address})? target;
     for (final choice in switchableComputers) {
       if (choice.id == choiceId) target = choice;
@@ -348,6 +351,52 @@ class AppController extends ChangeNotifier {
         _computerSwitchPendingId = null;
         notifyListeners();
       }
+    }
+  }
+
+  /// Disconnect only the Desktop choice that was confirmed by the user.
+  /// Keeping selection suspended prevents discovery from reconnecting it
+  /// before the user explicitly chooses a computer again.
+  Future<bool> disconnectComputer(
+    String choiceId, {
+    required CompanionHost expectedHost,
+  }) async {
+    if (choiceId != selectedSwitchableComputerId) return false;
+    return disconnectActiveDesktop(expectedHost, choiceId: choiceId);
+  }
+
+  /// Disconnect the active Desktop session only if it is still the session
+  /// the user confirmed in the connection settings.
+  Future<bool> disconnectActiveDesktop(
+    CompanionHost expectedHost, {
+    String? choiceId,
+  }) async {
+    if (companion.activeHost.value != expectedHost ||
+        _computerSwitchPendingId != null ||
+        _desktopDisconnectPending ||
+        (choiceId != null && choiceId != selectedSwitchableComputerId) ||
+        companion is! SwitchableCompanionConnection) {
+      return false;
+    }
+    _desktopDisconnectPending = true;
+    notifyListeners();
+    try {
+      await prepareForContextChange();
+      if (companion.activeHost.value != expectedHost ||
+          _computerSwitchPendingId != null ||
+          (choiceId != null && choiceId != selectedSwitchableComputerId)) {
+        return false;
+      }
+      _pinnedDesktopChoiceId = null;
+      if (companion is CompanionPointerConnection) {
+        (companion as CompanionPointerConnection).discardPendingPointerInputs();
+      }
+      await (companion as SwitchableCompanionConnection)
+          .suspendComputerSelection();
+      return true;
+    } finally {
+      _desktopDisconnectPending = false;
+      notifyListeners();
     }
   }
 
@@ -1306,7 +1355,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> pressButton(ButtonConfig button) async {
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     if (button.action.type == ActionType.none) return;
     if (_pinnedDesktopChoiceId != null) {
       if (button.action.type == ActionType.keyboard) {
@@ -1355,7 +1404,7 @@ class AppController extends ChangeNotifier {
     RemoteShortcutButton button, {
     bool confirmedApproval = false,
   }) async {
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     _recordShortcutUsage('desktop:button:${button.id}', button.name);
     try {
       final id =
@@ -1391,7 +1440,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> launchRemoteApplication(RemoteApplication application) async {
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     _recordShortcutUsage(
       'desktop:app:${application.id}',
       'Open ${application.name}',
@@ -1432,7 +1481,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> sendWheelStep(bool clockwise) async {
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     final action = clockwise
         ? activeProfile.wheel.clockwise
         : activeProfile.wheel.counterClockwise;
@@ -1453,7 +1502,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> pressWheelCenter() async {
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     final action = activeProfile.wheel.center;
     if (action.type != ActionType.none) {
       if (_pinnedDesktopChoiceId != null) {
@@ -1481,7 +1530,7 @@ class AppController extends ChangeNotifier {
 
   void sendTouchpadMove(double deltaX, double deltaY) {
     _recordPointerGate(PointerDiagnosticEvent.moveGate);
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     const sensitivity = 1.65;
     final x = (deltaX * sensitivity).round().clamp(-127, 127);
     final y = (deltaY * sensitivity).round().clamp(-127, 127);
@@ -1505,7 +1554,7 @@ class AppController extends ChangeNotifier {
 
   void sendMouseClick({required bool secondary}) {
     _recordPointerGate(PointerDiagnosticEvent.clickGate);
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     if (config.preferences.hapticEnabled) {
       unawaited(HapticFeedback.selectionClick());
     }
@@ -1537,7 +1586,7 @@ class AppController extends ChangeNotifier {
 
   void sendTouchpadScroll(double deltaY) {
     _recordPointerGate(PointerDiagnosticEvent.scrollGate);
-    if (_computerSwitchPendingId != null) return;
+    if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     const pixelsPerWheelStep = 12.0;
     _touchpadScrollAccumulator += deltaY;
     final steps = (_touchpadScrollAccumulator / pixelsPerWheelStep).truncate();

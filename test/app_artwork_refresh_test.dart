@@ -73,6 +73,34 @@ Widget _surface(_Library library, int tick) => IconLibraryScope(
 );
 
 void main() {
+  testWidgets('catalog app artwork wins over platform native PNG', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppArtwork(appId: 'chrome', pngBytes: _png(240)),
+      ),
+    );
+    final imageWidget = tester.widget<Image>(find.byType(Image));
+    expect(imageWidget.image, isA<AssetImage>());
+    expect(
+      (imageWidget.image as AssetImage).assetName,
+      'assets/app_icons/chrome.png',
+    );
+  });
+
+  testWidgets('custom app artwork keeps native PNG fallback', (tester) async {
+    final bytes = _png(120);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppArtwork(appId: 'custom-browser', pngBytes: bytes),
+      ),
+    );
+    final imageWidget = tester.widget<Image>(find.byType(Image));
+    expect(imageWidget.image, isA<MemoryImage>());
+    expect((imageWidget.image as MemoryImage).bytes, bytes);
+  });
+
   testWidgets(
     'cached extra artwork keeps its future and image across clock rebuilds',
     (tester) async {

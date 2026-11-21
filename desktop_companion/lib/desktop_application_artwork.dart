@@ -28,10 +28,18 @@ class _DesktopApplicationArtworkState extends State<DesktopApplicationArtwork> {
   static final _nativeService = NativeAppIconService();
   late Future<Uint8List?> _icon;
   void _load() {
-    _icon = widget.app.detected
+    _icon = _catalogAsset != null
+        ? Future.value()
+        : widget.app.detected
         ? (widget.iconService ?? _nativeService).getNativeIcon(widget.app)
         : Future.value();
   }
+
+  String? get _catalogAsset =>
+      desktopAppIconAssets[canonicalBuiltinIconId(
+            legacyProtocolIconId(widget.app.id),
+          ) ??
+          canonicalBuiltinIconId(widget.app.icon)];
 
   @override
   void initState() {
@@ -43,6 +51,7 @@ class _DesktopApplicationArtworkState extends State<DesktopApplicationArtwork> {
   void didUpdateWidget(DesktopApplicationArtwork old) {
     super.didUpdateWidget(old);
     if (old.app.id != widget.app.id ||
+        old.app.icon != widget.app.icon ||
         old.app.executable != widget.app.executable ||
         old.app.detected != widget.app.detected ||
         old.iconService != widget.iconService) {
@@ -51,11 +60,7 @@ class _DesktopApplicationArtworkState extends State<DesktopApplicationArtwork> {
   }
 
   Widget _fallback() {
-    final file =
-        desktopAppIconAssets[canonicalBuiltinIconId(
-              legacyProtocolIconId(widget.app.id),
-            ) ??
-            canonicalBuiltinIconId(widget.app.icon)];
+    final file = _catalogAsset;
     final missing = Icon(Icons.apps, size: widget.size);
     return file == null
         ? missing
