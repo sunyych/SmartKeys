@@ -110,6 +110,58 @@ void main() {
     );
   });
 
+  test('Mac projection restores the middle row in saved legacy layouts', () {
+    final starter = DesktopManifest.starter();
+    final sourceLayout = starter.layoutById('chatgpt')!;
+    final legacyLayout = sourceLayout.copyWith(
+      buttons: [
+        for (final button in sourceLayout.buttons)
+          if (!{
+            chatGptFastModeShortcutId,
+            chatGptApproveShortcutId,
+            chatGptDeclineShortcutId,
+            chatGptBranchOffShortcutId,
+          }.contains(button.id))
+            button,
+        sourceLayout.buttons
+            .singleWhere((button) => button.id == chatGptApproveShortcutId)
+            .copyWith(shortcut: const ['COMMAND', 'ENTER']),
+      ],
+    );
+    final saved = DesktopManifest.fromJson(
+      starter.copyWith(layouts: [
+        for (final layout in starter.layouts)
+          if (layout.id == 'chatgpt') legacyLayout else layout,
+      ]).toJson(),
+    );
+    final legacy = saved.layoutById('chatgpt')!;
+    final projections = [
+      projectChatGptLayout(
+        legacy,
+        RemoteShortcutPlatform.apple,
+        firstPageSize: regularShortcutCount,
+      ),
+      orderChatGptLayout(legacy, firstPageSize: regularShortcutCount),
+    ];
+    for (final projected in projections) {
+      expect(
+        projected.buttons.skip(4).take(4).map((button) => button.id),
+        [
+          chatGptFastModeShortcutId,
+          chatGptApproveShortcutId,
+          chatGptDeclineShortcutId,
+          chatGptBranchOffShortcutId,
+        ],
+      );
+      expect(projected.buttons[4].enabled, isFalse);
+      expect(projected.buttons[4].shortcut, isEmpty);
+      expect(projected.buttons[5].shortcut, ['COMMAND', 'ENTER']);
+      expect(projected.buttons[6].shortcut, ['ESC']);
+      expect(projected.buttons[7].enabled, isFalse);
+      expect(projected.buttons[7].shortcut, isEmpty);
+    }
+  });
+
   test('PRIMARY resolver uses the native desktop modifier', () {
     expect(
       resolvePrimaryShortcut(const [
@@ -126,6 +178,75 @@ void main() {
         'N',
       ], RemoteShortcutPlatform.windows),
       ['CTRL', 'SHIFT', 'N'],
+    );
+  });
+
+  test('Mac projection restores only stock Voice Mode bindings', () {
+    const legacyStock = RemoteShortcutButton(
+      id: chatGptNativeVoiceShortcutId,
+      name: 'Start Voice Chat',
+      icon: '',
+      targetType: RemoteTargetType.keyboardShortcut,
+      description: 'CTRL + SHIFT + V',
+      enabled: false,
+    );
+    final restored = projectChatGptNativeVoice(
+      legacyStock,
+      RemoteShortcutPlatform.apple,
+    );
+    expect(restored.shortcut, ['CTRL', 'SHIFT', 'V']);
+    expect(restored.enabled, isTrue);
+
+    final deliberate = projectChatGptNativeVoice(
+      saveExplicitChatGptVoiceBinding(
+        legacyStock,
+        RemoteShortcutPlatform.apple,
+      ),
+      RemoteShortcutPlatform.apple,
+    );
+    expect(deliberate.shortcut, isEmpty);
+    expect(deliberate.enabled, isFalse);
+  });
+
+  test('Mac Dictate reuses the phone Dictation cell with capability gating', () {
+    final chatGpt = DesktopManifest.regularStarter().layoutById('chatgpt')!;
+    final apple = projectChatGptSystemDictation(
+      chatGpt,
+      platform: RemoteShortcutPlatform.apple,
+      supported: true,
+    );
+    final dictate = apple.buttons.singleWhere(
+      (button) => button.id == chatGptSystemDictationShortcutId,
+    );
+    expect(dictate.name, 'Dictate');
+    expect(dictate.targetType, RemoteTargetType.system);
+    expect(dictate.target, 'lumiakeySystemDictation');
+    expect(dictate.enabled, isTrue);
+    expect(apple.buttons.any(isChatGptLocalDictationShortcut), isFalse);
+
+    final setup = projectChatGptSystemDictation(
+      chatGpt,
+      platform: RemoteShortcutPlatform.apple,
+      supported: false,
+    );
+    final unavailable = setup.buttons.singleWhere(
+      (button) => button.id == chatGptSystemDictationShortcutId,
+    );
+    expect(unavailable.name, 'Dictate');
+    expect(unavailable.enabled, isFalse);
+
+    final windows = projectChatGptSystemDictation(
+      chatGpt,
+      platform: RemoteShortcutPlatform.windows,
+      supported: false,
+    );
+    expect(
+      windows.buttons.any(isChatGptLocalDictationShortcut),
+      isTrue,
+    );
+    expect(
+      windows.buttons.any((button) => button.id == chatGptSystemDictationShortcutId),
+      isFalse,
     );
   });
 

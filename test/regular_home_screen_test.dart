@@ -46,19 +46,37 @@ class DeferredRegularCompanion extends RecordingCompanionService {
 }
 
 void main() {
-  testWidgets('both Full header controls open the shared computer switcher', (
+  testWidgets('one right header computer control opens the shared switcher', (
     tester,
   ) async {
-    await mountRegular(tester);
+    final harness = await mountRegular(tester);
+    final switcher = find.byKey(const ValueKey('computer-kvm-switch'));
+    final removedDuplicate = find.byKey(
+      const ValueKey('regular-desktop-connection'),
+    );
 
-    await tester.tap(find.byKey(const ValueKey('regular-desktop-connection')));
+    expect(switcher, findsOneWidget);
+    expect(removedDuplicate, findsNothing);
+    expect(tester.getRect(switcher).right, lessThanOrEqualTo(844));
+    await tester.tap(switcher);
     await tester.pumpAndSettle();
     expect(find.text('Switch computer'), findsOneWidget);
-    expect(find.text('No paired computers yet'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('computer-kvm-switch')));
+    harness.companion.host.value = null;
+    harness.companion.syncedManifest.value = null;
+    harness.companion.status.value = CompanionSyncStatus.disconnected;
+    await tester.pumpAndSettle();
+
+    expect(switcher, findsOneWidget);
+    expect(removedDuplicate, findsNothing);
+    expect(
+      find.byKey(const ValueKey('regular-connect-desktop')),
+      findsOneWidget,
+    );
+    expect(tester.getRect(switcher).right, lessThanOrEqualTo(844));
+    await tester.tap(switcher);
     await tester.pumpAndSettle();
     expect(find.text('Switch computer'), findsOneWidget);
     expect(find.text('No paired computers yet'), findsOneWidget);
@@ -322,15 +340,26 @@ void main() {
         ),
         findsOneWidget,
       );
-      for (final cell in [4, 7]) {
+      for (final (cell, label) in [
+        (4, 'Fast Mode'),
+        (5, 'Approve'),
+        (6, 'Decline'),
+        (7, 'Branch Off'),
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(ValueKey('regular-cell-$cell')),
+            matching: find.text(label),
+          ),
+          findsOneWidget,
+        );
         final control = tester.widget<InkWell>(
           find.descendant(
             of: find.byKey(ValueKey('regular-cell-$cell')),
             matching: find.byType(InkWell),
           ),
         );
-        expect(control.key, isNull);
-        expect(control.onTap, isNull);
+        expect(control.onTap, isNotNull);
       }
       await tester.tap(dictation);
       await tester.pumpAndSettle();

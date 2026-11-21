@@ -359,6 +359,26 @@ class MainFlutterWindow: NSWindow {
     )
     dictation.setMethodCallHandler { [weak self] call, result in
       switch call.method {
+      case "startSystemDictation":
+        if MacInputPermissions.testFlight {
+          result(FlutterError(code: "dictation_unavailable", message: "System Dictation is unavailable in this build.", details: nil))
+          return
+        }
+        guard AXIsProcessTrusted() else {
+          result(FlutterError(code: "accessibility_permission_missing", message: "Allow LumiaKey Desktop in System Settings → Privacy & Security → Accessibility, then try Dictate again.", details: nil))
+          return
+        }
+        guard let target = Self.focusedTarget(),
+              target.pid != ProcessInfo.processInfo.processIdentifier,
+              Self.matchesChatGpt(pid: target.pid) else {
+          result(FlutterError(code: "wrong_foreground_app", message: "Switch to ChatGPT and focus its message field before using Dictate.", details: nil))
+          return
+        }
+        guard Self.startSystemDictation(for: target) else {
+          result(FlutterError(code: "dictation_not_ready", message: "Focus an editable ChatGPT message field, then choose Dictate again. macOS Dictation must be enabled in Keyboard settings.", details: nil))
+          return
+        }
+        result(nil)
       case "insertText":
         guard let arguments = call.arguments as? [String: Any],
               let text = arguments["text"] as? String else {
@@ -608,6 +628,74 @@ class MainFlutterWindow: NSWindow {
     let pid: pid_t
     let window: AXUIElement
     let element: AXUIElement
+  }
+
+  private static func matchesChatGpt(pid: pid_t) -> Bool {
+    guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+    return matchesShortcutApp(
+      "chatgpt",
+      bundleId: app.bundleIdentifier,
+      name: app.localizedName
+    )
+  }
+
+  private static func startSystemDictation(for target: FocusedTarget) -> Bool {
+    guard focusedTarget().map({ sameTarget(target, $0) }) == true,
+          matchesChatGpt(pid: target.pid) else { return false }
+    let app = AXUIElementCreateApplication(target.pid)
+    var menuBarValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &menuBarValue) == .success,
+          let menuBarValue, CFGetTypeID(menuBarValue) == AXUIElementGetTypeID() else { return false }
+    let menuBar = unsafeBitCast(menuBarValue, to: AXUIElement.self)
+    guard let editMenu = findMenuItem(
+      in: menuBar,
+      titles: ["edit", "编辑", "編輯"],
+      role: kAXMenuBarItemRole as String,
+      depth: 0
+    ),
+    let dictationItem = findMenuItem(
+      in: editMenu,
+      titles: ["start dictation", "开始听写", "開始聽寫"],
+      role: kAXMenuItemRole as String,
+      depth: 0
+    ) else { return false }
+    var enabledValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(dictationItem, kAXEnabledAttribute as CFString, &enabledValue) == .success,
+          (enabledValue as? Bool) == true,
+          focusedTarget().map({ sameTarget(target, $0) }) == true,
+          matchesChatGpt(pid: target.pid) else { return false }
+    return AXUIElementPerformAction(dictationItem, kAXPressAction as CFString) == .success
+  }
+
+  private static func findMenuItem(
+    in element: AXUIElement,
+    titles: Set<String>,
+    role expectedRole: String,
+    depth: Int
+  ) -> AXUIElement? {
+    guard depth < 8 else { return nil }
+    var roleValue: CFTypeRef?
+    var titleValue: CFTypeRef?
+    _ = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+    _ = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleValue)
+    let role = roleValue as? String ?? ""
+    var title = (titleValue as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if title.hasSuffix("…") { title.removeLast() }
+    if title.hasSuffix("...") { title.removeLast(3) }
+    title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    if role == expectedRole, titles.contains(title) { return element }
+    var childrenValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue) == .success,
+          let children = childrenValue as? [AXUIElement] else { return nil }
+    for child in children {
+      if let match = findMenuItem(
+        in: child,
+        titles: titles,
+        role: expectedRole,
+        depth: depth + 1
+      ) { return match }
+    }
+    return nil
   }
 
   private static func insertText(

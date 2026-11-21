@@ -62,6 +62,8 @@ class CompanionServer extends ChangeNotifier {
         (controller.actions.supportsNativeDictation ||
             _hasProvidedDictationSink))
       'local-dictation-v1',
+    if (controller.actions.supportsSystemDictation)
+      chatGptSystemDictationCapability,
     if (_pointerReady) 'mouse-control-v1',
   ];
 

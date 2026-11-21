@@ -94,6 +94,7 @@ class DesktopActions {
     WindowsDesktopBackend? windowsDesktopBackend,
     WindowsShortcutBackend Function()? loadWindowsShortcutBackend,
     this.mediaChannel = const MethodChannel('lumiakeys/system_control'),
+    this.dictationChannel = const MethodChannel('lumiakeys/dictation'),
     this.macInputChannel = const MethodChannel('lumiakeys/mac_input'),
   }) : _hasPointerOverride = pointerInput != null,
        environment = environment ?? Platform.environment,
@@ -171,6 +172,8 @@ class DesktopActions {
 
   bool get supportsNativeDictation =>
       _isWindows || (_isMacOS && !usesTestFlightMacInput);
+  bool get supportsSystemDictation =>
+      _isMacOS && !usesTestFlightMacInput;
 
   bool _usesTestFlightMacInput = false;
   bool get usesTestFlightMacInput => _usesTestFlightMacInput;
@@ -188,6 +191,7 @@ class DesktopActions {
 
   final DesktopProcessRunner runner;
   final MacSystemControl macSystemControl;
+  final MethodChannel dictationChannel;
   final DesktopPointerInput pointerInput;
   final VibeSystemTools vibeSystemTools;
   final NativeAppIconService appIconService;
@@ -328,6 +332,15 @@ class DesktopActions {
           'Macro and Script are reserved for a future release',
         );
       case RemoteTargetType.system:
+        if (isChatGptSystemDictationShortcut(button)) {
+          if (expectedAppId != 'chatgpt' || !supportsSystemDictation) {
+            throw UnsupportedError(
+              'Dictate requires the selected ChatGPT app on macOS.',
+            );
+          }
+          await dictationChannel.invokeMethod<void>('startSystemDictation');
+          return;
+        }
         if (button.id.startsWith('keyboard.')) {
           const allowed = {'mute', 'volumeDown', 'volumeUp', 'playPause'};
           final action = button.target;

@@ -306,8 +306,21 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
       await _dictation.currentState?.startQuickDictation();
       return;
     }
+    if (isChatGptSystemDictationShortcut(button) && !button.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.mobileText(
+              'Update LumiaKey Desktop to use macOS Dictation from your phone.',
+              '请更新 LumiaKey Desktop，以便从手机使用 macOS 听写。',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     if (_voiceShortcutNeedsSetup(button)) {
-      await _showVoiceModeSetup();
+      await _showVoiceModeSetup(button);
       return;
     }
     if (isUnassignedChatGptShortcut(button)) {
@@ -334,12 +347,18 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
         !await ensureDictationEntryExplained(context)) {
       return;
     }
+    final remoteButton = controller.desktopManifest?.buttonById(button.id);
+    final rawActionEnabled = isChatGptSystemDictationShortcut(button)
+        ? remoteButton != null &&
+              isChatGptSystemDictationShortcut(remoteButton) &&
+              remoteButton.enabled
+        : remoteButton?.enabled == true;
     if (!mounted ||
         !_ready(controller) ||
         generation != _generation ||
         session != _session(controller) ||
         (!systemControl && !_applicationReady(controller)) ||
-        controller.desktopManifest?.buttonById(button.id)?.enabled != true) {
+        !rawActionEnabled) {
       return;
     }
     try {
@@ -358,14 +377,28 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     }
   }
 
-  Future<void> _showVoiceModeSetup() => showDialog<void>(
+  Future<void> _showVoiceModeSetup(RemoteShortcutButton button) =>
+      showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text(context.mobileText('Set up Voice Mode', '设置语音模式')),
+      title: Text(
+        context.mobileText(
+          button.description.startsWith('Update LumiaKey Desktop')
+              ? 'Update Desktop for Voice Mode'
+              : 'Set up Voice Mode',
+          button.description.startsWith('Update LumiaKey Desktop')
+              ? '更新桌面端以使用语音模式'
+              : '设置语音模式',
+        ),
+      ),
       content: Text(
         context.mobileText(
-          'If available, set a Voice chat hotkey in ChatGPT → Settings → Voice. Bind and enable the same shortcut in LumiaKey Desktop → Shortcut Layout → ChatGPT. If Voice Mode is missing there, update LumiaKey Desktop.',
-          '如果 ChatGPT 支持语音聊天快捷键，请在“设置 → 语音”中设置，再在 LumiaKey 桌面版的“快捷键布局 → ChatGPT”中绑定并启用同一个快捷键。若找不到“语音模式”，请更新 LumiaKey 桌面版。',
+          button.description.startsWith('Update LumiaKey Desktop')
+              ? 'Update LumiaKey Desktop to enable Voice Mode for this Mac profile.'
+              : 'If available, set a Voice chat hotkey in ChatGPT → Settings → Voice. Bind and enable the same shortcut in LumiaKey Desktop → Shortcut Layout → ChatGPT. If Voice Mode is missing there, update LumiaKey Desktop.',
+          button.description.startsWith('Update LumiaKey Desktop')
+              ? '请更新 LumiaKey Desktop，以便在此 Mac 配置中启用语音模式。'
+              : '如果 ChatGPT 支持语音聊天快捷键，请在“设置 → 语音”中设置，再在 LumiaKey 桌面版的“快捷键布局 → ChatGPT”中绑定并启用同一个快捷键。若找不到“语音模式”，请更新 LumiaKey 桌面版。',
         ),
       ),
       actions: [
@@ -965,7 +998,8 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
           key: const ValueKey('regular-header'),
           children: [
             SizedBox(
-              width: (bounds.maxWidth * .20).clamp(92.0, 180.0),
+              width: ((bounds.maxWidth * .20).clamp(92.0, 180.0) - 40.0)
+                  .clamp(92.0, 140.0),
               child: Text(
                 title,
                 key: const ValueKey('regular-workspace-title'),
@@ -1039,24 +1073,6 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
               key: const ValueKey('regular-header-tools'),
               mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
-                  width: 40,
-                  child: IconButton(
-                    key: const ValueKey('regular-desktop-connection'),
-                    tooltip: ready
-                        ? context.mobileText('Desktop connected', '电脑已连接')
-                        : context.mobileText('Connect Desktop', '连接电脑'),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () =>
-                        ComputerSwitcher.showPicker(context, controller),
-                    color: ready ? theme.colorScheme.primary : null,
-                    icon: Icon(
-                      ready
-                          ? Icons.desktop_windows
-                          : Icons.desktop_access_disabled,
-                    ),
-                  ),
-                ),
                 SizedBox(
                   width: 40,
                   child: ComputerSwitcher(
@@ -1277,11 +1293,16 @@ class _TwelveKeyGrid extends StatelessWidget {
           final unassigned =
               button != null &&
               (isUnassignedChatGptShortcut(button) ||
+                  (isChatGptSystemDictationShortcut(button) &&
+                      !button.enabled) ||
                   _voiceShortcutNeedsSetup(button));
           final label =
               app?.name ??
               (launcher
                   ? context.mobileText('Slot ${index + 1}', '位置 ${index + 1}')
+                  : button != null &&
+                        isChatGptSystemDictationShortcut(button)
+                  ? 'Dictate'
                   : dictation
                   ? context.mobileText('Dictation', '听写')
                   : button == null
@@ -1323,6 +1344,19 @@ class _TwelveKeyGrid extends StatelessWidget {
                           ? context.mobileText(
                               'Configure this slot in LumiaKey Desktop',
                               '在 LumiaKey Desktop 中配置此位置',
+                            )
+                          : button != null &&
+                                isChatGptSystemDictationShortcut(button) &&
+                                !button.enabled
+                          ? context.mobileText(
+                              'Update LumiaKey Desktop to use macOS Dictation.',
+                              '请更新 LumiaKey Desktop 以使用 macOS 听写。',
+                            )
+                          : button != null &&
+                                isChatGptSystemDictationShortcut(button)
+                          ? context.mobileText(
+                              'Use macOS Dictation with your configured system shortcut.',
+                              '使用 macOS 听写和系统中设置的快捷键。',
                             )
                           : dictation
                           ? context.mobileText(
@@ -1419,9 +1453,14 @@ List<RemoteShortcutButton?> _buttonsForGrid(RemoteShortcutLayout? layout) {
   // Older synced boards may omit new actions. Leave their cells empty so the
   // two voice controls and the start of the secondary page keep their slots.
   return [
-    for (final id in chatGptRegularPrimaryShortcutIds) byId[id],
+    for (final id in chatGptRegularPrimaryShortcutIds)
+      id == chatGptLocalDictationShortcutId
+          ? byId[chatGptSystemDictationShortcutId] ?? byId[id]
+          : byId[id],
     ...buttons.where(
-      (button) => !chatGptRegularPrimaryShortcutIds.contains(button.id),
+      (button) =>
+          !chatGptRegularPrimaryShortcutIds.contains(button.id) &&
+          button.id != chatGptSystemDictationShortcutId,
     ),
   ];
 }

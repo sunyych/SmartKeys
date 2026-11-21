@@ -1169,25 +1169,59 @@ class AppController extends ChangeNotifier {
       'windows' => RemoteShortcutPlatform.windows,
       _ => RemoteShortcutPlatform.other,
     };
-    if (host?.capabilities.contains('chatgpt-platform-layout-v1') == true) {
-      final synced = chatGptPageSize == regularShortcutCount
-          ? layout.copyWith(
-              buttons: [
-                for (final button in layout.buttons)
-                  if (button.id == chatGptNativeVoiceShortcutId)
-                    projectChatGptNativeVoice(button, platform)
-                  else
-                    button,
-              ],
-            )
-          : layout;
-      return orderChatGptLayout(synced, firstPageSize: chatGptPageSize);
-    }
-    return projectChatGptLayout(
-      layout,
-      platform,
-      firstPageSize: chatGptPageSize,
+    final projected = host?.capabilities.contains(
+              'chatgpt-platform-layout-v1',
+            ) ==
+            true
+        ? orderChatGptLayout(layout, firstPageSize: chatGptPageSize)
+        : projectChatGptLayout(
+            layout,
+            platform,
+            firstPageSize: chatGptPageSize,
+          );
+    final voiceProjected = projected.copyWith(
+      buttons: [
+        for (final button in projected.buttons)
+          if (button.id == chatGptNativeVoiceShortcutId)
+            _projectPhoneChatGptVoice(button, platform)
+          else
+            button,
+      ],
     );
+    return projectChatGptSystemDictation(
+      voiceProjected,
+      platform: platform,
+      supported: _supportsMacSystemDictation(host),
+    );
+  }
+
+  bool _supportsMacSystemDictation(CompanionHost? host) {
+    final action = desktopManifest?.buttonById(
+      chatGptSystemDictationShortcutId,
+    );
+    return host != null &&
+        host.platform == 'macos' &&
+        host.capabilities.contains(chatGptSystemDictationCapability) &&
+        action != null &&
+        isChatGptSystemDictationShortcut(action) &&
+        action.enabled;
+  }
+
+  RemoteShortcutButton _projectPhoneChatGptVoice(
+    RemoteShortcutButton button,
+    RemoteShortcutPlatform platform,
+  ) {
+    final projected = projectChatGptNativeVoice(button, platform);
+    if (platform != RemoteShortcutPlatform.apple) return projected;
+    if (!projected.enabled || projected.shortcut.isEmpty) return projected;
+    final saved = desktopManifest?.buttonById(chatGptNativeVoiceShortcutId);
+    if (saved == null ||
+        saved.targetType != RemoteTargetType.keyboardShortcut ||
+        saved.shortcut.isEmpty ||
+        !saved.enabled) {
+      return chatGptVoiceDesktopUpdateButton();
+    }
+    return projected;
   }
 
   List<ProfileConfig> get orderedProfiles {

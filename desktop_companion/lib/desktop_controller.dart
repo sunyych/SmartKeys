@@ -654,14 +654,32 @@ class DesktopController extends ChangeNotifier {
     return _manifest.copyWith(layouts: layouts);
   }
 
-  RemoteShortcutLayout _projectLayout(RemoteShortcutLayout layout) =>
-      layout.id == 'keyboard'
-      ? projectGeneralLayout(layout, _shortcutPlatform)
-      : projectChatGptLayout(
-          layout,
-          _shortcutPlatform,
-          firstPageSize: regularShortcutCount,
-        );
+  RemoteShortcutLayout _projectLayout(RemoteShortcutLayout layout) {
+    if (layout.id == 'keyboard') {
+      return projectGeneralLayout(layout, _shortcutPlatform);
+    }
+    if (layout.id != 'chatgpt') return layout;
+    final projected = projectChatGptLayout(
+      layout,
+      _shortcutPlatform,
+      firstPageSize: regularShortcutCount,
+    );
+    final voiceProjected = projected.copyWith(
+      buttons: [
+        for (final button in projected.buttons)
+          if (button.id == chatGptNativeVoiceShortcutId)
+            projectChatGptNativeVoice(button, _shortcutPlatform)
+          else
+            button,
+      ],
+    );
+    return projectChatGptSystemDictation(
+      voiceProjected,
+      platform: _shortcutPlatform,
+      supported:
+          Platform.isMacOS && actions.supportsSystemDictation,
+    );
+  }
 
   /// Unprojected settings used by portable shortcut export.
   DesktopManifest get manifestForExport => _manifest;
@@ -862,7 +880,7 @@ class DesktopController extends ChangeNotifier {
                   final saved = preservesPortableBinding
                       ? updated.copyWith(shortcut: button.shortcut)
                       : updated;
-                  return layoutId == 'chatgpt' && updated.shortcut.isNotEmpty
+                  return layoutId == 'chatgpt'
                       ? saveExplicitChatGptVoiceBinding(
                           saved,
                           _shortcutPlatform,
@@ -1955,7 +1973,7 @@ class DesktopController extends ChangeNotifier {
         final managedAppId =
             vibeAppId ??
             libraryProfile?.applicationId ??
-            _managedAppForButton(button, _manifest);
+            _managedAppForButton(button, projected);
         if (confirmedId != null &&
             (managedAppId != 'chatgpt' ||
                 button.targetType != RemoteTargetType.keyboardShortcut)) {
