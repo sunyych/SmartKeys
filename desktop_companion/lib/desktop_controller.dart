@@ -719,12 +719,18 @@ class DesktopController extends ChangeNotifier {
         final storedLauncherIds = loaded.hasLauncherConfiguration
             ? loaded.launcherApplicationIds
             : await launcherKeyStore.load();
+        var hasChatGptSlot = false;
+        final migratingCodexSlot = storedLauncherIds.contains('codex');
         final normalized =
             (storedLauncherIds.length == 8 ||
                 storedLauncherIds.length == launcherSlotCount)
             ? storedLauncherIds
                   .map((id) {
                     final currentId = id == 'codex' ? 'chatgpt' : id;
+                    if (currentId == 'chatgpt') {
+                      if (migratingCodexSlot && hasChatGptSlot) return null;
+                      hasChatGptSlot = true;
+                    }
                     return currentId != null &&
                             _manifest.applications.any(
                               (app) => app.id == currentId,

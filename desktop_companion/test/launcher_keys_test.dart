@@ -106,6 +106,81 @@ void main() {
     expect(controller.launcherAppIds.first, 'chatgpt');
     controller.dispose();
   });
+
+  test(
+    'collapses legacy Codex and ChatGPT launcher aliases in place',
+    () async {
+      final catalog = DesktopManifest.starter();
+      final old = catalog.copyWith(
+        applications: [
+          ...catalog.applications,
+          const RemoteApplication(
+            id: 'codex',
+            name: 'Codex',
+            icon: 'code',
+            executable: 'ChatGPT',
+            layoutId: 'codex',
+          ),
+        ],
+        launcherApplicationIds: [
+          'codex',
+          'chrome',
+          'chatgpt',
+          'chrome',
+          ...List<String?>.filled(launcherSlotCount - 4, null),
+        ],
+      );
+      final store = MemoryDesktopConfigStore()
+        ..value = DesktopManifest.fromJson(old.toJson());
+      final controller = DesktopController(
+        store: store,
+        discovery: _Discovery(),
+      );
+
+      await controller.initialize();
+
+      expect(controller.launcherAppIds, [
+        'chatgpt',
+        'chrome',
+        null,
+        'chrome',
+        ...List<String?>.filled(launcherSlotCount - 4, null),
+      ]);
+      expect(
+        controller.manifest.launcherApplicationIds,
+        controller.launcherAppIds,
+      );
+      expect(controller.manifest.layoutById('chatgpt'), isNotNull);
+      expect(controller.manifest.layoutById('codex'), isNull);
+      expect(controller.manifest.layoutById('vibe.codex'), isNull);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'preserves intentional duplicate ChatGPT slots without a Codex alias',
+    () async {
+      final starter = DesktopManifest.regularStarter();
+      final ids = [
+        'chatgpt',
+        'chrome',
+        'chatgpt',
+        'chrome',
+        ...List<String?>.filled(launcherSlotCount - 4, null),
+      ];
+      final store = MemoryDesktopConfigStore()
+        ..value = starter.copyWith(launcherApplicationIds: ids);
+      final controller = DesktopController(
+        store: store,
+        discovery: _Discovery(),
+      );
+
+      await controller.initialize();
+
+      expect(controller.launcherAppIds, ids);
+      controller.dispose();
+    },
+  );
 }
 
 class _FailNextSaveStore implements DesktopConfigStore {
