@@ -386,7 +386,18 @@ void main() {
       expect(manifest.currentProfile!.name, 'My old Codex setup');
       final projected = controller.manifest.layoutById('chatgpt')!.buttons;
       expect(projected[8].id, chatGptNativeVoiceShortcutId);
-      expect(isChatGptLocalDictationShortcut(projected[11]), isTrue);
+      expect(
+        projected[11].id,
+        Platform.isMacOS
+            ? chatGptSystemDictationShortcutId
+            : chatGptLocalDictationShortcutId,
+      );
+      expect(
+        Platform.isMacOS
+            ? isChatGptSystemDictationShortcut(projected[11])
+            : isChatGptLocalDictationShortcut(projected[11]),
+        isTrue,
+      );
       expect(projected[12].id, 'chatgpt.codex.review');
       expect(projected[13].id, 'chatgpt.codexMode');
       final saved = manifest.toJson();

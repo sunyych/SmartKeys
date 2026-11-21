@@ -198,7 +198,7 @@ void main() {
       await expectLater(press(chatGptBranchOffShortcutId), throwsStateError);
       await expectLater(
         press(chatGptLocalDictationShortcutId),
-        throwsStateError,
+        Platform.isMacOS ? throwsFormatException : throwsStateError,
       );
       expect(actions.executed, isEmpty);
 
@@ -217,6 +217,19 @@ void main() {
         '$chatGptDeclineShortcutId:chatgpt',
         'chatgpt.codex.send:chatgpt',
       ]);
+      if (Platform.isMacOS) {
+        foreground = false;
+        await expectLater(
+          press(chatGptSystemDictationShortcutId),
+          throwsStateError,
+        );
+        foreground = true;
+        await press(chatGptSystemDictationShortcutId);
+        expect(
+          actions.executed.last,
+          '$chatGptSystemDictationShortcutId:chatgpt',
+        );
+      }
     },
   );
 
