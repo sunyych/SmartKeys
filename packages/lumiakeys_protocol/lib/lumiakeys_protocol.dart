@@ -7,6 +7,48 @@ part 'src/compact_layouts.dart';
 const int launcherSlotCount = 12;
 const String installedLaunchOnlyLayoutId = 'installed.launch-only';
 
+/// Returns the order and fixed primary slots used by the regular phone grid.
+/// ChatGPT reserves its first twelve cells by action ID so missing actions stay
+/// visibly empty instead of shifting later controls into a different slot.
+List<RemoteShortcutButton?> regularPhoneShortcutButtons(
+  RemoteShortcutLayout? layout,
+) {
+  final buttons = layout?.buttons ?? const <RemoteShortcutButton>[];
+  if (layout?.id != 'chatgpt') return List.unmodifiable(buttons);
+  final byId = {for (final button in buttons) button.id: button};
+  return List.unmodifiable([
+    for (final id in chatGptRegularPrimaryShortcutIds)
+      id == chatGptLocalDictationShortcutId
+          ? byId[chatGptSystemDictationShortcutId] ?? byId[id]
+          : byId[id],
+    ...buttons.where(
+      (button) =>
+          !chatGptRegularPrimaryShortcutIds.contains(button.id) &&
+          button.id != chatGptSystemDictationShortcutId,
+    ),
+  ]);
+}
+
+/// Builds twelve-cell pages for the regular phone editor and phone preview.
+List<List<RemoteShortcutButton?>> regularPhoneShortcutPages(
+  RemoteShortcutLayout? layout,
+) {
+  const pageCapacity = regularShortcutCount;
+  final buttons = regularPhoneShortcutButtons(layout);
+  final pageCount = buttons.isEmpty
+      ? 1
+      : (buttons.length + pageCapacity - 1) ~/ pageCapacity;
+  return List.unmodifiable([
+    for (var page = 0; page < pageCount; page++)
+      List<RemoteShortcutButton?>.unmodifiable([
+        for (var slot = 0; slot < pageCapacity; slot++)
+          page * pageCapacity + slot < buttons.length
+              ? buttons[page * pageCapacity + slot]
+              : null,
+      ]),
+  ]);
+}
+
 bool isInstalledApplicationId(String id) =>
     RegExp(r'^installed\.[a-f0-9]{32}$').hasMatch(id);
 

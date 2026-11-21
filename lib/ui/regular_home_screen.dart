@@ -36,7 +36,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
   static const _launchpad = 'launchpad';
   static const _general = 'general';
   static const _libraryPrefix = 'library-profile:';
-  static const _pageSize = 12;
+  static const _pageSize = regularShortcutCount;
 
   final _dictation = GlobalKey<LocalDictationEntryButtonState>();
   String _selection = _launchpad;
@@ -671,7 +671,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
             chatGptPageSize: _pageSize,
           );
     final launcher = _selection == _launchpad;
-    final buttons = _buttonsForGrid(layout);
+    final buttons = regularPhoneShortcutButtons(layout);
     final count = launcher ? launcherSlotCount : buttons.length;
     final pageCount = math.max(1, (count / _pageSize).ceil());
     if (_page >= pageCount) _page = 0;
@@ -1520,25 +1520,6 @@ class _TwelveKeyGrid extends StatelessWidget {
       );
     },
   );
-}
-
-List<RemoteShortcutButton?> _buttonsForGrid(RemoteShortcutLayout? layout) {
-  final buttons = layout?.buttons ?? const <RemoteShortcutButton>[];
-  if (layout?.id != 'chatgpt') return buttons;
-  final byId = {for (final button in buttons) button.id: button};
-  // Older synced boards may omit new actions. Leave their cells empty so the
-  // two voice controls and the start of the secondary page keep their slots.
-  return [
-    for (final id in chatGptRegularPrimaryShortcutIds)
-      id == chatGptLocalDictationShortcutId
-          ? byId[chatGptSystemDictationShortcutId] ?? byId[id]
-          : byId[id],
-    ...buttons.where(
-      (button) =>
-          !chatGptRegularPrimaryShortcutIds.contains(button.id) &&
-          button.id != chatGptSystemDictationShortcutId,
-    ),
-  ];
 }
 
 bool _voiceShortcutNeedsSetup(RemoteShortcutButton button) =>

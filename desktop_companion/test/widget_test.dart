@@ -698,4 +698,72 @@ void main() {
     ]);
     expect(store.saveCount, greaterThan(1));
   });
+
+  testWidgets('shortcut layout editor previews ChatGPT phone pages', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final controller = DesktopController(
+      store: MemoryDesktopConfigStore(),
+      discovery: _NoopDiscovery(),
+    );
+    await controller.initialize();
+    await tester.pumpWidget(
+      CompanionApp(controller: controller, startServer: false),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.dashboard_customize_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('layout-selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('ChatGPT').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('desktop-phone-shortcut-grid')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('desktop-phone-slot-11')), findsOneWidget);
+    expect(find.bySemanticsLabel('Phone slot 1: New Chat'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('desktop-phone-slot-2')),
+        matching: find.text('Copy'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Page 1 of '), findsOneWidget);
+    expect(
+      find.textContaining('App Bar controls which applications appear'),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(
+        const ValueKey('desktop-button-$chatGptNativeVoiceShortcutId'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Set this same chord in ChatGPT'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('desktop-layout-page-next')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Page 2 of '), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('desktop-phone-slot-0')),
+        matching: find.text('Review'),
+      ),
+      findsOneWidget,
+    );
+  });
 }

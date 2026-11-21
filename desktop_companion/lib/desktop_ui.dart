@@ -599,6 +599,7 @@ class _ShortcutLayoutsPage extends StatefulWidget {
 class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
   static const transfer = DesktopShortcutTransferService();
   String? selectedLayoutId;
+  int phonePage = 0;
   bool transferring = false;
 
   @override
@@ -612,6 +613,10 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
         ) ??
         layouts.first;
     selectedLayoutId = selected.id;
+    final phonePages = regularPhoneShortcutPages(selected);
+    final displayedPhonePage = phonePage
+        .clamp(0, phonePages.length - 1)
+        .toInt();
     return Padding(
       padding: const EdgeInsets.all(28),
       child: Column(
@@ -643,8 +648,10 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
                         ),
                       )
                       .toList(growable: false),
-                  onChanged: (value) =>
-                      setState(() => selectedLayoutId = value),
+                  onChanged: (value) => setState(() {
+                    selectedLayoutId = value;
+                    phonePage = 0;
+                  }),
                 ),
               ),
               const SizedBox(width: 16),
@@ -678,74 +685,135 @@ class _ShortcutLayoutsPageState extends State<_ShortcutLayoutsPage> {
             ],
           ),
           const SizedBox(height: 20),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 600 ? 4 : 2;
-                return GridView.builder(
-                  itemCount: selected.buttons.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    mainAxisExtent:
-                        120 + MediaQuery.textScalerOf(context).scale(32),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  desktopText(
+                    context,
+                    'Phone shortcut keys · 12 positions per page. App Bar controls which applications appear and their order.',
+                    '手机快捷键页 · 每页 12 个位置。应用栏管理显示哪些应用以及它们的顺序。',
                   ),
-                  itemBuilder: (context, index) {
-                    final button = selected.buttons[index];
-                    return Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        key: ValueKey('desktop-button-${button.id}'),
-                        onTap: button.targetType == RemoteTargetType.system
-                            ? null
-                            : () => _editButton(context, selected, button),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(desktopIcon(button.icon)),
-                                  const Spacer(),
-                                  if (button.targetType !=
-                                      RemoteTargetType.system)
-                                    const Icon(Icons.edit_outlined, size: 18),
-                                ],
-                              ),
-                              const Spacer(),
-                              Text(
-                                button.id == generalCloseAppShortcutId &&
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('desktop-layout-page-previous'),
+                tooltip: desktopText(context, 'Previous page', '上一页'),
+                onPressed: displayedPhonePage > 0
+                    ? () => setState(() => phonePage = displayedPhonePage - 1)
+                    : null,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Text(
+                desktopText(
+                  context,
+                  'Page ${displayedPhonePage + 1} of ${phonePages.length}',
+                  '第 ${displayedPhonePage + 1} 页，共 ${phonePages.length} 页',
+                ),
+                key: const ValueKey('desktop-layout-page-indicator'),
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+              IconButton(
+                key: const ValueKey('desktop-layout-page-next'),
+                tooltip: desktopText(context, 'Next page', '下一页'),
+                onPressed: displayedPhonePage + 1 < phonePages.length
+                    ? () => setState(() => phonePage = displayedPhonePage + 1)
+                    : null,
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          Expanded(
+            child: GridView.builder(
+              key: const ValueKey('desktop-phone-shortcut-grid'),
+              itemCount: regularShortcutCount,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                mainAxisExtent:
+                    108 + MediaQuery.textScalerOf(context).scale(20),
+              ),
+              itemBuilder: (context, index) {
+                final button = phonePages[displayedPhonePage][index];
+                final slotLabel = button == null
+                    ? desktopText(context, 'Empty phone slot', '手机空位置')
+                    : desktopText(
+                        context,
+                        'Phone slot ${index + 1}: ${button.name}',
+                        '手机位置 ${index + 1}：${button.name}',
+                      );
+                final slot = Semantics(
+                  key: ValueKey('desktop-phone-slot-$index'),
+                  container: true,
+                  button:
+                      button != null &&
+                      button.targetType != RemoteTargetType.system,
+                  label: slotLabel,
+                  child: Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      key: button == null
+                          ? ValueKey('desktop-empty-slot-$index')
+                          : ValueKey('desktop-button-${button.id}'),
+                      onTap:
+                          button == null ||
+                              button.targetType == RemoteTargetType.system
+                          ? null
+                          : () => _editButton(context, selected, button),
+                      child: Padding(
+                        padding: const EdgeInsets.all(9),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  button == null
+                                      ? Icons.add_circle_outline
+                                      : desktopIcon(button.icon),
+                                  size: 18,
+                                ),
+                                const Spacer(),
+                                if (button != null &&
+                                    button.targetType !=
+                                        RemoteTargetType.system)
+                                  const Icon(Icons.edit_outlined, size: 16),
+                              ],
+                            ),
+                            const Spacer(),
+                            Text(
+                              button == null
+                                  ? desktopText(context, 'Empty', '空位')
+                                  : button.id == generalCloseAppShortcutId &&
                                         button.name == 'Close App'
-                                    ? desktopText(context, 'Close App', '关闭软件')
-                                    : button.name,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 3),
+                                  ? desktopText(context, 'Close App', '关闭软件')
+                                  : button.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            if (button != null) ...[
+                              const SizedBox(height: 2),
                               Text(
                                 _buttonSummary(context, button),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
-                              if (!button.enabled &&
-                                  button.description.isNotEmpty)
-                                Text(
-                                  button.description,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
                             ],
-                          ),
+                          ],
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  ),
                 );
+                return button != null &&
+                        !button.enabled &&
+                        button.description.isNotEmpty
+                    ? Tooltip(message: button.description, child: slot)
+                    : slot;
               },
             ),
           ),
@@ -1839,6 +1907,22 @@ class _RemoteButtonEditorState extends State<_RemoteButtonEditor> {
                     context,
                     'Reserved for a future LumiaKey release',
                     '将在未来的 LumiaKey 版本中提供',
+                  ),
+                ),
+              ),
+            if (widget.button.id == chatGptNativeVoiceShortcutId &&
+                type == RemoteTargetType.keyboardShortcut)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    desktopText(
+                      context,
+                      'Set this same chord in ChatGPT → Settings → Voice → Voice chat hotkey, then save it here.',
+                      '在 ChatGPT → 设置 → 语音 → 语音聊天快捷键中设置相同组合键，然后在此保存。',
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
               ),
