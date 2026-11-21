@@ -1158,6 +1158,24 @@ class AppController extends ChangeNotifier {
     chatGptPageSize: chatGptPageSize,
   );
 
+  /// General keypad projected for the currently connected Desktop host.
+  RemoteShortcutLayout? get generalShortcutLayout {
+    final layout = desktopManifest?.layoutById('keyboard');
+    if (layout == null) return null;
+    final platform = _remoteShortcutPlatform(companion.activeHost.value);
+    return projectLegacyGeneralEscapeForPhone(
+      projectGeneralLayout(layout, platform),
+      platform,
+    );
+  }
+
+  RemoteShortcutPlatform _remoteShortcutPlatform(CompanionHost? host) =>
+      switch (host?.platform.toLowerCase()) {
+        'macos' => RemoteShortcutPlatform.apple,
+        'windows' => RemoteShortcutPlatform.windows,
+        _ => RemoteShortcutPlatform.other,
+      };
+
   RemoteShortcutLayout? _layoutForActiveDesktop(
     RemoteShortcutLayout? layout, {
     int chatGptPageSize = chatGptShortcutsPerPage,
@@ -1441,6 +1459,18 @@ class AppController extends ChangeNotifier {
     if (_computerSwitchPendingId != null || _desktopDisconnectPending) return;
     _recordShortcutUsage('desktop:button:${button.id}', button.name);
     try {
+      if (isProjectedLegacyGeneralClose(button)) {
+        final legacyCloseKeys = _legacyGeneralCloseKeys(button);
+        if (legacyCloseKeys == null) {
+          throw StateError(
+            'The Desktop connection changed. Refresh General and try again.',
+          );
+        }
+        await companion.execute(
+          jsonEncode({'kind': 'shortcut', 'keys': legacyCloseKeys}),
+        );
+        return;
+      }
       final id =
           confirmedApproval && chatGptApprovalShortcutIds.contains(button.id)
           ? confirmedChatGptApprovalShortcutId(button.id)
@@ -1450,6 +1480,29 @@ class AppController extends ChangeNotifier {
       _report(DiagnosticCode.shortcutDeliveryFailed);
       rethrow;
     }
+  }
+
+  List<String>? _legacyGeneralCloseKeys(RemoteShortcutButton button) {
+    if (!isProjectedLegacyGeneralClose(button)) return null;
+    final host = companion.activeHost.value;
+    final manifest = desktopManifest;
+    final platform = _remoteShortcutPlatform(host);
+    if (host == null || manifest == null || !isDesktopSynced) return null;
+    final layout = manifest.layoutById('keyboard');
+    if (layout == null ||
+        layout.buttons.any((item) => item.id == generalCloseAppShortcutId)) {
+      return null;
+    }
+    final rawEscape = layout.buttons
+        .where((item) => item.id == 'keyboard.escape')
+        .firstOrNull;
+    if (rawEscape == null || !isStockLegacyGeneralEscape(rawEscape)) {
+      return null;
+    }
+    if (platform == RemoteShortcutPlatform.other) return null;
+    final chord = generalCloseAppChord(platform);
+    if (!button.enabled || !listEquals(button.shortcut, chord)) return null;
+    return chord;
   }
 
   Future<void> executeVibeCodingButton(

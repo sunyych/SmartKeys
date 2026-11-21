@@ -3,6 +3,7 @@ part of '../lumiakeys_protocol.dart';
 const int regularShortcutCount = 12;
 const generalCloseAppShortcutId = 'keyboard.closeApp';
 const _closeAppDefault = 'CLOSE_APP';
+const _legacyGeneralCloseTarget = 'lumiakeyLegacyGeneralCloseApp';
 const _generalCloseAppShortcut = RemoteShortcutButton(
   id: generalCloseAppShortcutId,
   name: 'Close App',
@@ -11,6 +12,61 @@ const _generalCloseAppShortcut = RemoteShortcutButton(
   shortcut: [_closeAppDefault],
   description: 'Close the active application.',
 );
+
+List<String> generalCloseAppChord(RemoteShortcutPlatform platform) =>
+    platform == RemoteShortcutPlatform.apple
+        ? const ['COMMAND', 'Q']
+        : const ['ALT', 'F4'];
+
+/// Identifies the unedited Escape button shipped by legacy General layouts.
+bool isStockLegacyGeneralEscape(RemoteShortcutButton button) =>
+    button.id == 'keyboard.escape' &&
+    button.name == 'Escape' &&
+    button.icon == 'close' &&
+    button.targetType == RemoteTargetType.keyboardShortcut &&
+    button.target == null &&
+    button.shortcut.length == 1 &&
+    button.shortcut.single == 'ESC' &&
+    button.description == 'ESC' &&
+    button.enabled;
+
+/// Identifies only the phone-only Close projection of a legacy Escape button.
+bool isProjectedLegacyGeneralClose(RemoteShortcutButton button) =>
+    button.id == 'keyboard.escape' &&
+    button.name == 'Close App' &&
+    button.icon == 'close' &&
+    button.targetType == RemoteTargetType.keyboardShortcut &&
+    button.target == _legacyGeneralCloseTarget &&
+    button.description == 'Close the active application.' &&
+    button.enabled;
+
+/// Gives legacy phone clients the Close App presentation while retaining the
+/// raw button ID so the old host's allowlisted shortcut action can execute it.
+RemoteShortcutLayout projectLegacyGeneralEscapeForPhone(
+  RemoteShortcutLayout layout,
+  RemoteShortcutPlatform platform,
+) {
+  if (layout.id != 'keyboard' ||
+      platform == RemoteShortcutPlatform.other ||
+      layout.buttons.any((button) => button.id == generalCloseAppShortcutId)) {
+    return layout;
+  }
+  final chord = generalCloseAppChord(platform);
+  return layout.copyWith(
+    buttons: [
+      for (final button in layout.buttons)
+        if (isStockLegacyGeneralEscape(button))
+          button.copyWith(
+            name: 'Close App',
+            shortcut: chord,
+            target: _legacyGeneralCloseTarget,
+            description: 'Close the active application.',
+          )
+        else
+          button,
+    ],
+  );
+}
 
 /// Resolves the portable General default before displaying or sending it.
 RemoteShortcutLayout projectGeneralLayout(
@@ -25,9 +81,7 @@ RemoteShortcutLayout projectGeneralLayout(
             button.targetType == RemoteTargetType.keyboardShortcut &&
             _sameShortcut(button.shortcut, const [_closeAppDefault]))
           button.copyWith(
-            shortcut: platform == RemoteShortcutPlatform.apple
-                ? const ['COMMAND', 'Q']
-                : const ['ALT', 'F4'],
+            shortcut: generalCloseAppChord(platform),
           )
         else
           button,
@@ -44,15 +98,7 @@ RemoteShortcutLayout migrateLegacyGeneralEscape(RemoteShortcutLayout layout) {
   return layout.copyWith(
     buttons: [
       for (final button in layout.buttons)
-        if (button.id == 'keyboard.escape' &&
-            button.name == 'Escape' &&
-            button.icon == 'close' &&
-            button.targetType == RemoteTargetType.keyboardShortcut &&
-            button.target == null &&
-            button.shortcut.length == 1 &&
-            button.shortcut.single == 'ESC' &&
-            button.description == 'ESC' &&
-            button.enabled)
+        if (isStockLegacyGeneralEscape(button))
           _generalCloseAppShortcut
         else
           button,

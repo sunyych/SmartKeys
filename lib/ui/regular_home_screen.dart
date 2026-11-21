@@ -593,11 +593,7 @@ class _RegularHomeScreenState extends State<RegularHomeScreen> {
     final layout = libraryProfile != null
         ? manifest?.layoutById(libraryProfile.layoutId)
         : _selection == _general
-        ? manifest?.layoutById('keyboard') ??
-              manifest?.layouts.cast<RemoteShortcutLayout?>().firstWhere(
-                (layout) => layout?.kind == RemoteLayoutKind.keyboard,
-                orElse: () => null,
-              )
+        ? controller.generalShortcutLayout
         : application == null
         ? null
         : controller.layoutForApplication(
@@ -1307,8 +1303,9 @@ class _TwelveKeyGrid extends StatelessWidget {
                   ? context.mobileText('Dictation', '听写')
                   : button == null
                   ? ''
-                  : button.id == generalCloseAppShortcutId &&
-                        button.name == 'Close App'
+                  : ((button.id == generalCloseAppShortcutId &&
+                            button.name == 'Close App') ||
+                        isProjectedLegacyGeneralClose(button))
                   ? context.mobileText('Close App', '关闭软件')
                   : button.id == chatGptNativeVoiceShortcutId &&
                         button.name == 'Voice Mode'

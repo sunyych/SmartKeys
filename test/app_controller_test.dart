@@ -11,6 +11,48 @@ import 'package:smart_keys/services/companion_service.dart';
 
 import 'test_support.dart';
 
+DesktopManifest _manifestWithLegacyGeneralEscape({
+  bool custom = false,
+  String? escapeName,
+}) {
+  final manifest = DesktopManifest.starter();
+  final keyboard = manifest.layoutById('keyboard')!;
+  final legacyEscape = RemoteShortcutButton(
+    id: 'keyboard.escape',
+    name: escapeName ?? (custom ? 'My Escape' : 'Escape'),
+    icon: 'close',
+    targetType: RemoteTargetType.keyboardShortcut,
+    shortcut: const ['ESC'],
+    description: 'ESC',
+  );
+  final updatedKeyboard = keyboard.copyWith(
+    buttons: [
+      ...keyboard.buttons.where(
+        (button) =>
+            button.id != 'keyboard.escape' &&
+            button.id != generalCloseAppShortcutId,
+      ),
+      legacyEscape,
+    ],
+  );
+  return manifest.copyWith(
+    layouts: [
+      for (final layout in manifest.layouts)
+        if (layout.id == 'keyboard') updatedKeyboard else layout,
+    ],
+  );
+}
+
+CompanionHost _companionHostFor(String platform) => CompanionHost(
+  name: connectedCompanionHost.name,
+  platform: platform,
+  address: connectedCompanionHost.address,
+  port: connectedCompanionHost.port,
+  token: connectedCompanionHost.token,
+  protocolVersion: connectedCompanionHost.protocolVersion,
+  capabilities: connectedCompanionHost.capabilities,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -494,6 +536,124 @@ void main() {
       expect(harness.shortcutUsage.records, hasLength(2));
     },
   );
+
+  for (final (platform, keys, expected) in [
+    (
+      'macos',
+      const ['COMMAND', 'Q'],
+      '{"kind":"shortcut","keys":["COMMAND","Q"]}',
+    ),
+    (
+      'windows',
+      const ['ALT', 'F4'],
+      '{"kind":"shortcut","keys":["ALT","F4"]}',
+    ),
+  ]) {
+    test('legacy General Escape closes safely on $platform', () async {
+      final harness = await TestHarness.create();
+      addTearDown(harness.dispose);
+      harness.companion.syncedManifest.value =
+          _manifestWithLegacyGeneralEscape();
+      harness.companion.host.value = _companionHostFor(platform);
+      harness.companion.status.value = CompanionSyncStatus.ready;
+
+      final close = harness.controller.generalShortcutLayout!.buttons
+          .singleWhere((button) => button.id == 'keyboard.escape');
+      expect(close.name, 'Close App');
+      expect(close.shortcut, keys);
+      await harness.controller.executeRemoteButton(close);
+
+      expect(harness.companion.commands, [expected]);
+      expect(harness.companion.remoteActions, isEmpty);
+    });
+  }
+
+  test('custom legacy Escape stays a native Escape action', () async {
+    final harness = await TestHarness.create();
+    addTearDown(harness.dispose);
+    harness.companion.syncedManifest.value =
+        _manifestWithLegacyGeneralEscape(custom: true);
+    harness.companion.host.value = connectedCompanionHost;
+    harness.companion.status.value = CompanionSyncStatus.ready;
+
+    final escape = harness.controller.generalShortcutLayout!.buttons
+        .singleWhere((button) => button.id == 'keyboard.escape');
+    expect(escape.name, 'My Escape');
+    await harness.controller.executeRemoteButton(escape);
+
+    expect(harness.companion.commands, isEmpty);
+    expect(harness.companion.remoteActions.single.buttonId, 'keyboard.escape');
+  });
+
+  test('custom Escape named Close App is not treated as the projection', () async {
+    final harness = await TestHarness.create();
+    addTearDown(harness.dispose);
+    harness.companion.syncedManifest.value = _manifestWithLegacyGeneralEscape(
+      escapeName: 'Close App',
+    );
+    harness.companion.host.value = connectedCompanionHost;
+    harness.companion.status.value = CompanionSyncStatus.ready;
+
+    final escape = harness.controller.generalShortcutLayout!.buttons
+        .singleWhere((button) => button.id == 'keyboard.escape');
+    expect(escape.target, isNull);
+    await harness.controller.executeRemoteButton(escape);
+
+    expect(harness.companion.commands, isEmpty);
+    expect(harness.companion.remoteActions.single.buttonId, 'keyboard.escape');
+  });
+
+  for (final (platform, keys) in [
+    ('macos', const ['COMMAND', 'Q']),
+    ('windows', const ['ALT', 'F4']),
+  ]) {
+    test('native General Close App stays a Desktop action on $platform', () async {
+      final harness = await TestHarness.create();
+      addTearDown(harness.dispose);
+      final manifest = DesktopManifest.starter();
+      final keyboard = compactDesktopLayout(manifest.layoutById('keyboard')!);
+      harness.companion.syncedManifest.value = manifest.copyWith(
+        layouts: [
+          for (final layout in manifest.layouts)
+            if (layout.id == 'keyboard') keyboard else layout,
+        ],
+      );
+      harness.companion.host.value = _companionHostFor(platform);
+      harness.companion.status.value = CompanionSyncStatus.ready;
+
+      final close = harness.controller.generalShortcutLayout!.buttons
+          .singleWhere((button) => button.id == generalCloseAppShortcutId);
+      expect(close.shortcut, keys);
+      await harness.controller.executeRemoteButton(close);
+
+      expect(harness.companion.commands, isEmpty);
+      expect(
+        harness.companion.remoteActions.single.buttonId,
+        generalCloseAppShortcutId,
+      );
+    });
+  }
+
+  test('stale legacy Close projection cannot fall through to Escape', () async {
+    final harness = await TestHarness.create();
+    addTearDown(harness.dispose);
+    harness.companion.syncedManifest.value =
+        _manifestWithLegacyGeneralEscape();
+    harness.companion.host.value = connectedCompanionHost;
+    harness.companion.status.value = CompanionSyncStatus.ready;
+    final staleClose = harness.controller.generalShortcutLayout!.buttons
+        .singleWhere((button) => button.name == 'Close App');
+    harness.companion.syncedManifest.value =
+        _manifestWithLegacyGeneralEscape(custom: true);
+
+    await expectLater(
+      harness.controller.executeRemoteButton(staleClose),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(harness.companion.commands, isEmpty);
+    expect(harness.companion.remoteActions, isEmpty);
+  });
 
   test('ChatGPT row resolves a legacy Codex-only Desktop manifest', () async {
     final harness = await TestHarness.create();
