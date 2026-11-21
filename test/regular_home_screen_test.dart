@@ -18,6 +18,7 @@ Future<TestHarness> mountRegular(
   WidgetTester tester, {
   RecordingCompanionService? companion,
   DesktopManifest? manifest,
+  CompanionHost? host,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(844, 390);
@@ -25,6 +26,7 @@ Future<TestHarness> mountRegular(
     companionService: companion ?? ActivatingRegularCompanion(),
   );
   connectRegularHarness(harness, manifest: manifest);
+  if (host != null) harness.companion.host.value = host;
   await tester.pumpWidget(regularTestApp(harness));
   await tester.pumpAndSettle();
   addTearDown(() async {
@@ -375,6 +377,125 @@ void main() {
       expect(harness.companion.remoteActions.single.applicationId, 'chatgpt');
     },
   );
+
+  testWidgets('Mac Dictate runs the advertised system action in cell 12', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final base = DesktopManifest.regularStarter();
+    final chatGpt = base.layoutById('chatgpt')!;
+    final modernLayout = chatGpt.copyWith(
+      buttons: [
+        for (final button in chatGpt.buttons)
+          if (button.id == chatGptLocalDictationShortcutId)
+            const RemoteShortcutButton(
+              id: chatGptSystemDictationShortcutId,
+              name: 'Dictate',
+              icon: 'mic_external_on',
+              targetType: RemoteTargetType.system,
+              target: chatGptSystemDictationTarget,
+              description: 'Start macOS Dictation using your system settings.',
+            )
+          else
+            button,
+      ],
+    );
+    final manifest = base.copyWith(
+      layouts: [
+        for (final layout in base.layouts)
+          if (layout.id == 'chatgpt') modernLayout else layout,
+      ],
+    );
+    final macHost = CompanionHost(
+      name: 'Studio Mac',
+      computerId: 'regular-test-mac',
+      platform: 'macos',
+      address: regularTestHost.address,
+      port: regularTestHost.port,
+      token: 'regular-test-mac',
+      protocolVersion: 2,
+      capabilities: {
+        ...regularTestHost.capabilities,
+        'chatgpt-platform-layout-v1',
+        chatGptSystemDictationCapability,
+      },
+    );
+    final harness = await mountRegular(
+      tester,
+      manifest: manifest,
+      host: macHost,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+    await tester.pumpAndSettle();
+
+    final dictateKey = ValueKey(
+      'regular-button-$chatGptSystemDictationShortcutId',
+    );
+    final dictate = find.descendant(
+      of: find.byKey(const ValueKey('regular-cell-11')),
+      matching: find.byKey(dictateKey),
+    );
+    expect(dictate, findsOneWidget);
+    expect(find.byKey(dictateKey), findsOneWidget);
+    expect(
+      find.descendant(of: dictate, matching: find.text('Dictate')),
+      findsOneWidget,
+    );
+    await tester.tap(dictate);
+    await tester.pumpAndSettle();
+    expect(
+      harness.companion.remoteActions.last.buttonId,
+      chatGptSystemDictationShortcutId,
+    );
+  });
+
+  testWidgets('Mac without Dictate capability shows an update action', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final oldMacHost = CompanionHost(
+      name: 'Older Studio Mac',
+      computerId: 'regular-test-old-mac',
+      platform: 'macos',
+      address: regularTestHost.address,
+      port: regularTestHost.port,
+      token: 'regular-test-old-mac',
+      protocolVersion: 2,
+      capabilities: {
+        ...regularTestHost.capabilities,
+        'chatgpt-platform-layout-v1',
+      },
+    );
+    final harness = await mountRegular(tester, host: oldMacHost);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('regular-nav-chatgpt')));
+    await tester.pumpAndSettle();
+
+    final dictate = find.descendant(
+      of: find.byKey(const ValueKey('regular-cell-11')),
+      matching: find.byKey(
+        const ValueKey('regular-button-$chatGptSystemDictationShortcutId'),
+      ),
+    );
+    expect(dictate, findsOneWidget);
+    expect(
+      find.descendant(of: dictate, matching: find.text('Dictate')),
+      findsOneWidget,
+    );
+    await tester.tap(dictate);
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Update LumiaKey Desktop to use macOS Dictation from your phone.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      harness.companion.remoteActions.map((action) => action.buttonId),
+      isNot(contains(chatGptSystemDictationShortcutId)),
+    );
+  });
 
   testWidgets(
     'approval keys require explicit confirmation and Send stays direct',
