@@ -198,6 +198,66 @@ void main() {
       expect(companion.computerChoices.value, hasLength(2));
     },
   );
+
+  test(
+    'unrelated discovery does not change the unpinned active choice',
+    () async {
+      const tokenA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const tokenB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+      final serverA = await _IdentityServer.start(
+        token: tokenA,
+        id: 'computer-a',
+        name: 'StevenMacMate',
+      );
+      final sender = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final companion = LanCompanionService(discoveryPort: 0);
+      addTearDown(() async {
+        companion.dispose();
+        sender.close();
+        await serverA.close();
+      });
+      await companion.start();
+      final discoveryPort = companion.boundDiscoveryPort!;
+
+      await _waitUntil(
+        () =>
+            companion.activeHost.value?.computerId == 'computer-a' &&
+            companion.syncStatus.value == CompanionSyncStatus.ready,
+        advertise: () => _advertise(
+          sender,
+          discoveryPort: discoveryPort,
+          platform: 'macos',
+          name: 'StevenMacMate',
+          port: serverA.port,
+          token: tokenA,
+        ),
+      );
+      expect(companion.selectedComputerChoiceId, 'id:computer-a');
+
+      await _observeAdvertisement(
+        companion,
+        () => _advertise(
+          sender,
+          discoveryPort: discoveryPort,
+          platform: 'windows',
+          name: '15mbp.local',
+          port: 41002,
+          token: tokenB,
+          computerId: 'computer-b',
+        ),
+      );
+
+      expect(
+        companion.computerChoices.value.map((choice) => choice.name),
+        contains('15mbp.local'),
+      );
+      expect(companion.activeHost.value?.name, 'StevenMacMate');
+      expect(companion.selectedComputerChoiceId, 'id:computer-a');
+    },
+  );
 }
 
 Future<void> _observeAdvertisement(

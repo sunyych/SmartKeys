@@ -911,7 +911,6 @@ class LanCompanionService
       _publishComputerChoices();
       if (_selectionSuspended) return;
       if (_selectionPinned && _selectedComputerChoiceId != choiceId) return;
-      if (!_selectionPinned) _selectedComputerChoiceId = choiceId;
       final matchesCurrent =
           previous != null &&
           ((host.computerId != null &&
@@ -921,6 +920,7 @@ class LanCompanionService
                   previous.token == token));
       if (_manualConnectionSelected && !matchesCurrent) return;
       if (previous != null && !matchesCurrent) return;
+      if (!_selectionPinned) _selectedComputerChoiceId = choiceId;
       final sameEndpoint =
           previous != null &&
           previous.address == address &&
